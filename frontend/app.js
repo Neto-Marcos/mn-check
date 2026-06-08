@@ -276,6 +276,15 @@ function App() {
 
 function Overview({ data }) {
   const metrics = data.metrics || {};
+  const conferenceProgress = (data.maps || [])
+    .filter((map) => ["aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status))
+    .slice(0, 5)
+    .map((map) => {
+      const checked = map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
+      const total = map.items.reduce((sum, item) => sum + item.quantity, 0);
+      return { id: map.id, checked, total, percent: total ? Math.round((checked / total) * 100) : 0 };
+    });
+
   return h(React.Fragment, null,
     h("div", { className: "metric-grid" },
       metric("Mapas em separação", metrics.separating || 0),
@@ -296,13 +305,20 @@ function Overview({ data }) {
         )
       ),
       h("article", { className: "panel" },
-        h("div", { className: "panel-header" }, h("h3", null, "Desempenho"), h("span", null, "últimos dias")),
-        h("div", { className: "bars" }, [88, 93, 91, 96, 94].map((value, index) =>
-          h("div", { key: index },
-            h("div", { className: "bar-label" }, h("span", null, ["Seg", "Ter", "Qua", "Qui", "Sex"][index]), h("strong", null, `${value}%`)),
-            h("div", { className: "bar-track" }, h("div", { className: "bar-fill", style: { width: `${value}%` } }))
+        h("div", { className: "panel-header" }, h("h3", null, "Progresso das conferências"), h("span", null, "dados reais")),
+        conferenceProgress.length
+          ? h("div", { className: "bars" }, conferenceProgress.map((entry) =>
+          h("div", { key: entry.id },
+            h("div", { className: "bar-label" },
+              h("span", null, `Mapa ${entry.id}`),
+              h("strong", null, `${entry.checked}/${entry.total} - ${entry.percent}%`)
+            ),
+            h("div", { className: "bar-track" },
+              h("div", { className: "bar-fill", style: { width: `${entry.percent}%` } })
+            )
           )
         ))
+          : empty("Nenhuma conferência em andamento.")
       )
     )
   );
