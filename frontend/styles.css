@@ -248,6 +248,92 @@ select {
   font-size: 0.86rem;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  padding: 20px;
+  display: grid;
+  place-items: center;
+  background: rgba(33, 25, 27, 0.58);
+  animation: fadeIn 180ms ease both;
+}
+
+.new-map-dialog {
+  width: min(520px, 100%);
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  animation: panelIn 220ms ease both;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dialog-head h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.dialog-close {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  background: var(--red-50);
+  color: var(--red-800);
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.map-source-grid {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.map-source-option {
+  min-height: 124px;
+  padding: 18px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--red-50);
+  color: var(--ink);
+  text-align: left;
+}
+
+.map-source-option:hover {
+  border-color: var(--red-600);
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(91, 16, 24, 0.12);
+}
+
+.map-source-option strong {
+  color: var(--red-800);
+  font-size: 1.05rem;
+}
+
+.map-source-option span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.dialog-cancel {
+  width: 100%;
+  margin-top: 14px;
+}
+
 .dashboard-view {
   min-height: 100vh;
   display: grid;
@@ -837,6 +923,10 @@ th + th {
 
   .scanner-heading {
     align-items: flex-start;
+  }
+
+  .map-source-grid {
+    grid-template-columns: 1fr;
   }
 
   .metric-grid,

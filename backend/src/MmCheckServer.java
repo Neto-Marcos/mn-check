@@ -119,17 +119,6 @@ public class MmCheckServer {
       return;
     }
 
-    if ("POST".equals(method) && "/api/maps".equals(path)) {
-      requireAdmin(user);
-      String next = String.valueOf(db.maps.stream().mapToInt(item -> Integer.parseInt(item.id)).max().orElse(15727) + 1);
-      CargoMap map = CargoMap.sample(next, user.id);
-      db.maps.add(0, map);
-      db.audit(user, "create_map", "Mapa " + next + " criado");
-      db.save(DB_PATH);
-      json(exchange, 201, visibleData(user));
-      return;
-    }
-
     if ("POST".equals(method) && "/api/maps/upload".equals(path)) {
       requireAdmin(user);
       Map<String, Object> body = readJson(exchange);

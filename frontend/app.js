@@ -22,9 +22,11 @@ function App() {
   const [data, setData] = React.useState(emptyData());
   const [view, setView] = React.useState("overview");
   const [toast, setToast] = React.useState("");
+  const [mapImportOpen, setMapImportOpen] = React.useState(false);
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
-  const uploadInputRef = React.useRef(null);
+  const mapPdfInputRef = React.useRef(null);
+  const mapCameraInputRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!token) return;
@@ -94,15 +96,6 @@ function App() {
     }
   }
 
-  async function createMap() {
-    try {
-      await request("/api/maps", { method: "POST" });
-      await refresh("Mapa criado a partir do modelo de carga.", "separation");
-    } catch (error) {
-      notify(error.message);
-    }
-  }
-
   async function uploadMapFile(event) {
     const file = event.target.files && event.target.files[0];
     event.target.value = "";
@@ -128,6 +121,7 @@ function App() {
           dataUrl,
         },
       });
+      setMapImportOpen(false);
       await refresh("Mapa criado a partir do arquivo enviado.", "separation");
     } catch (error) {
       notify(error.message);
@@ -262,13 +256,23 @@ function App() {
         h("div", { className: "topbar-actions" },
           user.role === "admin" && h("input", {
             className: "hidden",
-            ref: uploadInputRef,
+            ref: mapPdfInputRef,
             type: "file",
-            accept: ".pdf,image/png,image/jpeg",
+            accept: "application/pdf,.pdf",
             onChange: uploadMapFile
           }),
-          user.role === "admin" && h("button", { className: "secondary-action", onClick: () => uploadInputRef.current?.click() }, "Subir mapa"),
-          user.role === "admin" && h("button", { className: "primary-action compact", onClick: createMap }, "Novo manual")
+          user.role === "admin" && h("input", {
+            className: "hidden",
+            ref: mapCameraInputRef,
+            type: "file",
+            accept: "image/*",
+            capture: "environment",
+            onChange: uploadMapFile
+          }),
+          user.role === "admin" && h("button", {
+            className: "primary-action compact",
+            onClick: () => setMapImportOpen(true)
+          }, "Novo mapa")
         )
       ),
       view === "overview" && h(Overview, { data }),
@@ -284,7 +288,43 @@ function App() {
       view === "history" && h(History, { data }),
       view === "users" && h(Users, { users: data.users, newUser, setNewUser, createUser }),
     ),
+    mapImportOpen && h(NewMapDialog, {
+      onClose: () => setMapImportOpen(false),
+      onCamera: () => mapCameraInputRef.current?.click(),
+      onPdf: () => mapPdfInputRef.current?.click()
+    }),
     toast && h("div", { className: "toast" }, toast)
+  );
+}
+
+function NewMapDialog({ onClose, onCamera, onPdf }) {
+  return h("div", { className: "modal-backdrop", role: "presentation", onMouseDown: onClose },
+    h("section", {
+      className: "new-map-dialog",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": "new-map-title",
+      onMouseDown: (event) => event.stopPropagation()
+    },
+      h("div", { className: "dialog-head" },
+        h("div", null,
+          h("p", { className: "eyebrow" }, "entrada de documento"),
+          h("h3", { id: "new-map-title" }, "Como deseja inserir o novo mapa?")
+        ),
+        h("button", { className: "dialog-close", onClick: onClose, "aria-label": "Fechar" }, "×")
+      ),
+      h("div", { className: "map-source-grid" },
+        h("button", { className: "map-source-option", onClick: onCamera },
+          h("strong", null, "Câmera"),
+          h("span", null, "Fotografar o mapa agora")
+        ),
+        h("button", { className: "map-source-option", onClick: onPdf },
+          h("strong", null, "PDF"),
+          h("span", null, "Selecionar um arquivo do dispositivo")
+        )
+      ),
+      h("button", { className: "secondary-action dialog-cancel", onClick: onClose }, "Cancelar")
+    )
   );
 }
 
