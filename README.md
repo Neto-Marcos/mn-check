@@ -14,7 +14,7 @@ Admin inicial:
 
 ```text
 Usuário: Marcos
-Senha: definida em MMCHECK_ADMIN_PASSWORD (no ambiente local, 180922)
+Senha: definida de forma segura em MMCHECK_ADMIN_PASSWORD
 ```
 
 ## Como rodar

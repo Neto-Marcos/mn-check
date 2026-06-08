@@ -3,6 +3,10 @@ setlocal
 cd /d "%~dp0"
 title MM check
 
+if not defined MMCHECK_ADMIN_PASSWORD (
+  set /p "MMCHECK_ADMIN_PASSWORD=Defina a senha inicial do administrador: "
+)
+
 where java >nul 2>nul
 if errorlevel 1 (
   echo Java nao foi encontrado. Instale o Java 17 ou superior.

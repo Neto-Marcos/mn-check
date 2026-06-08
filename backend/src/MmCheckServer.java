@@ -636,9 +636,12 @@ public class MmCheckServer {
       return db;
     }
 
-    static Database seed() {
+    static Database seed() throws IOException {
       Database db = new Database();
-      String adminPassword = System.getenv().getOrDefault("MMCHECK_ADMIN_PASSWORD", "180922");
+      String adminPassword = System.getenv("MMCHECK_ADMIN_PASSWORD");
+      if (adminPassword == null || adminPassword.isBlank()) {
+        throw new IOException("Defina MMCHECK_ADMIN_PASSWORD antes de criar o primeiro banco de dados.");
+      }
       db.users.add(new User(UUID.randomUUID().toString(), "Marcos", "Marcos", "admin", "Administrador", hash(adminPassword)));
       db.maps.add(CargoMap.sample("15728", "Marcos"));
       CargoMap second = CargoMap.sample("15729", "Marcos");
