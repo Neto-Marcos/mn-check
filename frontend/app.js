@@ -96,6 +96,17 @@ function App() {
     }
   }
 
+  async function removeUser(target) {
+    if (target.username.toLowerCase() === "marcos") return;
+    if (!window.confirm(`Remover o acesso de ${target.name}?`)) return;
+    try {
+      await request(`/api/users/${encodeURIComponent(target.id)}`, { method: "DELETE" });
+      await refresh("Usuário removido com sucesso.", "users");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
   async function uploadMapFile(event) {
     const file = event.target.files && event.target.files[0];
     event.target.value = "";
@@ -286,7 +297,7 @@ function App() {
       }),
       view === "counting" && h(Counting, { counts: data.counts, onUpload: countUpload, onUpdate: updateCounts }),
       view === "history" && h(History, { data }),
-      view === "users" && h(Users, { users: data.users, newUser, setNewUser, createUser }),
+      view === "users" && h(Users, { users: data.users, newUser, setNewUser, createUser, removeUser }),
     ),
     mapImportOpen && h(NewMapDialog, {
       onClose: () => setMapImportOpen(false),
@@ -488,7 +499,7 @@ function Counting({ counts, onUpload, onUpdate }) {
   );
 }
 
-function Users({ users, newUser, setNewUser, createUser }) {
+function Users({ users, newUser, setNewUser, createUser, removeUser }) {
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Cadastrar login"), h("span", null, "admin")),
@@ -509,7 +520,18 @@ function Users({ users, newUser, setNewUser, createUser }) {
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Usuários cadastrados"), h("span", null, `${users.length} ativos`)),
       h("div", { className: "stack" }, users.map((user) =>
-        h("div", { className: "user-card", key: user.id }, h("strong", null, user.username), h("span", null, `${user.name} - ${user.label}`))
+        h("div", { className: "user-card", key: user.id },
+          h("div", { className: "user-card-info" },
+            h("strong", null, user.username),
+            h("span", null, `${user.name} - ${user.label}`)
+          ),
+          user.username.toLowerCase() === "marcos"
+            ? h("span", { className: "protected-user" }, "Administrador principal")
+            : h("button", {
+                className: "remove-user-action",
+                onClick: () => removeUser(user)
+              }, "Remover usuário")
+        )
       ))
     )
   );
@@ -536,7 +558,11 @@ function MapCard({ map, onToggle, onSend }) {
   const editable = map.status === "separacao";
   return h("article", { className: "order-card" },
     h("div", { className: "order-head" },
-      h("div", null, h("strong", null, `Mapa ${map.id}`), h("span", null, `${map.client} - rota ${map.route}`)),
+      h("div", { className: "order-title" },
+        h("strong", null, `Mapa ${map.id}`),
+        h("span", null, map.client),
+        h("small", null, `Rota ${map.route}`)
+      ),
       h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
     ),
     map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),
@@ -560,7 +586,11 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
   const allChecked = map.items.every((item) => (item.checkedQuantity || 0) >= item.quantity);
   return h("article", { className: "order-card" },
     h("div", { className: "order-head" },
-      h("div", null, h("strong", null, `Mapa ${map.id}`), h("span", null, `${map.client} - ${map.items.length} itens`)),
+      h("div", { className: "order-title" },
+        h("strong", null, `Mapa ${map.id}`),
+        h("span", null, map.client),
+        h("small", null, plural(map.items.length, "item", "itens"))
+      ),
       h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
     ),
     map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),

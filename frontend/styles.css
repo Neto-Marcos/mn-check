@@ -510,6 +510,36 @@ select {
   gap: 7px;
 }
 
+.user-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.user-card-info {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.remove-user-action {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #efb8bf;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--red-700);
+  font-weight: 800;
+}
+
+.protected-user {
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: #e9f8f1;
+  color: #12623e !important;
+  text-align: center;
+}
+
 .metric-card,
 .flow-card,
 .list-item,
@@ -591,6 +621,35 @@ select {
 
 .order-card {
   padding: 14px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.order-head {
+  min-width: 0;
+}
+
+.order-title {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.order-title strong,
+.order-title span,
+.order-title small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.order-title span {
+  line-height: 1.35;
+}
+
+.order-title small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .attachment-line {
@@ -918,6 +977,41 @@ th + th {
   .form-row button,
   .form-row input,
   .form-row select {
+    width: 100%;
+  }
+
+  .topbar .topbar-actions > button {
+    width: 100%;
+  }
+
+  .panel,
+  .order-card {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .item-checks {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .check-line {
+    width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .status-pill {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .user-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .remove-user-action,
+  .protected-user {
     width: 100%;
   }
 

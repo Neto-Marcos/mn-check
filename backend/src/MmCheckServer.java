@@ -119,6 +119,22 @@ public class MmCheckServer {
       return;
     }
 
+    if ("DELETE".equals(method) && path.startsWith("/api/users/")) {
+      requireAdmin(user);
+      String userId = URLDecoder.decode(path.substring("/api/users/".length()), StandardCharsets.UTF_8);
+      User target = db.users.stream().filter(item -> item.id.equals(userId)).findFirst()
+          .orElseThrow(() -> new ApiException(404, "Usuário não encontrado."));
+      if ("Marcos".equalsIgnoreCase(target.username)) {
+        throw new ApiException(403, "O administrador principal Marcos não pode ser removido.");
+      }
+      db.users.remove(target);
+      SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
+      db.audit(user, "delete_user", "Usuário " + target.username + " removido");
+      db.save(DB_PATH);
+      json(exchange, 200, visibleData(user));
+      return;
+    }
+
     if ("POST".equals(method) && "/api/maps/upload".equals(path)) {
       requireAdmin(user);
       Map<String, Object> body = readJson(exchange);
