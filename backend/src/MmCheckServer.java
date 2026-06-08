@@ -162,7 +162,46 @@ public class MmCheckServer {
 
     if ("POST".equals(method) && "/api/counts/upload".equals(path)) {
       if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
-      db.audit(user, "count_upload", "PDF de contagem recebido");
+      Map<String, Object> body = readJson(exchange);
+      String fileName = string(body.get("fileName")).trim();
+      String dataUrl = string(body.get("dataUrl")).trim();
+      List<Object> rows = list(body.get("counts"));
+      if (fileName.isBlank() || dataUrl.isBlank()) throw new ApiException(400, "Selecione um PDF de saldo.");
+      if (rows.isEmpty()) throw new ApiException(400, "Nenhum SKU foi identificado no PDF.");
+
+      List<CountItem> imported = new ArrayList<>();
+      for (Object row : rows) {
+        Map<String, Object> item = castMap(row);
+        String sku = string(item.get("sku")).trim();
+        if (sku.isBlank()) continue;
+        imported.add(new CountItem(sku, number(item.get("system")), number(item.get("counted"))));
+      }
+      if (imported.isEmpty()) throw new ApiException(400, "Nenhum SKU válido foi identificado no PDF.");
+
+      Files.createDirectories(UPLOAD_DIR);
+      String storedName = "contagem-" + System.currentTimeMillis() + "-" + safeFileName(fileName);
+      Files.write(UPLOAD_DIR.resolve(storedName), decodeDataUrl(dataUrl));
+      db.counts = imported;
+      db.audit(user, "count_upload", "Saldo atualizado pelo PDF " + fileName + " com " + imported.size() + " SKUs");
+      db.save(DB_PATH);
+      json(exchange, 200, visibleData(user));
+      return;
+    }
+
+    if ("PATCH".equals(method) && "/api/counts".equals(path)) {
+      if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+      Map<String, Object> body = readJson(exchange);
+      List<Object> rows = list(body.get("counts"));
+      if (rows.isEmpty()) throw new ApiException(400, "Não há contagens para atualizar.");
+      List<CountItem> updated = new ArrayList<>();
+      for (Object row : rows) {
+        Map<String, Object> item = castMap(row);
+        String sku = string(item.get("sku")).trim();
+        if (sku.isBlank()) continue;
+        updated.add(new CountItem(sku, number(item.get("system")), number(item.get("counted"))));
+      }
+      db.counts = updated;
+      db.audit(user, "update_counts", "Contagem física atualizada em " + updated.size() + " SKUs");
       db.save(DB_PATH);
       json(exchange, 200, visibleData(user));
       return;
@@ -654,9 +693,6 @@ public class MmCheckServer {
       second.items.get(1).ok = true;
       second.items.get(2).ok = true;
       db.maps.add(second);
-      db.counts.add(new CountItem("73578-1.2", 12, 12));
-      db.counts.add(new CountItem("75480-1.2", 8, 7));
-      db.counts.add(new CountItem("66878-1.2", 5, 5));
       db.errors.add(new ErrorRecord("15727", "Quantidade divergente no mapa", "Expedição"));
       return db;
     }

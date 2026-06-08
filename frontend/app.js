@@ -169,12 +169,27 @@ function App() {
     }
   }
 
-  async function countUpload() {
+  async function countUpload(file, counts) {
     try {
-      await request("/api/counts/upload", { method: "POST" });
-      await refresh("Registro de contagem salvo.");
+      const dataUrl = await readFileAsDataUrl(file);
+      await request("/api/counts/upload", {
+        method: "POST",
+        body: { fileName: file.name, dataUrl, counts },
+      });
+      await refresh(`${counts.length} saldos importados do PDF.`, "counting");
     } catch (error) {
       notify(error.message);
+      throw error;
+    }
+  }
+
+  async function updateCounts(counts) {
+    try {
+      await request("/api/counts", { method: "PATCH", body: { counts } });
+      await refresh("Contagem física atualizada.", "counting");
+    } catch (error) {
+      notify(error.message);
+      throw error;
     }
   }
 
@@ -253,7 +268,6 @@ function App() {
             onChange: uploadMapFile
           }),
           user.role === "admin" && h("button", { className: "secondary-action", onClick: () => uploadInputRef.current?.click() }, "Subir mapa"),
-          ["admin", "stock"].includes(user.role) && h("button", { className: "secondary-action", onClick: countUpload }, "PDF contagem"),
           user.role === "admin" && h("button", { className: "primary-action compact", onClick: createMap }, "Novo manual")
         )
       ),
@@ -266,7 +280,7 @@ function App() {
         onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
         onScan: scanBarcode
       }),
-      view === "counting" && h(Counting, { counts: data.counts, onUpload: countUpload }),
+      view === "counting" && h(Counting, { counts: data.counts, onUpload: countUpload, onUpdate: updateCounts }),
       view === "history" && h(History, { data }),
       view === "users" && h(Users, { users: data.users, newUser, setNewUser, createUser }),
     ),
@@ -344,28 +358,92 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
   );
 }
 
-function Counting({ counts, onUpload }) {
+function Counting({ counts, onUpload, onUpdate }) {
+  const [draft, setDraft] = React.useState(counts);
+  const [importing, setImporting] = React.useState(false);
+  const fileInputRef = React.useRef(null);
+
+  React.useEffect(() => setDraft(counts), [counts]);
+
+  async function handlePdf(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      window.alert("Selecione um arquivo PDF.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      window.alert("O PDF deve ter no máximo 10 MB.");
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const rows = await extractCountsFromPdf(file);
+      await onUpload(file, rows);
+    } catch (error) {
+      window.alert(error.message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function changeCount(sku, value) {
+    const counted = Math.max(0, Number.parseInt(value || "0", 10) || 0);
+    setDraft((current) => current.map((item) => item.sku === sku ? { ...item, counted } : item));
+  }
+
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Contagem de estoque"), h("span", null, "saldo atualizado")),
-      h("div", { className: "topbar-actions" }, h("button", { className: "primary-action compact", onClick: onUpload }, "Subir PDF de contagem")),
-      h("div", { className: "table-wrap" },
+      h("input", {
+        className: "hidden",
+        ref: fileInputRef,
+        type: "file",
+        accept: "application/pdf,.pdf",
+        onChange: handlePdf
+      }),
+      h("div", { className: "count-actions" },
+        h("button", {
+          className: "secondary-action compact",
+          disabled: importing,
+          onClick: () => fileInputRef.current?.click()
+        }, importing ? "Lendo PDF..." : "Selecionar PDF de saldo"),
+        h("button", {
+          className: "primary-action compact",
+          disabled: !draft.length,
+          onClick: () => onUpdate(draft)
+        }, "Atualizar contagem")
+      ),
+      draft.length ? h("div", { className: "table-wrap" },
         h("table", null,
           h("thead", null, h("tr", null, h("th", null, "SKU"), h("th", null, "Sistema"), h("th", null, "Contado"), h("th", null, "Diferença"))),
-          h("tbody", null, counts.map((item) => h("tr", { key: item.sku },
+          h("tbody", null, draft.map((item) => h("tr", { key: item.sku },
             h("td", null, item.sku),
             h("td", null, item.system),
-            h("td", null, item.counted),
+            h("td", null, h("input", {
+              className: "count-input",
+              type: "number",
+              min: "0",
+              value: item.counted,
+              onChange: (event) => changeCount(item.sku, event.target.value)
+            })),
             h("td", null, item.counted - item.system)
           )))
         )
-      )
+      ) : empty("Selecione um PDF para carregar os saldos.")
     ),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Divergências"), h("span", null, "por SKU")),
-      h("div", { className: "stack" }, counts.map((item) =>
-        h("div", { className: "list-item", key: item.sku }, h("strong", null, item.sku), h("span", null, `${Math.abs(item.counted - item.system)} un.`))
-      ))
+      h("div", { className: "stack" }, draft.filter((item) => item.counted !== item.system).length
+        ? draft.filter((item) => item.counted !== item.system).map((item) =>
+          h("div", { className: "list-item", key: item.sku },
+            h("strong", null, item.sku),
+            h("span", null, `${item.counted - item.system > 0 ? "+" : ""}${item.counted - item.system} un.`)
+          )
+        )
+        : empty("Nenhuma divergência informada."))
     )
   );
 }
@@ -631,6 +709,50 @@ function plural(value, singular, pluralText) {
 
 function formatDate(value) {
   return new Date(value).toLocaleString("pt-BR");
+}
+
+async function extractCountsFromPdf(file) {
+  if (!window.pdfjsLib) throw new Error("Leitor de PDF indisponível. Atualize a página e tente novamente.");
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const lines = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const grouped = new Map();
+
+    content.items.forEach((item) => {
+      const y = Math.round(item.transform[5] / 3) * 3;
+      if (!grouped.has(y)) grouped.set(y, []);
+      grouped.get(y).push({ x: item.transform[4], text: item.str.trim() });
+    });
+
+    [...grouped.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .forEach(([, parts]) => {
+        const line = parts.sort((a, b) => a.x - b.x).map((part) => part.text).filter(Boolean).join(" ");
+        if (line) lines.push(line);
+      });
+  }
+
+  const found = new Map();
+  lines.forEach((line) => {
+    const skuMatch = line.match(/\b(?:\d{4,}-\d+(?:\.\d+)?|\d{6,14})\b/);
+    if (!skuMatch) return;
+    const remainder = line.slice((skuMatch.index || 0) + skuMatch[0].length);
+    const quantities = remainder.match(/-?\d+(?:[.,]\d+)?/g);
+    if (!quantities || !quantities.length) return;
+    const system = Math.max(0, Math.trunc(Number(quantities[0].replace(",", "."))));
+    found.set(skuMatch[0], { sku: skuMatch[0], system, counted: 0 });
+  });
+
+  const rows = [...found.values()];
+  if (!rows.length) {
+    throw new Error("Não foi possível identificar linhas com SKU e saldo nesse PDF.");
+  }
+  return rows;
 }
 
 function readFileAsDataUrl(file) {

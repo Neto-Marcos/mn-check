@@ -336,11 +336,26 @@ select {
 
 .topbar-actions,
 .order-actions,
+.count-actions,
 .form-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.count-actions {
+  margin-bottom: 16px;
+}
+
+.count-actions button {
+  min-width: 190px;
+}
+
+.count-input {
+  width: 96px;
+  min-height: 40px;
+  padding: 8px 10px;
 }
 
 .topbar-actions button {
@@ -803,6 +818,7 @@ th + th {
 
   .topbar-actions,
   .order-actions,
+  .count-actions,
   .form-row {
     width: 100%;
     flex-direction: column;
@@ -810,6 +826,7 @@ th + th {
 
   .topbar-actions button,
   .order-actions button,
+  .count-actions button,
   .scanner-controls button,
   .scanner-controls input,
   .form-row button,
