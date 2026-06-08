@@ -1,0 +1,671 @@
+const h = React.createElement;
+
+const ROLE_OPTIONS = [
+  ["separation", "Conferente de separação"],
+  ["expedition", "Conferente de expedição"],
+  ["stock", "Conferente de estoque"],
+  ["admin", "Administrador"],
+];
+
+const TITLES = {
+  overview: ["painel", "Visão geral"],
+  separation: ["operação", "Separação"],
+  counting: ["estoque", "Contagem"],
+  conference: ["validação", "Conferência"],
+  history: ["admin", "Auditoria e histórico"],
+  users: ["admin", "Usuários"],
+};
+
+function App() {
+  const [token, setToken] = React.useState(localStorage.getItem("mmJavaToken") || "");
+  const [user, setUser] = React.useState(null);
+  const [data, setData] = React.useState(emptyData());
+  const [view, setView] = React.useState("overview");
+  const [toast, setToast] = React.useState("");
+  const [login, setLogin] = React.useState({ username: "", password: "" });
+  const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
+  const uploadInputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!token) return;
+    loadBootstrap(token).catch(() => {
+      localStorage.removeItem("mmJavaToken");
+      setToken("");
+    });
+  }, []);
+
+  async function request(path, options = {}) {
+    const response = await fetch(path, {
+      method: options.method || "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Operação não concluída.");
+    return body;
+  }
+
+  async function loadBootstrap(activeToken = token, preferredView = view) {
+    const body = await request("/api/bootstrap", { token: activeToken });
+    setUser(body.user);
+    setData(body);
+    setView(body.user.allowedViews.includes(preferredView) ? preferredView : body.user.allowedViews[0]);
+  }
+
+  function notify(message) {
+    setToast(message);
+    window.clearTimeout(notify.timer);
+    notify.timer = window.setTimeout(() => setToast(""), 2800);
+  }
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    try {
+      const body = await request("/api/login", { method: "POST", body: login });
+      localStorage.setItem("mmJavaToken", body.token);
+      setToken(body.token);
+      setUser(body.user);
+      const bootstrap = await request("/api/bootstrap", { token: body.token });
+      setData(bootstrap);
+      setView(body.user.allowedViews[0]);
+      notify(`Login realizado para ${body.user.name}.`);
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function refresh(message, preferredView = view) {
+    await loadBootstrap(token, preferredView);
+    if (message) notify(message);
+  }
+
+  async function createUser(event) {
+    event.preventDefault();
+    try {
+      await request("/api/users", { method: "POST", body: newUser });
+      setNewUser({ username: "", name: "", role: "separation", password: "" });
+      await refresh("Usuário cadastrado com sucesso.", "users");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function createMap() {
+    try {
+      await request("/api/maps", { method: "POST" });
+      await refresh("Mapa criado a partir do modelo de carga.", "separation");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function uploadMapFile(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) {
+      notify("Use apenas PDF, PNG ou JPG.");
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      notify("Arquivo muito grande. Use até 10 MB neste MVP.");
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      await request("/api/maps/upload", {
+        method: "POST",
+        body: {
+          fileName: file.name,
+          contentType: file.type,
+          dataUrl,
+        },
+      });
+      await refresh("Mapa criado a partir do arquivo enviado.", "separation");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function toggleItem(mapId, sku, ok) {
+    try {
+      await request(`/api/maps/${mapId}/items/${encodeURIComponent(sku)}`, {
+        method: "PATCH",
+        body: { ok },
+      });
+      await refresh();
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function uploadEvidence(mapId, file) {
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      notify("Use uma foto em PNG, JPG ou WebP.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      notify("A foto deve ter no máximo 10 MB.");
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      await request(`/api/maps/${mapId}/evidence`, {
+        method: "POST",
+        body: { fileName: file.name, contentType: file.type, dataUrl },
+      });
+      await refresh("Foto vinculada ao mapa.", "conference");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function scanBarcode(mapId, code) {
+    try {
+      const result = await request(`/api/maps/${mapId}/scan`, {
+        method: "POST",
+        body: { code },
+      });
+      await refresh(null, "conference");
+      return result;
+    } catch (error) {
+      notify(error.message);
+      throw error;
+    }
+  }
+
+  async function mapAction(mapId, action, message) {
+    try {
+      await request(`/api/maps/${mapId}/${action}`, { method: "POST" });
+      await refresh(message);
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function countUpload() {
+    try {
+      await request("/api/counts/upload", { method: "POST" });
+      await refresh("Registro de contagem salvo.");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem("mmJavaToken");
+    setToken("");
+    setUser(null);
+    setData(emptyData());
+  }
+
+  if (!user) {
+    return h("main", { className: "login-view" },
+      h("section", { className: "brand-panel" },
+        h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=2", alt: "MM check" }),
+        h("p", { className: "eyebrow" }, "conferência operacional"),
+        h("h1", null, "MM check"),
+        h("p", null, "Controle de mapas de carga, separação, expedição, contagem e auditoria para eletrodomésticos e eletroportáteis."),
+        h("div", { className: "login-stats" },
+          h("span", null, h("strong", null, "Java"), " backend"),
+          h("span", null, h("strong", null, "React"), " frontend"),
+          h("span", null, h("strong", null, "281"), " filial")
+        )
+      ),
+      h("form", { className: "login-card", onSubmit: handleLogin },
+        h("p", { className: "eyebrow" }, "acesso"),
+        h("h2", null, "Entrar no MM check"),
+        h("label", null, "Usuário",
+          h("input", {
+            value: login.username,
+            onChange: (event) => setLogin({ ...login, username: event.target.value }),
+            autoComplete: "username"
+          })
+        ),
+        h("label", null, "Senha",
+          h("input", {
+            type: "password",
+            value: login.password,
+            onChange: (event) => setLogin({ ...login, password: event.target.value }),
+            autoComplete: "current-password"
+          })
+        ),
+        h("button", { className: "primary-action", type: "submit" }, "Entrar")
+      ),
+      toast && h("div", { className: "toast" }, toast)
+    );
+  }
+
+  const allowedViews = user.allowedViews || [];
+  const [eyebrow, title] = TITLES[view] || TITLES[allowedViews[0]];
+
+  return h("main", { className: "dashboard-view" },
+    h("aside", { className: "sidebar" },
+      h("div", { className: "sidebar-brand" },
+        h("img", { className: "app-logo small", src: "/logo.svg?v=2", alt: "MM check" }),
+        h("div", null, h("strong", null, "MM check"), h("span", null, `${user.name} - ${user.label}`))
+      ),
+      h("div", { className: "branch-context" }, h("strong", null, "Filial 281"), h("span", null, "Setor único de expedição")),
+      h("nav", { className: "nav-list" },
+        allowedViews.map((item) => h("button", {
+          key: item,
+          className: `nav-item ${view === item ? "active" : ""}`,
+          onClick: () => setView(item)
+        }, TITLES[item][1]))
+      ),
+      h("button", { className: "ghost-action", onClick: logout }, "Sair")
+    ),
+    h("section", { className: "workspace" },
+      h("header", { className: "topbar" },
+        h("div", null, h("p", { className: "eyebrow" }, eyebrow), h("h2", null, title)),
+        h("div", { className: "topbar-actions" },
+          user.role === "admin" && h("input", {
+            className: "hidden",
+            ref: uploadInputRef,
+            type: "file",
+            accept: ".pdf,image/png,image/jpeg",
+            onChange: uploadMapFile
+          }),
+          user.role === "admin" && h("button", { className: "secondary-action", onClick: () => uploadInputRef.current?.click() }, "Subir mapa"),
+          ["admin", "stock"].includes(user.role) && h("button", { className: "secondary-action", onClick: countUpload }, "PDF contagem"),
+          user.role === "admin" && h("button", { className: "primary-action compact", onClick: createMap }, "Novo manual")
+        )
+      ),
+      view === "overview" && h(Overview, { data }),
+      view === "separation" && h(Separation, { maps: data.maps, onToggle: toggleItem, onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferência.") }),
+      view === "conference" && h(Conference, {
+        maps: data.maps,
+        onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
+        onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
+        onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
+        onEvidence: uploadEvidence,
+        onScan: scanBarcode
+      }),
+      view === "counting" && h(Counting, { counts: data.counts, onUpload: countUpload }),
+      view === "history" && h(History, { data }),
+      view === "users" && h(Users, { users: data.users, newUser, setNewUser, createUser }),
+    ),
+    toast && h("div", { className: "toast" }, toast)
+  );
+}
+
+function Overview({ data }) {
+  const metrics = data.metrics || {};
+  return h(React.Fragment, null,
+    h("div", { className: "metric-grid" },
+      metric("Mapas em separação", metrics.separating || 0),
+      metric("Aguardando conferência", metrics.waiting || 0),
+      metric("Divergências", metrics.errorCount || 0),
+      metric("Finalizados", metrics.perfect || 0)
+    ),
+    h("div", { className: "content-grid" },
+      h("article", { className: "panel" },
+        h("div", { className: "panel-header" }, h("h3", null, "Mapa operacional"), h("span", null, "tempo real")),
+        h("div", { className: "flow-board" },
+          flow("Filial", "281"),
+          flow("Setor", "expedição central"),
+          flow("Separação", plural(metrics.separating || 0, "mapa", "mapas")),
+          flow("Conferência", plural(metrics.waiting || 0, "mapa", "mapas")),
+          flow("Conferidos", plural(metrics.perfect || 0, "mapa", "mapas")),
+          flow("Histórico de erros", `${metrics.errorCount || 0} registros`)
+        )
+      ),
+      h("article", { className: "panel" },
+        h("div", { className: "panel-header" }, h("h3", null, "Desempenho"), h("span", null, "últimos dias")),
+        h("div", { className: "bars" }, [88, 93, 91, 96, 94].map((value, index) =>
+          h("div", { key: index },
+            h("div", { className: "bar-label" }, h("span", null, ["Seg", "Ter", "Qua", "Qui", "Sex"][index]), h("strong", null, `${value}%`)),
+            h("div", { className: "bar-track" }, h("div", { className: "bar-fill", style: { width: `${value}%` } }))
+          )
+        ))
+      )
+    )
+  );
+}
+
+function Separation({ maps, onToggle, onSend }) {
+  return h("div", { className: "section-grid" },
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Separação de mapas"), h("span", null, "marque os itens separados")),
+      h("div", { className: "stack" }, maps.length ? maps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend })) : empty("Nenhum mapa em separação."))
+    ),
+    h(MapExample)
+  );
+}
+
+function Conference({ maps, onApprove, onProblem, onCorrected, onEvidence, onScan }) {
+  return h("div", { className: "section-grid" },
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Reconferência da expedição"), h("span", null, "mapas já separados")),
+      h("div", { className: "stack" }, maps.length ? maps.map((map) => h(ConferenceCard, { key: map.id, map, onApprove, onProblem, onCorrected, onEvidence, onScan })) : empty("Nenhum mapa aguardando conferência."))
+    ),
+    h(MapExample)
+  );
+}
+
+function Counting({ counts, onUpload }) {
+  return h("div", { className: "section-grid" },
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Contagem de estoque"), h("span", null, "saldo atualizado")),
+      h("div", { className: "topbar-actions" }, h("button", { className: "primary-action compact", onClick: onUpload }, "Subir PDF de contagem")),
+      h("div", { className: "table-wrap" },
+        h("table", null,
+          h("thead", null, h("tr", null, h("th", null, "SKU"), h("th", null, "Sistema"), h("th", null, "Contado"), h("th", null, "Diferença"))),
+          h("tbody", null, counts.map((item) => h("tr", { key: item.sku },
+            h("td", null, item.sku),
+            h("td", null, item.system),
+            h("td", null, item.counted),
+            h("td", null, item.counted - item.system)
+          )))
+        )
+      )
+    ),
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Divergências"), h("span", null, "por SKU")),
+      h("div", { className: "stack" }, counts.map((item) =>
+        h("div", { className: "list-item", key: item.sku }, h("strong", null, item.sku), h("span", null, `${Math.abs(item.counted - item.system)} un.`))
+      ))
+    )
+  );
+}
+
+function Users({ users, newUser, setNewUser, createUser }) {
+  return h("div", { className: "section-grid" },
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Cadastrar login"), h("span", null, "admin")),
+      h("form", { className: "stack", onSubmit: createUser },
+        h("div", { className: "form-row" },
+          h("input", { placeholder: "Usuário", value: newUser.username, onChange: (e) => setNewUser({ ...newUser, username: e.target.value }) }),
+          h("input", { placeholder: "Nome", value: newUser.name, onChange: (e) => setNewUser({ ...newUser, name: e.target.value }) })
+        ),
+        h("div", { className: "form-row" },
+          h("select", { value: newUser.role, onChange: (e) => setNewUser({ ...newUser, role: e.target.value }) },
+            ROLE_OPTIONS.map(([value, label]) => h("option", { key: value, value }, label))
+          ),
+          h("input", { placeholder: "Senha", type: "password", value: newUser.password, onChange: (e) => setNewUser({ ...newUser, password: e.target.value }) })
+        ),
+        h("button", { className: "primary-action compact", type: "submit" }, "Cadastrar usuário")
+      )
+    ),
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Usuários cadastrados"), h("span", null, `${users.length} ativos`)),
+      h("div", { className: "stack" }, users.map((user) =>
+        h("div", { className: "user-card", key: user.id }, h("strong", null, user.username), h("span", null, `${user.name} - ${user.label}`))
+      ))
+    )
+  );
+}
+
+function History({ data }) {
+  return h("div", { className: "section-grid" },
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Divergências e correções"), h("span", null, "histórico")),
+      h("div", { className: "stack" }, data.errors.length ? data.errors.map((item) =>
+        h("div", { className: "list-item", key: `${item.order}-${item.issue}` }, h("strong", null, `Mapa ${item.order}`), h("span", null, `${item.issue} - ${item.owner}`))
+      ) : empty("Nenhum erro registrado."))
+    ),
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Auditoria"), h("span", null, "ações recentes")),
+      h("div", { className: "stack" }, data.auditLog.length ? data.auditLog.slice().reverse().map((item, index) =>
+        h("div", { className: "list-item", key: index }, h("strong", null, item.userName), h("span", null, `${item.description} - ${formatDate(item.at)}`))
+      ) : empty("Nenhuma ação registrada."))
+    )
+  );
+}
+
+function MapCard({ map, onToggle, onSend }) {
+  const editable = map.status === "separacao";
+  return h("article", { className: "order-card" },
+    h("div", { className: "order-head" },
+      h("div", null, h("strong", null, `Mapa ${map.id}`), h("span", null, `${map.client} - rota ${map.route}`)),
+      h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
+    ),
+    map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),
+    h("div", { className: "item-checks" }, map.items.map((item) =>
+      h("label", { className: "check-line", key: item.sku },
+        h("input", { type: "checkbox", checked: item.ok, disabled: !editable, onChange: (event) => onToggle(map.id, item.sku, event.target.checked) }),
+        `${item.sku} - ${item.quantity} un. - ${item.name}`
+      )
+    )),
+    h("div", { className: "order-actions" },
+      editable
+        ? h("button", { className: "primary-action compact", onClick: () => onSend(map.id) }, "Enviar para conferência")
+        : h("span", { className: "status-note" }, "Mapa mantido no histórico desta tela.")
+    )
+  );
+}
+
+function ConferenceCard({ map, onApprove, onProblem, onCorrected, onEvidence, onScan }) {
+  const actionable = ["aguardando conferencia", "conferencia"].includes(map.status);
+  const needsCorrection = map.status === "corrigir problema";
+  const cameraInputRef = React.useRef(null);
+  return h("article", { className: "order-card" },
+    h("div", { className: "order-head" },
+      h("div", null, h("strong", null, `Mapa ${map.id}`), h("span", null, `${map.client} - ${map.items.length} itens`)),
+      h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
+    ),
+    map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),
+    map.evidenceName && h("div", { className: "evidence-line" },
+      h("strong", null, "Evidência fotográfica registrada"),
+      h("span", null, `${map.evidenceBy} - ${formatDate(map.evidenceAt)}`)
+    ),
+    (actionable || needsCorrection) && h(BarcodeScanner, { map, onScan }),
+    h("div", { className: "order-actions" },
+      (actionable || needsCorrection) && h("input", {
+        className: "hidden",
+        ref: cameraInputRef,
+        type: "file",
+        accept: "image/*",
+        capture: "environment",
+        onChange: (event) => {
+          const file = event.target.files && event.target.files[0];
+          event.target.value = "";
+          if (file) onEvidence(map.id, file);
+        }
+      }),
+      (actionable || needsCorrection) && h("button", {
+        className: "secondary-action compact camera-action",
+        onClick: () => cameraInputRef.current?.click()
+      }, map.evidenceName ? "Nova foto" : "Abrir câmera"),
+      actionable
+        ? [
+            h("button", { className: "primary-action compact", key: "approve", onClick: () => onApprove(map.id) }, "Conferido"),
+            h("button", { className: "danger-action", key: "problem", onClick: () => onProblem(map.id) }, "Não, corrigir")
+          ]
+        : needsCorrection
+          ? h("button", { className: "primary-action compact corrected-action", onClick: () => onCorrected(map.id) }, "Já corrigido")
+          : h("span", { className: "status-note" }, "Mapa mantido no histórico desta tela.")
+    )
+  );
+}
+
+function BarcodeScanner({ map, onScan }) {
+  const [manualCode, setManualCode] = React.useState("");
+  const [result, setResult] = React.useState(null);
+  const [scanning, setScanning] = React.useState(false);
+  const scannerRef = React.useRef(null);
+  const readerId = `barcode-reader-${map.id}`;
+
+  React.useEffect(() => () => stopScanner(), []);
+
+  async function validate(code) {
+    const cleanCode = String(code || "").replace(/\D/g, "");
+    if (!cleanCode) return;
+    try {
+      const response = await onScan(map.id, cleanCode);
+      setResult({
+        type: "success",
+        text: `${response.item.name} confirmado (${response.item.checkedQuantity}/${response.item.quantity})`
+      });
+      setManualCode("");
+      playFeedback(true);
+    } catch (error) {
+      setResult({ type: "error", text: error.message });
+      playFeedback(false);
+    }
+  }
+
+  async function startScanner() {
+    if (!window.Html5Qrcode) {
+      setResult({ type: "error", text: "Leitor indisponível. Verifique a conexão com a internet." });
+      return;
+    }
+    if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+      setResult({ type: "error", text: "A leitura ao vivo precisa de HTTPS. Use o campo manual ou acesse o endereço seguro." });
+      return;
+    }
+
+    try {
+      setScanning(true);
+      setResult(null);
+      scannerRef.current = new Html5Qrcode(readerId);
+      await scannerRef.current.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 280, height: 120 }, formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128] },
+        async (decodedText) => {
+          await stopScanner();
+          await validate(decodedText);
+        },
+        () => {}
+      );
+    } catch (error) {
+      setScanning(false);
+      setResult({ type: "error", text: "Não foi possível abrir a câmera. Confira a permissão do navegador." });
+    }
+  }
+
+  async function stopScanner() {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    setScanning(false);
+    if (!scanner) return;
+    try {
+      if (scanner.isScanning) await scanner.stop();
+      scanner.clear();
+    } catch (_) {}
+  }
+
+  return h("section", { className: "scanner-box" },
+    h("div", { className: "scanner-heading" },
+      h("div", null, h("strong", null, "Conferência por código de barras"), h("span", null, "Code 128 ou código do produto")),
+      h("span", { className: "scan-count" }, `${map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0)}/${map.items.reduce((sum, item) => sum + item.quantity, 0)}`)
+    ),
+    h("div", { id: readerId, className: `barcode-reader ${scanning ? "active" : ""}` }),
+    h("div", { className: "scanner-controls" },
+      h("input", {
+        inputMode: "numeric",
+        placeholder: "Digite ou escaneie o código",
+        value: manualCode,
+        onChange: (event) => setManualCode(event.target.value),
+        onKeyDown: (event) => event.key === "Enter" && validate(manualCode)
+      }),
+      h("button", { className: "secondary-action compact", onClick: scanning ? stopScanner : startScanner }, scanning ? "Fechar câmera" : "Ler câmera")
+    ),
+    result && h("div", { className: `scan-result ${result.type}` }, result.text),
+    h("div", { className: "scan-items" }, map.items.map((item) =>
+      h("div", { className: (item.checkedQuantity || 0) >= item.quantity ? "complete" : "", key: item.sku },
+        h("span", null, item.name),
+        h("strong", null, `${item.checkedQuantity || 0}/${item.quantity}`)
+      )
+    ))
+  );
+}
+
+function playFeedback(success) {
+  if (navigator.vibrate) navigator.vibrate(success ? 90 : [80, 50, 80]);
+  try {
+    const context = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.frequency.value = success ? 880 : 220;
+    gain.gain.value = 0.05;
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + (success ? 0.12 : 0.28));
+  } catch (_) {}
+}
+
+function MapExample() {
+  return h("article", { className: "panel" },
+    h("div", { className: "panel-header" }, h("h3", null, "Mapa de carga"), h("span", null, "modelo analítico")),
+    h("div", { className: "map-preview" },
+      h("strong", null, "15728.2 - Mapa de Carga - Analítico"),
+      h("p", null, "Filial: 281 | Data: 29/05/2026 | Rota: 1135/1135-CEDRAL"),
+      h("table", null,
+        h("thead", null, h("tr", null, h("th", null, "Produto"), h("th", null, "Qtde"), h("th", null, "Descrição"))),
+        h("tbody", null,
+          h("tr", null, h("td", null, "73578-1.2"), h("td", null, "6,00"), h("td", null, "Lavadora Midea")),
+          h("tr", null, h("td", null, "75480-1.2"), h("td", null, "6,00"), h("td", null, "Refrigerador Midea")),
+          h("tr", null, h("td", null, "66878-1.2"), h("td", null, "2,00"), h("td", null, "Freezer Consul horizontal"))
+        )
+      )
+    )
+  );
+}
+
+function metric(label, value) {
+  return h("article", { className: "metric-card" }, h("span", null, label), h("strong", null, value));
+}
+
+function flow(title, meta) {
+  return h("article", { className: "flow-card" }, h("strong", null, title), h("span", null, meta));
+}
+
+function empty(message) {
+  return h("div", { className: "list-item" }, h("strong", null, message), h("span", null, "Os registros aparecerão aqui."));
+}
+
+function status(value) {
+  return {
+    separacao: "separação",
+    "aguardando conferencia": "aguardando conferência",
+    conferencia: "conferência",
+    perfeito: "conferido",
+    conferido: "conferido",
+    "corrigir problema": "corrigir problema",
+  }[value] || value;
+}
+
+function statusClass(value) {
+  return {
+    separacao: "status-open",
+    "aguardando conferencia": "status-waiting",
+    conferencia: "status-waiting",
+    perfeito: "status-done",
+    conferido: "status-done",
+    "corrigir problema": "status-error",
+  }[value] || "";
+}
+
+function plural(value, singular, pluralText) {
+  return `${value} ${value === 1 ? singular : pluralText}`;
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleString("pt-BR");
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function emptyData() {
+  return { maps: [], users: [], counts: [], errors: [], auditLog: [], metrics: {} };
+}
+
+ReactDOM.createRoot(document.querySelector("#root")).render(h(App));

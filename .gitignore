@@ -1,0 +1,5 @@
+backend/out/
+java-server.log
+java-server.err
+data/java-db.json
+data/uploads/

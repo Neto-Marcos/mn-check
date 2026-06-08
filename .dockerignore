@@ -1,0 +1,5 @@
+.git
+backend/out
+java-server.log
+java-server.err
+data/uploads
