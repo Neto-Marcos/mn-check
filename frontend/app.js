@@ -146,29 +146,6 @@ function App() {
     }
   }
 
-  async function uploadEvidence(mapId, file) {
-    if (!file) return;
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
-      notify("Use uma foto em PNG, JPG ou WebP.");
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      notify("A foto deve ter no máximo 10 MB.");
-      return;
-    }
-
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      await request(`/api/maps/${mapId}/evidence`, {
-        method: "POST",
-        body: { fileName: file.name, contentType: file.type, dataUrl },
-      });
-      await refresh("Foto vinculada ao mapa.", "conference");
-    } catch (error) {
-      notify(error.message);
-    }
-  }
-
   async function scanBarcode(mapId, code) {
     try {
       const result = await request(`/api/maps/${mapId}/scan`, {
@@ -287,7 +264,6 @@ function App() {
         onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
         onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
         onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
-        onEvidence: uploadEvidence,
         onScan: scanBarcode
       }),
       view === "counting" && h(Counting, { counts: data.counts, onUpload: countUpload }),
@@ -342,11 +318,11 @@ function Separation({ maps, onToggle, onSend }) {
   );
 }
 
-function Conference({ maps, onApprove, onProblem, onCorrected, onEvidence, onScan }) {
+function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Reconferência da expedição"), h("span", null, "mapas já separados")),
-      h("div", { className: "stack" }, maps.length ? maps.map((map) => h(ConferenceCard, { key: map.id, map, onApprove, onProblem, onCorrected, onEvidence, onScan })) : empty("Nenhum mapa aguardando conferência."))
+      h("div", { className: "stack" }, maps.length ? maps.map((map) => h(ConferenceCard, { key: map.id, map, onApprove, onProblem, onCorrected, onScan })) : empty("Nenhum mapa aguardando conferência."))
     ),
     h(MapExample)
   );
@@ -444,41 +420,27 @@ function MapCard({ map, onToggle, onSend }) {
   );
 }
 
-function ConferenceCard({ map, onApprove, onProblem, onCorrected, onEvidence, onScan }) {
+function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
   const actionable = ["aguardando conferencia", "conferencia"].includes(map.status);
   const needsCorrection = map.status === "corrigir problema";
-  const cameraInputRef = React.useRef(null);
+  const allChecked = map.items.every((item) => (item.checkedQuantity || 0) >= item.quantity);
   return h("article", { className: "order-card" },
     h("div", { className: "order-head" },
       h("div", null, h("strong", null, `Mapa ${map.id}`), h("span", null, `${map.client} - ${map.items.length} itens`)),
       h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
     ),
     map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),
-    map.evidenceName && h("div", { className: "evidence-line" },
-      h("strong", null, "Evidência fotográfica registrada"),
-      h("span", null, `${map.evidenceBy} - ${formatDate(map.evidenceAt)}`)
-    ),
     (actionable || needsCorrection) && h(BarcodeScanner, { map, onScan }),
     h("div", { className: "order-actions" },
-      (actionable || needsCorrection) && h("input", {
-        className: "hidden",
-        ref: cameraInputRef,
-        type: "file",
-        accept: "image/*",
-        capture: "environment",
-        onChange: (event) => {
-          const file = event.target.files && event.target.files[0];
-          event.target.value = "";
-          if (file) onEvidence(map.id, file);
-        }
-      }),
-      (actionable || needsCorrection) && h("button", {
-        className: "secondary-action compact camera-action",
-        onClick: () => cameraInputRef.current?.click()
-      }, map.evidenceName ? "Nova foto" : "Abrir câmera"),
       actionable
         ? [
-            h("button", { className: "primary-action compact", key: "approve", onClick: () => onApprove(map.id) }, "Conferido"),
+            h("button", {
+              className: "primary-action compact",
+              key: "approve",
+              disabled: !allChecked,
+              title: allChecked ? "Finalizar conferência" : "Confira todas as unidades para finalizar",
+              onClick: () => onApprove(map.id)
+            }, allChecked ? "Conferido" : "Conferência incompleta"),
             h("button", { className: "danger-action", key: "problem", onClick: () => onProblem(map.id) }, "Não, corrigir")
           ]
         : needsCorrection

@@ -241,6 +241,9 @@ public class MmCheckServer {
           db.audit(user, "send_conference", "Mapa " + map.id + " enviado para conferência");
         } else if ("approve".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!map.items.stream().allMatch(item -> item.checkedQuantity >= item.quantity)) {
+            throw new ApiException(400, "Confira todas as unidades antes de finalizar o mapa.");
+          }
           map.status = "conferido";
           db.audit(user, "approve_map", "Mapa " + map.id + " conferido sem divergência");
         } else if ("problem".equals(action)) {
