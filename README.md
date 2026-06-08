@@ -2,6 +2,17 @@
 
 MVP empresarial local com backend em Java e frontend em React para controle de mapas de carga, separação, expedição, contagem, usuários, auditoria e histórico.
 
+[![Publicar no Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Neto-Marcos/mm-check)
+
+## Publicação gratuita
+
+1. Clique em **Publicar no Render**.
+2. Entre ou crie uma conta no Render usando o GitHub.
+3. Informe uma senha segura no campo `MMCHECK_ADMIN_PASSWORD`.
+4. Confirme a criação do serviço.
+
+O Render cria um endereço HTTPS para o MM check. No plano gratuito, o primeiro acesso após um período parado pode levar cerca de um minuto.
+
 ## Acesso
 
 O app roda no mesmo endereço:
