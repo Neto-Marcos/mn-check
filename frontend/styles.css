@@ -416,6 +416,28 @@ select {
   padding: 16px;
 }
 
+.flow-card {
+  min-height: 86px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.flow-card strong,
+.flow-card span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.flow-card strong {
+  line-height: 1.25;
+}
+
+.flow-card span {
+  line-height: 1.35;
+}
+
 .metric-card {
   min-height: 124px;
   display: flex;
