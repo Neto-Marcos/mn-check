@@ -145,26 +145,17 @@ button:disabled {
   color: #ffd6da;
 }
 
-.login-stats {
-  margin-top: 36px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.login-stats span {
-  min-width: 150px;
-  padding: 14px 16px;
+.version-badge {
+  width: fit-content;
+  margin-top: 28px;
+  padding: 10px 14px;
   border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 8px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.82);
-}
-
-.login-stats strong {
-  display: block;
-  color: white;
-  font-size: 1.45rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.84rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
 }
 
 .login-card {

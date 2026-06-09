@@ -1,4 +1,5 @@
 const h = React.createElement;
+const APP_VERSION = "1.1.0";
 
 const ROLE_OPTIONS = [
   ["separation", "Conferente de separação"],
@@ -293,12 +294,8 @@ function App() {
         h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
         h("p", { className: "eyebrow" }, "conferência operacional"),
         h("h1", null, "MN - Check"),
-        h("p", null, "Controle de mapas de carga, separação, expedição, contagem e histórico para eletrodomésticos e eletroportáteis."),
-        h("div", { className: "login-stats" },
-          h("span", null, h("strong", null, "Java"), " backend"),
-          h("span", null, h("strong", null, "React"), " frontend"),
-          h("span", null, h("strong", null, "281"), " filial")
-        )
+        h("p", null, "Controle de separação, conferência e estoque."),
+        h("span", { className: "version-badge" }, `Versão ${APP_VERSION}`)
       ),
       h("form", { className: "login-card", onSubmit: handleLogin },
         h("p", { className: "eyebrow" }, "acesso"),
