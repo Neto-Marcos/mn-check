@@ -13,6 +13,17 @@ MVP empresarial local com backend em Java e frontend em React para controle de m
 
 O Render cria um endereço HTTPS para o MM check. No plano gratuito, o primeiro acesso após um período parado pode levar cerca de um minuto.
 
+## Leitura de mapas com IA
+
+O MM check usa o Gemini 2.5 Flash para extrair os dados de PDFs e fotos de mapas de carga. Crie uma chave gratuita no [Google AI Studio](https://aistudio.google.com/apikey) e adicione no Render:
+
+```text
+GEMINI_API_KEY=sua-chave
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+A chave deve existir somente nas variáveis de ambiente do servidor. Nunca coloque a chave no frontend ou em um arquivo enviado ao GitHub.
+
 ## Acesso
 
 O app roda no mesmo endereço:

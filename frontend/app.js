@@ -23,6 +23,7 @@ function App() {
   const [view, setView] = React.useState("overview");
   const [toast, setToast] = React.useState("");
   const [mapImportOpen, setMapImportOpen] = React.useState(false);
+  const [mapImporting, setMapImporting] = React.useState(false);
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
   const mapPdfInputRef = React.useRef(null);
@@ -123,6 +124,7 @@ function App() {
     }
 
     try {
+      setMapImporting(true);
       const dataUrl = await readFileAsDataUrl(file);
       await request("/api/maps/upload", {
         method: "POST",
@@ -133,9 +135,11 @@ function App() {
         },
       });
       setMapImportOpen(false);
-      await refresh("Mapa criado a partir do arquivo enviado.", "separation");
+      await refresh("Mapa lido pela IA e enviado para separação.", "separation");
     } catch (error) {
       notify(error.message);
+    } finally {
+      setMapImporting(false);
     }
   }
 
@@ -282,8 +286,9 @@ function App() {
           }),
           user.role === "admin" && h("button", {
             className: "primary-action compact",
+            disabled: mapImporting,
             onClick: () => setMapImportOpen(true)
-          }, "Novo mapa")
+          }, mapImporting ? "Lendo mapa..." : "Novo mapa")
         )
       ),
       view === "overview" && h(Overview, { data }),
@@ -300,6 +305,7 @@ function App() {
       view === "users" && h(Users, { users: data.users, newUser, setNewUser, createUser, removeUser }),
     ),
     mapImportOpen && h(NewMapDialog, {
+      busy: mapImporting,
       onClose: () => setMapImportOpen(false),
       onCamera: () => mapCameraInputRef.current?.click(),
       onPdf: () => mapPdfInputRef.current?.click()
@@ -308,7 +314,7 @@ function App() {
   );
 }
 
-function NewMapDialog({ onClose, onCamera, onPdf }) {
+function NewMapDialog({ busy, onClose, onCamera, onPdf }) {
   return h("div", { className: "modal-backdrop", role: "presentation", onMouseDown: onClose },
     h("section", {
       className: "new-map-dialog",
@@ -322,19 +328,19 @@ function NewMapDialog({ onClose, onCamera, onPdf }) {
           h("p", { className: "eyebrow" }, "entrada de documento"),
           h("h3", { id: "new-map-title" }, "Como deseja inserir o novo mapa?")
         ),
-        h("button", { className: "dialog-close", onClick: onClose, "aria-label": "Fechar" }, "×")
+        h("button", { className: "dialog-close", disabled: busy, onClick: onClose, "aria-label": "Fechar" }, "×")
       ),
       h("div", { className: "map-source-grid" },
-        h("button", { className: "map-source-option", onClick: onCamera },
+        h("button", { className: "map-source-option", disabled: busy, onClick: onCamera },
           h("strong", null, "Câmera"),
           h("span", null, "Fotografar o mapa agora")
         ),
-        h("button", { className: "map-source-option", onClick: onPdf },
+        h("button", { className: "map-source-option", disabled: busy, onClick: onPdf },
           h("strong", null, "PDF"),
           h("span", null, "Selecionar um arquivo do dispositivo")
         )
       ),
-      h("button", { className: "secondary-action dialog-cancel", onClick: onClose }, "Cancelar")
+      h("button", { className: "secondary-action dialog-cancel", disabled: busy, onClick: onClose }, busy ? "Processando com IA..." : "Cancelar")
     )
   );
 }

@@ -13,3 +13,7 @@ services:
         value: /app/data/uploads
       - key: MMCHECK_ADMIN_PASSWORD
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash

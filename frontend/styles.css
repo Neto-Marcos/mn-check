@@ -21,6 +21,8 @@
 body {
   margin: 0;
   min-height: 100vh;
+  max-width: 100vw;
+  overflow-x: hidden;
   color: var(--ink);
   background: var(--page);
   font-family: Inter, Arial, sans-serif;
@@ -28,6 +30,8 @@ body {
 
 #root {
   min-height: 100vh;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 button,
@@ -336,6 +340,8 @@ select {
 
 .dashboard-view {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   animation: fadeIn 280ms ease both;
@@ -411,6 +417,8 @@ select {
 }
 
 .workspace {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   padding: 28px;
   animation: contentIn 320ms ease both;
@@ -467,6 +475,14 @@ select {
 .content-grid,
 .section-grid {
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+}
+
+.content-grid > *,
+.section-grid > *,
+.stack,
+.stack > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .flow-board {
@@ -996,10 +1012,22 @@ th + th {
 
   .sidebar {
     min-height: auto;
+    max-width: 100vw;
+    overflow: hidden;
   }
 
   .nav-list {
-    grid-template-columns: repeat(3, 1fr);
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+
+  .nav-item {
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
   }
 
   .metric-grid {
@@ -1012,7 +1040,20 @@ th + th {
   .workspace,
   .login-card,
   .sidebar {
-    padding: 18px;
+    padding: 14px;
+  }
+
+  .workspace {
+    overflow: hidden;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .topbar {
+    gap: 16px;
+    margin-bottom: 18px;
   }
 
   .topbar,
@@ -1087,9 +1128,21 @@ th + th {
   .metric-grid,
   .flow-board,
   .audit-grid,
-  .user-grid,
-  .nav-list {
+  .user-grid {
     grid-template-columns: 1fr;
+  }
+
+  .order-card {
+    padding: 12px;
+  }
+
+  .order-title span {
+    font-size: 0.8rem;
+  }
+
+  .queue-item-head,
+  .queue-meta {
+    align-items: flex-start;
   }
 }
 

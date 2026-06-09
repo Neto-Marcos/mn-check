@@ -5,11 +5,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.net.URLDecoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -153,8 +158,7 @@ public class MmCheckServer {
       String storedName = next + "-" + safeFileName(fileName);
       Files.write(UPLOAD_DIR.resolve(storedName), decodeDataUrl(dataUrl));
 
-      CargoMap map = CargoMap.sample(next, user.id);
-      map.client = "Mapa importado";
+      CargoMap map = analyzeMapWithGemini(next, user.id, contentType, dataUrl);
       map.attachmentName = fileName;
       map.attachmentType = contentType;
       map.attachmentPath = "data/uploads/" + storedName;
@@ -443,6 +447,107 @@ public class MmCheckServer {
 
   private static String digits(String value) {
     return value == null ? "" : value.replaceAll("\\D", "");
+  }
+
+  private static CargoMap analyzeMapWithGemini(String id, String createdBy, String contentType, String dataUrl) throws Exception {
+    String apiKey = System.getenv("GEMINI_API_KEY");
+    if (apiKey == null || apiKey.isBlank()) {
+      throw new ApiException(503, "Leitura por IA não configurada. Adicione GEMINI_API_KEY no servidor.");
+    }
+    String encoded = dataUrl.substring(dataUrl.indexOf(",") + 1);
+    String model = System.getenv().getOrDefault("GEMINI_MODEL", "gemini-2.5-flash");
+
+    Map<String, Object> itemSchema = Map.of(
+        "type", "object",
+        "properties", Map.of(
+            "sku", Map.of("type", "string", "description", "Código exato do produto impresso no documento"),
+            "name", Map.of("type", "string", "description", "Descrição exata do produto"),
+            "quantity", Map.of("type", "integer", "description", "Quantidade inteira do produto"),
+            "barcode", Map.of("type", "string", "description", "Código de barras se estiver visível; caso contrário string vazia")
+        ),
+        "required", List.of("sku", "name", "quantity", "barcode")
+    );
+    Map<String, Object> schema = Map.of(
+        "type", "object",
+        "properties", Map.of(
+            "route", Map.of("type", "string"),
+            "client", Map.of("type", "string"),
+            "carrier", Map.of("type", "string"),
+            "branch", Map.of("type", "string"),
+            "date", Map.of("type", "string"),
+            "items", Map.of("type", "array", "items", itemSchema)
+        ),
+        "required", List.of("route", "client", "carrier", "branch", "date", "items")
+    );
+    String prompt = """
+        Extraia este mapa de carga logístico brasileiro. Não invente nenhum dado.
+        Identifique rota, cliente principal, transportadora, filial, data e todos os produtos.
+        Para cada produto extraia SKU, descrição, quantidade inteira e código de barras quando visível.
+        Ignore totais, pesos, cabeçalhos repetidos e anotações manuscritas.
+        Se um campo não estiver legível, retorne string vazia. Preserve os códigos exatamente como impressos.
+        """;
+    Map<String, Object> requestBody = Map.of(
+        "contents", List.of(Map.of(
+            "role", "user",
+            "parts", List.of(
+                Map.of("text", prompt),
+                Map.of("inlineData", Map.of("mimeType", contentType, "data", encoded))
+            )
+        )),
+        "generationConfig", Map.of(
+            "temperature", 0,
+            "responseMimeType", "application/json",
+            "responseJsonSchema", schema
+        )
+    );
+
+    HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
+        .timeout(Duration.ofSeconds(90))
+        .header("Content-Type", "application/json")
+        .header("x-goog-api-key", apiKey)
+        .POST(HttpRequest.BodyPublishers.ofString(Json.stringify(requestBody), StandardCharsets.UTF_8))
+        .build();
+    HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() >= 400) {
+      throw new ApiException(502, "A IA não conseguiu processar o arquivo. Verifique a chave e tente novamente.");
+    }
+
+    Map<String, Object> root = castMap(Json.parse(response.body()));
+    List<Object> candidates = list(root.get("candidates"));
+    if (candidates.isEmpty()) throw new ApiException(422, "A IA não encontrou dados no arquivo.");
+    Map<String, Object> candidate = castMap(candidates.get(0));
+    Map<String, Object> content = castMap(candidate.get("content"));
+    List<Object> parts = list(content.get("parts"));
+    if (parts.isEmpty()) throw new ApiException(422, "A IA não retornou dados do mapa.");
+    String text = string(castMap(parts.get(0)).get("text"));
+    Map<String, Object> analysis = castMap(Json.parse(text));
+
+    CargoMap map = new CargoMap();
+    map.id = id;
+    map.route = string(analysis.get("route")).trim();
+    map.client = string(analysis.get("client")).trim();
+    map.carrier = string(analysis.get("carrier")).trim();
+    map.branch = string(analysis.get("branch")).trim();
+    map.date = string(analysis.get("date")).trim();
+    map.status = "separacao";
+    map.createdBy = createdBy;
+    for (Object value : list(analysis.get("items"))) {
+      Map<String, Object> itemData = castMap(value);
+      String sku = string(itemData.get("sku")).trim();
+      String name = string(itemData.get("name")).trim();
+      int quantity = number(itemData.get("quantity"));
+      if (sku.isBlank() || name.isBlank() || quantity <= 0) continue;
+      MapItem item = new MapItem(sku, name, quantity, false);
+      String barcode = string(itemData.get("barcode")).trim();
+      if (!barcode.isBlank()) item.barcode = barcode;
+      map.items.add(item);
+    }
+    if (map.items.isEmpty()) throw new ApiException(422, "Nenhum produto legível foi encontrado no arquivo.");
+    if (map.client.isBlank()) map.client = "Cliente não identificado";
+    if (map.route.isBlank()) map.route = "Não identificada";
+    if (map.branch.isBlank()) map.branch = "281";
+    return map;
   }
 
   private static String extension(Path file) {
