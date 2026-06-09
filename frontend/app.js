@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 
 const ROLE_OPTIONS = [
   ["separation", "Conferente de separação"],
@@ -291,11 +291,13 @@ function App() {
   if (!user) {
     return h("main", { className: "login-view" },
       h("section", { className: "brand-panel" },
-        h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
-        h("p", { className: "eyebrow" }, "conferência operacional"),
-        h("h1", null, "MN - Check"),
-        h("p", null, "Controle de separação, conferência e estoque."),
-        h("span", { className: "version-badge" }, `Versão ${APP_VERSION}`)
+        h("div", { className: "brand-content" },
+          h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
+          h("p", { className: "eyebrow" }, "conferência operacional"),
+          h("h1", null, "MN - Check"),
+          h("p", null, "Separação, conferência e estoque em um só lugar."),
+          h("span", { className: "version-badge" }, `Versão ${APP_VERSION}`)
+        )
       ),
       h("form", { className: "login-card", onSubmit: handleLogin },
         h("p", { className: "eyebrow" }, "acesso"),

@@ -62,20 +62,72 @@ button:disabled {
 
 .login-view {
   min-height: 100vh;
+  padding: clamp(20px, 4vw, 56px);
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+  align-items: stretch;
+  gap: clamp(18px, 3vw, 42px);
+  background:
+    radial-gradient(circle at 8% 12%, rgba(201, 40, 56, 0.12), transparent 28%),
+    radial-gradient(circle at 90% 88%, rgba(91, 16, 24, 0.1), transparent 24%),
+    #f7f1f2;
+  overflow: hidden;
 }
 
 .brand-panel {
-  padding: clamp(32px, 8vw, 96px);
+  position: relative;
+  min-height: min(760px, calc(100vh - clamp(40px, 8vw, 112px)));
+  padding: clamp(36px, 6vw, 78px);
   display: flex;
   flex-direction: column;
   justify-content: center;
+  overflow: hidden;
+  border-radius: 30px;
   background:
-    linear-gradient(110deg, rgba(91, 16, 24, 0.9), rgba(45, 38, 40, 0.78)),
+    linear-gradient(120deg, rgba(91, 16, 24, 0.94), rgba(45, 38, 40, 0.7)),
     url("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1600&q=80")
       center/cover;
   color: #fff;
+  box-shadow: 0 30px 80px rgba(55, 16, 22, 0.24);
+  isolation: isolate;
+  animation: loginBackdropIn 700ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+.brand-panel::before,
+.brand-panel::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.brand-panel::before {
+  width: 360px;
+  height: 360px;
+  top: -160px;
+  right: -110px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 0 0 54px rgba(255, 255, 255, 0.035),
+    0 0 0 108px rgba(255, 255, 255, 0.02);
+  animation: orbitDrift 12s ease-in-out infinite alternate;
+}
+
+.brand-panel::after {
+  width: 220px;
+  height: 220px;
+  right: 8%;
+  bottom: -110px;
+  background: rgba(201, 40, 56, 0.18);
+  filter: blur(2px);
+  animation: glowDrift 8s ease-in-out infinite alternate;
+}
+
+.brand-content {
+  position: relative;
+  z-index: 1;
+  max-width: 680px;
 }
 
 .brand-mark {
@@ -96,10 +148,12 @@ button:disabled {
 }
 
 .hero-logo {
-  width: 78px;
-  height: 78px;
+  width: 72px;
+  height: 72px;
   flex: 0 0 auto;
-  animation: logoFloat 4s ease-in-out infinite;
+  animation:
+    brandItemIn 560ms 100ms cubic-bezier(0.2, 0.75, 0.2, 1) both,
+    logoFloat 4s 800ms ease-in-out infinite;
 }
 
 .app-logo.small {
@@ -120,16 +174,19 @@ button:disabled {
 }
 
 .brand-panel h1 {
-  margin: 22px 0 12px;
-  font-size: clamp(3rem, 8vw, 7rem);
-  line-height: 0.92;
+  margin: 18px 0 14px;
+  font-size: clamp(3.4rem, 7vw, 6.8rem);
+  line-height: 0.9;
+  letter-spacing: -0.055em;
+  text-wrap: balance;
+  animation: brandItemIn 560ms 220ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
 
 .brand-panel p {
-  max-width: 640px;
+  max-width: 540px;
   color: rgba(255, 255, 255, 0.82);
-  font-size: 1.08rem;
-  line-height: 1.7;
+  font-size: clamp(1rem, 1.6vw, 1.18rem);
+  line-height: 1.55;
 }
 
 .eyebrow {
@@ -143,6 +200,11 @@ button:disabled {
 
 .brand-panel .eyebrow {
   color: #ffd6da;
+  animation: brandItemIn 560ms 160ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+.brand-panel .brand-content > p:not(.eyebrow) {
+  animation: brandItemIn 520ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
 
 .version-badge {
@@ -156,18 +218,56 @@ button:disabled {
   font-size: 0.84rem;
   font-weight: 800;
   letter-spacing: 0.03em;
+  backdrop-filter: blur(8px);
+  animation: brandItemIn 520ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
 
 .login-card {
   align-self: center;
   justify-self: center;
   width: min(430px, calc(100% - 32px));
-  padding: 32px;
+  padding: clamp(26px, 4vw, 38px);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: white;
-  box-shadow: var(--shadow);
-  animation: panelIn 420ms ease both;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 28px 70px rgba(91, 16, 24, 0.18);
+  backdrop-filter: blur(16px);
+  animation: loginCardIn 580ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+.login-card h2 {
+  font-size: clamp(1.45rem, 3vw, 1.85rem);
+  letter-spacing: -0.025em;
+}
+
+.login-card label {
+  animation: formItemIn 420ms ease-out both;
+}
+
+.login-card input {
+  min-height: 52px;
+  border-radius: 12px;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.login-card input:focus {
+  outline: none;
+  border-color: var(--red-600);
+  box-shadow: 0 0 0 4px rgba(201, 40, 56, 0.11);
+  transform: translateY(-1px);
+}
+
+.login-card .primary-action {
+  min-height: 50px;
+  border-radius: 12px;
+  animation: formItemIn 420ms ease-out both;
+}
+
+.login-card .primary-action:hover {
+  box-shadow: 0 18px 36px rgba(165, 31, 45, 0.3);
 }
 
 label {
@@ -1406,6 +1506,32 @@ th + th {
     grid-template-columns: 1fr;
   }
 
+  .login-view {
+    min-height: 100vh;
+    padding: 18px;
+    align-content: center;
+    grid-template-rows: auto auto;
+    gap: 0;
+  }
+
+  .brand-panel {
+    min-height: 430px;
+    padding: clamp(34px, 8vw, 64px);
+    justify-content: flex-end;
+    border-radius: 26px;
+  }
+
+  .brand-panel h1 {
+    font-size: clamp(3.4rem, 11vw, 6rem);
+  }
+
+  .login-card {
+    position: relative;
+    z-index: 3;
+    width: min(520px, calc(100% - 42px));
+    margin-top: -54px;
+  }
+
   .sidebar {
     min-height: auto;
     max-width: 100vw;
@@ -1432,11 +1558,60 @@ th + th {
 }
 
 @media (max-width: 680px) {
-  .brand-panel,
   .workspace,
-  .login-card,
   .sidebar {
     padding: 14px;
+  }
+
+  .login-view {
+    min-height: 100svh;
+    padding: 0;
+    align-content: start;
+    background: #f7f1f2;
+  }
+
+  .brand-panel {
+    min-height: 390px;
+    padding: 28px 22px 82px;
+    justify-content: flex-end;
+    border-radius: 0 0 28px 28px;
+    background-position: 58% center;
+    box-shadow: 0 22px 55px rgba(55, 16, 22, 0.2);
+  }
+
+  .brand-content {
+    max-width: 100%;
+  }
+
+  .hero-logo {
+    width: 58px;
+    height: 58px;
+    border-radius: 15px;
+  }
+
+  .brand-panel h1 {
+    margin: 14px 0 10px;
+    font-size: clamp(2.8rem, 16vw, 4.3rem);
+  }
+
+  .brand-panel p {
+    max-width: 330px;
+    font-size: 0.98rem;
+  }
+
+  .version-badge {
+    margin-top: 18px;
+    padding: 8px 11px;
+    font-size: 0.76rem;
+  }
+
+  .login-card {
+    justify-self: stretch;
+    width: calc(100% - 28px);
+    margin: -48px 14px 24px;
+    padding: 24px 20px;
+    border-radius: 20px;
+    animation-name: loginCardMobileIn;
   }
 
   .workspace {
@@ -1600,6 +1775,35 @@ th + th {
   }
 }
 
+@media (max-height: 700px) and (min-width: 681px) {
+  .login-view {
+    padding-block: 18px;
+  }
+
+  .brand-panel {
+    min-height: calc(100vh - 36px);
+  }
+
+  .brand-panel h1 {
+    font-size: clamp(3rem, 6.5vw, 5.4rem);
+  }
+
+  .version-badge {
+    margin-top: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -1649,6 +1853,83 @@ th + th {
   }
   50% {
     transform: translateY(-5px);
+  }
+}
+
+@keyframes loginBackdropIn {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+    filter: saturate(0.75);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: saturate(1);
+  }
+}
+
+@keyframes loginCardIn {
+  from {
+    opacity: 0.55;
+    transform: translateX(28px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes loginCardMobileIn {
+  from {
+    opacity: 0.55;
+    transform: translateY(22px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes brandItemIn {
+  from {
+    opacity: 0.6;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes formItemIn {
+  from {
+    opacity: 0.7;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes orbitDrift {
+  from {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  to {
+    transform: translate3d(-24px, 28px, 0) rotate(14deg);
+  }
+}
+
+@keyframes glowDrift {
+  from {
+    transform: translate3d(0, 0, 0) scale(0.92);
+    opacity: 0.45;
+  }
+  to {
+    transform: translate3d(-36px, -18px, 0) scale(1.1);
+    opacity: 0.9;
   }
 }
 
