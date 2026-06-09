@@ -67,10 +67,7 @@ button:disabled {
   grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
   align-items: stretch;
   gap: clamp(18px, 3vw, 42px);
-  background:
-    radial-gradient(circle at 8% 12%, rgba(201, 40, 56, 0.12), transparent 28%),
-    radial-gradient(circle at 90% 88%, rgba(91, 16, 24, 0.1), transparent 24%),
-    #f7f1f2;
+  background: #f7f1f2;
   overflow: hidden;
 }
 
@@ -83,10 +80,9 @@ button:disabled {
   justify-content: center;
   overflow: hidden;
   border-radius: 30px;
-  background:
-    linear-gradient(120deg, rgba(91, 16, 24, 0.94), rgba(45, 38, 40, 0.7)),
+  background: #5b1018
     url("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1600&q=80")
-      center/cover;
+    center/cover;
   color: #fff;
   box-shadow: 0 30px 80px rgba(55, 16, 22, 0.24);
   isolation: isolate;
@@ -98,30 +94,22 @@ button:disabled {
   content: "";
   position: absolute;
   z-index: -1;
-  border-radius: 50%;
   pointer-events: none;
 }
 
 .brand-panel::before {
-  width: 360px;
-  height: 360px;
-  top: -160px;
-  right: -110px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    0 0 0 54px rgba(255, 255, 255, 0.035),
-    0 0 0 108px rgba(255, 255, 255, 0.02);
-  animation: orbitDrift 12s ease-in-out infinite alternate;
+  inset: 0;
+  background: rgba(54, 14, 20, 0.8);
 }
 
 .brand-panel::after {
-  width: 220px;
-  height: 220px;
-  right: 8%;
-  bottom: -110px;
-  background: rgba(201, 40, 56, 0.18);
-  filter: blur(2px);
-  animation: glowDrift 8s ease-in-out infinite alternate;
+  width: 6px;
+  height: 96px;
+  left: 0;
+  top: 50%;
+  border-radius: 0 6px 6px 0;
+  background: #ef3340;
+  transform: translateY(-50%);
 }
 
 .brand-content {
@@ -177,7 +165,7 @@ button:disabled {
   margin: 18px 0 14px;
   font-size: clamp(3.4rem, 7vw, 6.8rem);
   line-height: 0.9;
-  letter-spacing: -0.055em;
+  letter-spacing: 0;
   text-wrap: balance;
   animation: brandItemIn 560ms 220ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
@@ -237,7 +225,7 @@ button:disabled {
 
 .login-card h2 {
   font-size: clamp(1.45rem, 3vw, 1.85rem);
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
 }
 
 .login-card label {
@@ -650,6 +638,37 @@ select {
 
 .count-actions {
   margin-bottom: 16px;
+}
+
+.count-import-summary {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  border: 1px solid #d8e9df;
+  border-radius: 8px;
+  background: #f3faf6;
+  animation: panelIn 220ms ease both;
+}
+
+.count-import-summary > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.count-import-summary strong {
+  overflow-wrap: anywhere;
+  color: #155f3e;
+  font-size: 0.9rem;
+}
+
+.count-import-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .count-actions button {
@@ -1654,6 +1673,10 @@ th + th {
   .form-row {
     width: 100%;
     flex-direction: column;
+  }
+
+  .count-import-summary {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .topbar-actions button,

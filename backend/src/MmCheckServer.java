@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
+  private static final String APP_VERSION = "1.3.0";
   private static final int PORT = Integer.parseInt(System.getenv().getOrDefault("PORT", "4173"));
   private static final Path ROOT = Path.of("").toAbsolutePath();
   private static final Path FRONTEND = ROOT.resolve("frontend");
@@ -87,7 +88,7 @@ public class MmCheckServer {
     }
 
     if ("GET".equals(method) && "/api/health".equals(path)) {
-      json(exchange, 200, Map.of("status", "ok", "app", "MN - Check"));
+      json(exchange, 200, Map.of("status", "ok", "app", "MN - Check", "version", APP_VERSION));
       return;
     }
 
@@ -220,6 +221,7 @@ public class MmCheckServer {
       Files.write(UPLOAD_DIR.resolve(storedName), decodeDataUrl(dataUrl));
       db.counts = imported;
       db.countsUpdatedAt = Instant.now().toString();
+      db.countsSourceName = fileName;
       db.audit(user, "count_upload", "Saldo atualizado pelo PDF " + fileName + " com " + imported.size() + " SKUs");
       db.save(DB_PATH);
       json(exchange, 200, visibleData(user));
@@ -414,6 +416,7 @@ public class MmCheckServer {
         "users", "admin".equals(user.role) ? db.users.stream().map(User::publicMap).toList() : List.of(),
         "counts", List.of("admin", "stock").contains(user.role) ? db.counts.stream().map(CountItem::toMap).toList() : List.of(),
         "countsUpdatedAt", List.of("admin", "stock").contains(user.role) ? db.countsUpdatedAt : "",
+        "countsSourceName", List.of("admin", "stock").contains(user.role) ? db.countsSourceName : "",
         "errors", "admin".equals(user.role) ? db.errors.stream().map(ErrorRecord::toMap).toList() : List.of(),
         "auditLog", "admin".equals(user.role) ? db.auditLog.stream().map(AuditRecord::toMap).toList() : List.of(),
         "notifications", "admin".equals(user.role) ? db.notifications.stream().map(item -> item.toMap(user.id)).toList() : List.of(),
@@ -449,6 +452,9 @@ public class MmCheckServer {
     };
     byte[] bytes = Files.readAllBytes(file);
     exchange.getResponseHeaders().set("Content-Type", type);
+    exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
+    exchange.getResponseHeaders().set("Pragma", "no-cache");
+    exchange.getResponseHeaders().set("Expires", "0");
     exchange.sendResponseHeaders(200, bytes.length);
     try (OutputStream out = exchange.getResponseBody()) {
       out.write(bytes);
@@ -971,6 +977,7 @@ public class MmCheckServer {
     List<CargoMap> maps = new ArrayList<>();
     List<CountItem> counts = new ArrayList<>();
     String countsUpdatedAt = "";
+    String countsSourceName = "";
     List<ErrorRecord> errors = new ArrayList<>();
     List<AuditRecord> auditLog = new ArrayList<>();
     List<AdminNotification> notifications = new ArrayList<>();
@@ -990,6 +997,7 @@ public class MmCheckServer {
         return new CountItem(string(count.get("sku")), number(count.get("system")), number(count.get("counted")));
       }).toList());
       db.countsUpdatedAt = string(map.get("countsUpdatedAt"));
+      db.countsSourceName = string(map.get("countsSourceName"));
       db.errors = new ArrayList<>(list(map.get("errors")).stream().map(item -> {
         Map<String, Object> error = castMap(item);
         return new ErrorRecord(string(error.get("order")), string(error.get("issue")), string(error.get("owner")));
@@ -998,18 +1006,33 @@ public class MmCheckServer {
         Map<String, Object> audit = castMap(item);
         return new AuditRecord(string(audit.get("at")), string(audit.get("userName")), string(audit.get("action")), string(audit.get("description")));
       }).toList());
+      boolean migrated = false;
       if (db.countsUpdatedAt.isBlank()) {
         db.countsUpdatedAt = db.auditLog.stream()
             .filter(audit -> "count_upload".equals(audit.action()))
             .map(AuditRecord::at)
             .reduce((first, second) -> second)
             .orElse("");
+        migrated = !db.countsUpdatedAt.isBlank();
+      }
+      if (db.countsSourceName.isBlank()) {
+        String description = db.auditLog.stream()
+            .filter(audit -> "count_upload".equals(audit.action()))
+            .map(AuditRecord::description)
+            .reduce((first, second) -> second)
+            .orElse("");
+        int start = description.indexOf("PDF ");
+        int end = description.lastIndexOf(" com ");
+        if (start >= 0 && end > start + 4) {
+          db.countsSourceName = description.substring(start + 4, end);
+          migrated = true;
+        }
       }
       db.notifications = new ArrayList<>(list(map.get("notifications")).stream()
           .map(item -> AdminNotification.fromMap(castMap(item))).toList());
       boolean removedExamples = db.maps.removeIf(Database::isLegacyExampleMap);
       removedExamples |= db.errors.removeIf(error -> "15727".equals(error.order));
-      if (removedExamples) db.save(file);
+      if (removedExamples || migrated) db.save(file);
       return db;
     }
 
@@ -1043,6 +1066,7 @@ public class MmCheckServer {
       map.put("maps", maps.stream().map(CargoMap::toMap).toList());
       map.put("counts", counts.stream().map(CountItem::toMap).toList());
       map.put("countsUpdatedAt", countsUpdatedAt);
+      map.put("countsSourceName", countsSourceName);
       map.put("errors", errors.stream().map(ErrorRecord::toMap).toList());
       map.put("auditLog", auditLog.stream().map(AuditRecord::toMap).toList());
       map.put("notifications", notifications.stream().map(AdminNotification::toStoredMap).toList());

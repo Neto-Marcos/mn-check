@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 
 const ROLE_OPTIONS = [
   ["separation", "Conferente de separação"],
@@ -395,6 +395,7 @@ function App() {
       view === "counting" && h(Counting, {
         counts: data.counts,
         updatedAt: data.countsUpdatedAt,
+        sourceName: data.countsSourceName,
         onUpload: countUpload,
         onUpdate: updateCounts
       }),
@@ -642,7 +643,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
   );
 }
 
-function Counting({ counts, updatedAt, onUpload, onUpdate }) {
+function Counting({ counts, updatedAt, sourceName, onUpload, onUpdate }) {
   const [draft, setDraft] = React.useState(counts);
   const [importing, setImporting] = React.useState(false);
   const fileInputRef = React.useRef(null);
@@ -682,6 +683,16 @@ function Counting({ counts, updatedAt, onUpload, onUpdate }) {
       h("div", { className: "panel-header" },
         h("h3", null, "Contagem de estoque"),
         h("span", null, updatedAt ? `Saldo atualizado em ${formatDate(updatedAt)}` : "Saldo ainda não importado")
+      ),
+      updatedAt && h("div", { className: "count-import-summary" },
+        h("div", null,
+          h("span", { className: "count-import-label" }, "Última importação"),
+          h("strong", null, sourceName || "PDF de saldo")
+        ),
+        h("div", null,
+          h("span", { className: "count-import-label" }, "Resultado"),
+          h("strong", null, `${counts.length} SKUs processados pelo Gemini`)
+        )
       ),
       h("input", {
         className: "hidden",
@@ -1217,6 +1228,7 @@ function emptyData() {
     users: [],
     counts: [],
     countsUpdatedAt: "",
+    countsSourceName: "",
     errors: [],
     auditLog: [],
     notifications: [],
