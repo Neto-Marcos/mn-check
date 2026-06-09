@@ -173,7 +173,9 @@ public class MmCheckServer {
     }
 
     if ("POST".equals(method) && "/api/maps/upload".equals(path)) {
-      requireAdmin(user);
+      if (!List.of("admin", "separation").contains(user.role)) {
+        throw new ApiException(403, "Ação permitida apenas para administradores e conferentes de separação.");
+      }
       Map<String, Object> body = readJson(exchange);
       String fileName = string(body.get("fileName")).trim();
       String contentType = string(body.get("contentType")).trim();

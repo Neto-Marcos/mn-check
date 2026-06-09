@@ -343,14 +343,14 @@ function App() {
       h("header", { className: "topbar" },
         h("div", null, h("p", { className: "eyebrow" }, eyebrow), h("h2", null, title)),
         h("div", { className: "topbar-actions" },
-          user.role === "admin" && view === "separation" && h("input", {
+          ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
             className: "hidden",
             ref: mapPdfInputRef,
             type: "file",
             accept: "application/pdf,.pdf",
             onChange: uploadMapFile
           }),
-          user.role === "admin" && view === "separation" && h("input", {
+          ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
             className: "hidden",
             ref: mapCameraInputRef,
             type: "file",
@@ -358,7 +358,7 @@ function App() {
             capture: "environment",
             onChange: uploadMapFile
           }),
-          user.role === "admin" && view === "separation" && h("button", {
+          ["admin", "separation"].includes(user.role) && view === "separation" && h("button", {
             className: "primary-action compact",
             disabled: mapImporting,
             onClick: () => setMapImportOpen(true)
