@@ -140,6 +140,38 @@ public class MmCheckServer {
       return;
     }
 
+    if ("PATCH".equals(method) && path.startsWith("/api/users/") && path.endsWith("/password")) {
+      String userId = URLDecoder.decode(
+          path.substring("/api/users/".length(), path.length() - "/password".length()),
+          StandardCharsets.UTF_8
+      );
+      User target = db.users.stream().filter(item -> item.id.equals(userId)).findFirst()
+          .orElseThrow(() -> new ApiException(404, "Usuário não encontrado."));
+      boolean ownPassword = target.id.equals(user.id);
+      boolean principalAdmin = "Marcos".equalsIgnoreCase(user.username);
+      if (!ownPassword && !principalAdmin) {
+        throw new ApiException(403, "Somente Marcos pode redefinir a senha de outros usuários.");
+      }
+
+      Map<String, Object> body = readJson(exchange);
+      String currentPassword = string(body.get("currentPassword"));
+      String newPassword = string(body.get("newPassword"));
+      if (newPassword.length() < 6) throw new ApiException(400, "A nova senha deve ter pelo menos 6 caracteres.");
+      if (ownPassword && !target.passwordHash.equals(hash(currentPassword))) {
+        throw new ApiException(401, "A senha atual está incorreta.");
+      }
+
+      User updated = new User(target.id, target.username, target.name, target.role, target.label, hash(newPassword));
+      int index = db.users.indexOf(target);
+      db.users.set(index, updated);
+      SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
+      db.audit(user, ownPassword ? "change_password" : "reset_password",
+          ownPassword ? "Senha própria alterada" : "Senha de " + target.username + " redefinida");
+      db.save(DB_PATH);
+      json(exchange, 200, Map.of("message", ownPassword ? "Senha alterada." : "Senha redefinida."));
+      return;
+    }
+
     if ("POST".equals(method) && "/api/maps/upload".equals(path)) {
       requireAdmin(user);
       Map<String, Object> body = readJson(exchange);
@@ -395,7 +427,7 @@ public class MmCheckServer {
   }
 
   private static void addFallbackStringFields(String body, Map<String, Object> result) {
-    for (String key : List.of("username", "password", "name", "role", "fileName", "contentType", "dataUrl")) {
+    for (String key : List.of("username", "password", "name", "role", "fileName", "contentType", "dataUrl", "currentPassword", "newPassword")) {
       extractString(body, key).ifPresent(value -> result.put(key, value));
     }
     if (!result.containsKey("ok")) {

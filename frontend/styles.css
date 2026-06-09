@@ -548,12 +548,56 @@ select {
   font-weight: 800;
 }
 
+.user-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.password-user-action {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--red-800);
+  font-weight: 800;
+}
+
 .protected-user {
   padding: 7px 9px;
   border-radius: 6px;
   background: #e9f8f1;
   color: #12623e !important;
   text-align: center;
+}
+
+.account-action {
+  margin-top: auto;
+}
+
+.password-dialog {
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+
+.dialog-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.form-error {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #ffe7ea;
+  color: #a51f2d;
+  font-size: 0.86rem;
+  font-weight: 800;
 }
 
 .metric-card,
@@ -1113,7 +1157,18 @@ th + th {
   }
 
   .remove-user-action,
+  .password-user-action,
   .protected-user {
+    width: 100%;
+  }
+
+  .user-card-actions,
+  .dialog-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .dialog-actions button {
     width: 100%;
   }
 

@@ -24,6 +24,7 @@ function App() {
   const [toast, setToast] = React.useState("");
   const [mapImportOpen, setMapImportOpen] = React.useState(false);
   const [mapImporting, setMapImporting] = React.useState(false);
+  const [passwordTarget, setPasswordTarget] = React.useState(null);
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
   const mapPdfInputRef = React.useRef(null);
@@ -105,6 +106,27 @@ function App() {
       await refresh("Usuário removido com sucesso.", "users");
     } catch (error) {
       notify(error.message);
+    }
+  }
+
+  async function changePassword(target, values) {
+    const ownPassword = target.id === user.id;
+    try {
+      await request(`/api/users/${encodeURIComponent(target.id)}/password`, {
+        method: "PATCH",
+        body: {
+          currentPassword: ownPassword ? values.currentPassword : "",
+          newPassword: values.newPassword,
+        },
+      });
+      setPasswordTarget(null);
+      if (ownPassword) {
+        logout();
+        return;
+      }
+      notify(`Senha de ${target.name} redefinida.`);
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -263,6 +285,7 @@ function App() {
           onClick: () => setView(item)
         }, TITLES[item][1]))
       ),
+      h("button", { className: "ghost-action account-action", onClick: () => setPasswordTarget(user) }, "Alterar minha senha"),
       h("button", { className: "ghost-action", onClick: logout }, "Sair")
     ),
     h("section", { className: "workspace" },
@@ -302,7 +325,14 @@ function App() {
       }),
       view === "counting" && h(Counting, { counts: data.counts, onUpload: countUpload, onUpdate: updateCounts }),
       view === "history" && h(History, { data }),
-      view === "users" && h(Users, { users: data.users, newUser, setNewUser, createUser, removeUser }),
+      view === "users" && h(Users, {
+        users: data.users,
+        newUser,
+        setNewUser,
+        createUser,
+        removeUser,
+        changeUserPassword: setPasswordTarget
+      }),
     ),
     mapImportOpen && h(NewMapDialog, {
       busy: mapImporting,
@@ -310,7 +340,85 @@ function App() {
       onCamera: () => mapCameraInputRef.current?.click(),
       onPdf: () => mapPdfInputRef.current?.click()
     }),
+    passwordTarget && h(PasswordDialog, {
+      target: passwordTarget,
+      ownPassword: passwordTarget.id === user.id,
+      onClose: () => setPasswordTarget(null),
+      onSave: changePassword
+    }),
     toast && h("div", { className: "toast" }, toast)
+  );
+}
+
+function PasswordDialog({ target, ownPassword, onClose, onSave }) {
+  const [values, setValues] = React.useState({ currentPassword: "", newPassword: "", confirmation: "" });
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    if (values.newPassword.length < 6) {
+      setError("A nova senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (values.newPassword !== values.confirmation) {
+      setError("A confirmação não corresponde à nova senha.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(target, values);
+    } catch (submitError) {
+      setError(submitError.message);
+      setSaving(false);
+    }
+  }
+
+  return h("div", { className: "modal-backdrop", role: "presentation", onMouseDown: saving ? undefined : onClose },
+    h("form", { className: "new-map-dialog password-dialog", onSubmit: submit, onMouseDown: (event) => event.stopPropagation() },
+      h("div", { className: "dialog-head" },
+        h("div", null,
+          h("p", { className: "eyebrow" }, ownPassword ? "segurança da conta" : "administração"),
+          h("h3", null, ownPassword ? "Alterar minha senha" : `Redefinir senha de ${target.name}`)
+        ),
+        h("button", { className: "dialog-close", type: "button", disabled: saving, onClick: onClose, "aria-label": "Fechar" }, "×")
+      ),
+      ownPassword && h("label", null, "Senha atual",
+        h("input", {
+          type: "password",
+          required: true,
+          autoComplete: "current-password",
+          value: values.currentPassword,
+          onChange: (event) => setValues({ ...values, currentPassword: event.target.value })
+        })
+      ),
+      h("label", null, "Nova senha",
+        h("input", {
+          type: "password",
+          required: true,
+          minLength: 6,
+          autoComplete: "new-password",
+          value: values.newPassword,
+          onChange: (event) => setValues({ ...values, newPassword: event.target.value })
+        })
+      ),
+      h("label", null, "Confirmar nova senha",
+        h("input", {
+          type: "password",
+          required: true,
+          minLength: 6,
+          autoComplete: "new-password",
+          value: values.confirmation,
+          onChange: (event) => setValues({ ...values, confirmation: event.target.value })
+        })
+      ),
+      error && h("div", { className: "form-error" }, error),
+      h("div", { className: "dialog-actions" },
+        h("button", { className: "secondary-action compact", type: "button", disabled: saving, onClick: onClose }, "Cancelar"),
+        h("button", { className: "primary-action compact", type: "submit", disabled: saving }, saving ? "Salvando..." : "Salvar nova senha")
+      )
+    )
   );
 }
 
@@ -505,7 +613,7 @@ function Counting({ counts, onUpload, onUpdate }) {
   );
 }
 
-function Users({ users, newUser, setNewUser, createUser, removeUser }) {
+function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserPassword }) {
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Cadastrar login"), h("span", null, "admin")),
@@ -531,12 +639,18 @@ function Users({ users, newUser, setNewUser, createUser, removeUser }) {
             h("strong", null, user.username),
             h("span", null, `${user.name} - ${user.label}`)
           ),
-          user.username.toLowerCase() === "marcos"
-            ? h("span", { className: "protected-user" }, "Administrador principal")
-            : h("button", {
-                className: "remove-user-action",
-                onClick: () => removeUser(user)
-              }, "Remover usuário")
+          h("div", { className: "user-card-actions" },
+            h("button", {
+              className: "password-user-action",
+              onClick: () => changeUserPassword(user)
+            }, "Alterar senha"),
+            user.username.toLowerCase() === "marcos"
+              ? h("span", { className: "protected-user" }, "Administrador principal")
+              : h("button", {
+                  className: "remove-user-action",
+                  onClick: () => removeUser(user)
+                }, "Remover usuário")
+          )
         )
       ))
     )
