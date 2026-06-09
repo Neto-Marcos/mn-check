@@ -393,7 +393,12 @@ function App() {
         onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
         onScan: scanBarcode
       }),
-      view === "counting" && h(Counting, { counts: data.counts, onUpload: countUpload, onUpdate: updateCounts }),
+      view === "counting" && h(Counting, {
+        counts: data.counts,
+        updatedAt: data.countsUpdatedAt,
+        onUpload: countUpload,
+        onUpdate: updateCounts
+      }),
       view === "history" && h(History, { data }),
       view === "users" && h(Users, {
         users: data.users,
@@ -638,7 +643,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
   );
 }
 
-function Counting({ counts, onUpload, onUpdate }) {
+function Counting({ counts, updatedAt, onUpload, onUpdate }) {
   const [draft, setDraft] = React.useState(counts);
   const [importing, setImporting] = React.useState(false);
   const fileInputRef = React.useRef(null);
@@ -675,7 +680,10 @@ function Counting({ counts, onUpload, onUpdate }) {
 
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Contagem de estoque"), h("span", null, "saldo atualizado")),
+      h("div", { className: "panel-header" },
+        h("h3", null, "Contagem de estoque"),
+        h("span", null, updatedAt ? `Saldo atualizado em ${formatDate(updatedAt)}` : "Saldo ainda não importado")
+      ),
       h("input", {
         className: "hidden",
         ref: fileInputRef,
@@ -1205,7 +1213,16 @@ function readFileAsDataUrl(file) {
 }
 
 function emptyData() {
-  return { maps: [], users: [], counts: [], errors: [], auditLog: [], notifications: [], metrics: {} };
+  return {
+    maps: [],
+    users: [],
+    counts: [],
+    countsUpdatedAt: "",
+    errors: [],
+    auditLog: [],
+    notifications: [],
+    metrics: {}
+  };
 }
 
 ReactDOM.createRoot(document.querySelector("#root")).render(h(App));
