@@ -207,19 +207,13 @@ public class MmCheckServer {
       if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
       Map<String, Object> body = readJson(exchange);
       String fileName = string(body.get("fileName")).trim();
+      String contentType = string(body.get("contentType")).trim();
       String dataUrl = string(body.get("dataUrl")).trim();
-      List<Object> rows = list(body.get("counts"));
       if (fileName.isBlank() || dataUrl.isBlank()) throw new ApiException(400, "Selecione um PDF de saldo.");
-      if (rows.isEmpty()) throw new ApiException(400, "Nenhum SKU foi identificado no PDF.");
+      if (contentType.isBlank()) contentType = "application/pdf";
+      if (!"application/pdf".equals(contentType)) throw new ApiException(400, "O arquivo de saldo deve ser um PDF.");
 
-      List<CountItem> imported = new ArrayList<>();
-      for (Object row : rows) {
-        Map<String, Object> item = castMap(row);
-        String sku = string(item.get("sku")).trim();
-        if (sku.isBlank()) continue;
-        imported.add(new CountItem(sku, number(item.get("system")), number(item.get("counted"))));
-      }
-      if (imported.isEmpty()) throw new ApiException(400, "Nenhum SKU válido foi identificado no PDF.");
+      List<CountItem> imported = analyzeCountsWithGemini(contentType, dataUrl);
 
       Files.createDirectories(UPLOAD_DIR);
       String storedName = "contagem-" + System.currentTimeMillis() + "-" + safeFileName(fileName);
@@ -547,14 +541,121 @@ public class MmCheckServer {
     return value == null ? "" : value.replaceAll("\\D", "");
   }
 
-  private static CargoMap analyzeMapWithGemini(String id, String createdBy, String contentType, String dataUrl) throws Exception {
+  private static List<CountItem> analyzeCountsWithGemini(String contentType, String dataUrl) throws Exception {
+    Map<String, Object> rowSchema = Map.of(
+        "type", "object",
+        "properties", Map.of(
+            "productCode", Map.of("type", "string", "description", "Valor exato da coluna Cod Produto"),
+            "gradeX", Map.of("type", "string", "description", "Valor exato da coluna Grade X, que representa a cor"),
+            "gradeY", Map.of("type", "string", "description", "Valor exato da coluna Grade Y, que representa a voltagem"),
+            "balance", Map.of("type", "integer", "description", "Valor inteiro exato da coluna Saldo")
+        ),
+        "required", List.of("productCode", "gradeX", "gradeY", "balance")
+    );
+    Map<String, Object> schema = Map.of(
+        "type", "object",
+        "properties", Map.of(
+            "rows", Map.of("type", "array", "items", rowSchema)
+        ),
+        "required", List.of("rows")
+    );
+    String prompt = """
+        Leia todas as páginas deste relatório brasileiro "Saldo Produto Filial".
+        Extraia somente as linhas de produtos da tabela, sem inventar, completar ou corrigir valores.
+        Para cada linha, retorne separadamente:
+        - productCode: coluna "Cod Produto";
+        - gradeX: coluna "Grade 'X'", que representa a cor;
+        - gradeY: coluna "Grade 'Y'", que representa a voltagem;
+        - balance: coluna "Saldo".
+
+        Regras obrigatórias:
+        - percorra todas as folhas do PDF;
+        - ignore cabeçalhos, filtros, filial, datas, número da folha, custos, totais e descrições;
+        - nunca use 9999999, números da descrição, custo médio ou total como produto ou saldo;
+        - preserve os números exatamente na linha e não una valores de linhas diferentes;
+        - cada linha visual da tabela deve gerar no máximo um registro;
+        - não monte o SKU: retorne as quatro colunas separadas para validação pelo servidor.
+        """;
+    Map<String, Object> analysis = analyzeDocumentWithGemini(contentType, dataUrl, prompt, schema, "saldo");
+    return countItemsFromAnalysis(analysis);
+  }
+
+  private static List<CountItem> countItemsFromAnalysis(Map<String, Object> analysis) {
+    Map<String, CountItem> unique = new LinkedHashMap<>();
+    for (Object value : list(analysis.get("rows"))) {
+      Map<String, Object> row = castMap(value);
+      String productCode = string(row.get("productCode")).trim();
+      String gradeX = string(row.get("gradeX")).trim();
+      String gradeY = string(row.get("gradeY")).trim();
+      if (!productCode.matches("\\d{1,10}") || "0".equals(productCode) || "9999999".equals(productCode)) continue;
+      if (!gradeX.matches("\\d{1,10}") || !gradeY.matches("\\d{1,3}")) continue;
+
+      int balance = number(row.get("balance"));
+      String sku = productCode + "-" + gradeX + "." + gradeY;
+      CountItem previous = unique.get(sku);
+      if (previous != null && previous.system() != balance) {
+        throw new ApiException(422, "A IA encontrou saldos diferentes para o SKU " + sku + ". Revise o PDF.");
+      }
+      unique.putIfAbsent(sku, new CountItem(sku, balance, 0));
+    }
+    if (unique.isEmpty()) {
+      throw new ApiException(422, "A IA não encontrou linhas válidas com Produto, Grade X, Grade Y e Saldo.");
+    }
+    return new ArrayList<>(unique.values());
+  }
+
+  private static Map<String, Object> analyzeDocumentWithGemini(
+      String contentType,
+      String dataUrl,
+      String prompt,
+      Map<String, Object> schema,
+      String documentLabel
+  ) throws Exception {
     String apiKey = System.getenv("GEMINI_API_KEY");
     if (apiKey == null || apiKey.isBlank()) {
       throw new ApiException(503, "Leitura por IA não configurada. Adicione GEMINI_API_KEY no servidor.");
     }
     String encoded = dataUrl.substring(dataUrl.indexOf(",") + 1);
     String model = System.getenv().getOrDefault("GEMINI_MODEL", "gemini-2.5-flash");
+    Map<String, Object> requestBody = Map.of(
+        "contents", List.of(Map.of(
+            "role", "user",
+            "parts", List.of(
+                Map.of("text", prompt),
+                Map.of("inlineData", Map.of("mimeType", contentType, "data", encoded))
+            )
+        )),
+        "generationConfig", Map.of(
+            "temperature", 0,
+            "maxOutputTokens", 65536,
+            "responseMimeType", "application/json",
+            "responseJsonSchema", schema
+        )
+    );
 
+    HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
+        .timeout(Duration.ofSeconds(120))
+        .header("Content-Type", "application/json")
+        .header("x-goog-api-key", apiKey)
+        .POST(HttpRequest.BodyPublishers.ofString(Json.stringify(requestBody), StandardCharsets.UTF_8))
+        .build();
+    HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() >= 400) {
+      throw new ApiException(502, "A IA não conseguiu processar o " + documentLabel + ". Verifique a chave e tente novamente.");
+    }
+
+    Map<String, Object> root = castMap(Json.parse(response.body()));
+    List<Object> candidates = list(root.get("candidates"));
+    if (candidates.isEmpty()) throw new ApiException(422, "A IA não encontrou dados no " + documentLabel + ".");
+    Map<String, Object> content = castMap(castMap(candidates.get(0)).get("content"));
+    List<Object> parts = list(content.get("parts"));
+    if (parts.isEmpty()) throw new ApiException(422, "A IA não retornou dados do " + documentLabel + ".");
+    String text = string(castMap(parts.get(0)).get("text"));
+    return castMap(Json.parse(text));
+  }
+
+  private static CargoMap analyzeMapWithGemini(String id, String createdBy, String contentType, String dataUrl) throws Exception {
     Map<String, Object> itemSchema = Map.of(
         "type", "object",
         "properties", Map.of(
@@ -584,42 +685,7 @@ public class MmCheckServer {
         Ignore totais, pesos, cabeçalhos repetidos e anotações manuscritas.
         Se um campo não estiver legível, retorne string vazia. Preserve os códigos exatamente como impressos.
         """;
-    Map<String, Object> requestBody = Map.of(
-        "contents", List.of(Map.of(
-            "role", "user",
-            "parts", List.of(
-                Map.of("text", prompt),
-                Map.of("inlineData", Map.of("mimeType", contentType, "data", encoded))
-            )
-        )),
-        "generationConfig", Map.of(
-            "temperature", 0,
-            "responseMimeType", "application/json",
-            "responseJsonSchema", schema
-        )
-    );
-
-    HttpRequest request = HttpRequest.newBuilder()
-        .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
-        .timeout(Duration.ofSeconds(90))
-        .header("Content-Type", "application/json")
-        .header("x-goog-api-key", apiKey)
-        .POST(HttpRequest.BodyPublishers.ofString(Json.stringify(requestBody), StandardCharsets.UTF_8))
-        .build();
-    HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    if (response.statusCode() >= 400) {
-      throw new ApiException(502, "A IA não conseguiu processar o arquivo. Verifique a chave e tente novamente.");
-    }
-
-    Map<String, Object> root = castMap(Json.parse(response.body()));
-    List<Object> candidates = list(root.get("candidates"));
-    if (candidates.isEmpty()) throw new ApiException(422, "A IA não encontrou dados no arquivo.");
-    Map<String, Object> candidate = castMap(candidates.get(0));
-    Map<String, Object> content = castMap(candidate.get("content"));
-    List<Object> parts = list(content.get("parts"));
-    if (parts.isEmpty()) throw new ApiException(422, "A IA não retornou dados do mapa.");
-    String text = string(castMap(parts.get(0)).get("text"));
-    Map<String, Object> analysis = castMap(Json.parse(text));
+    Map<String, Object> analysis = analyzeDocumentWithGemini(contentType, dataUrl, prompt, schema, "mapa");
 
     CargoMap map = new CargoMap();
     map.id = id;

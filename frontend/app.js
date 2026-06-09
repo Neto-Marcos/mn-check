@@ -251,14 +251,18 @@ function App() {
     }
   }
 
-  async function countUpload(file, counts) {
+  async function countUpload(file) {
     try {
       const dataUrl = await readFileAsDataUrl(file);
       await request("/api/counts/upload", {
         method: "POST",
-        body: { fileName: file.name, dataUrl, counts },
+        body: {
+          fileName: file.name,
+          contentType: file.type || "application/pdf",
+          dataUrl
+        },
       });
-      await refresh(`${counts.length} saldos importados do PDF.`, "counting");
+      await refresh("Saldos lidos e validados pela IA.", "counting");
     } catch (error) {
       notify(error.message);
       throw error;
@@ -656,8 +660,7 @@ function Counting({ counts, onUpload, onUpdate }) {
 
     setImporting(true);
     try {
-      const rows = await extractCountsFromPdf(file);
-      await onUpload(file, rows);
+      await onUpload(file);
     } catch (error) {
       window.alert(error.message);
     } finally {
@@ -685,7 +688,7 @@ function Counting({ counts, onUpload, onUpdate }) {
           className: "secondary-action compact",
           disabled: importing,
           onClick: () => fileInputRef.current?.click()
-        }, importing ? "Lendo PDF..." : "Selecionar PDF de saldo"),
+        }, importing ? "Lendo PDF com IA..." : "Selecionar PDF de saldo"),
         h("button", {
           className: "primary-action compact",
           disabled: !draft.length,
@@ -1190,127 +1193,6 @@ function plural(value, singular, pluralText) {
 
 function formatDate(value) {
   return new Date(value).toLocaleString("pt-BR");
-}
-
-async function extractCountsFromPdf(file) {
-  if (!window.pdfjsLib) throw new Error("Leitor de PDF indisponível. Atualize a página e tente novamente.");
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-
-  const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-  const found = new Map();
-  let recognizedRows = 0;
-
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const viewport = page.getViewport({ scale: 1 });
-    const parts = content.items
-      .map((item) => ({
-        x: item.transform[4],
-        y: item.transform[5],
-        text: item.str.trim(),
-      }))
-      .filter((item) => item.text);
-    const columns = findBalanceColumns(parts, viewport.width);
-    const rows = groupPdfRows(parts);
-
-    rows.forEach((row) => {
-      if (row.y >= columns.headerY - 2) return;
-
-      const product = integerInColumn(row.parts, columns.product);
-      const color = integerInColumn(row.parts, columns.gradeX);
-      const voltage = integerInColumn(row.parts, columns.gradeY);
-      const balance = integerInColumn(row.parts, columns.balance, true);
-      if (product === null || color === null || voltage === null || balance === null) return;
-
-      recognizedRows++;
-      const sku = `${product}-${color}.${voltage}`;
-      const existing = found.get(sku);
-      if (existing && existing.system !== balance) {
-        throw new Error(`O SKU ${sku} apareceu mais de uma vez com saldos diferentes.`);
-      }
-      found.set(sku, { sku, system: balance, counted: 0 });
-    });
-  }
-
-  const rows = [...found.values()];
-  if (!rows.length) {
-    throw new Error("Não foi possível identificar Produto, Grade X, Grade Y e Saldo nesse PDF.");
-  }
-  if (rows.length !== recognizedRows) {
-    throw new Error("O PDF contém SKUs repetidos. Revise o relatório antes de importar.");
-  }
-  return rows;
-}
-
-function findBalanceColumns(parts, pageWidth) {
-  const normalized = parts.map((part) => ({ ...part, normalized: normalizePdfText(part.text) }));
-  const header = (matcher, fallbackX) => {
-    const match = normalized.find((part) => matcher(part.normalized));
-    return match ? match.x : pageWidth * fallbackX;
-  };
-
-  const anchors = {
-    branch: header((text) => text === "cod filial", 0.04),
-    product: header((text) => text === "cod produto", 0.12),
-    gradeX: header((text) => text === "grade 'x'" || text === "grade x", 0.19),
-    gradeY: header((text) => text === "grade 'y'" || text === "grade y", 0.25),
-    description: header((text) => text === "produto", 0.31),
-    balance: header((text) => text === "saldo", 0.65),
-    cost: header((text) => text.startsWith("custo medio"), 0.76),
-  };
-  const headerParts = normalized.filter((part) =>
-    ["cod filial", "cod produto", "grade 'x'", "grade x", "grade 'y'", "grade y", "produto", "saldo"]
-      .includes(part.normalized)
-  );
-  const headerY = headerParts.length
-    ? Math.max(...headerParts.map((part) => part.y))
-    : Math.max(...parts.map((part) => part.y)) - 40;
-  const between = (left, center, right) => ({
-    min: (left + center) / 2,
-    max: (center + right) / 2,
-  });
-
-  return {
-    headerY,
-    product: between(anchors.branch, anchors.product, anchors.gradeX),
-    gradeX: between(anchors.product, anchors.gradeX, anchors.gradeY),
-    gradeY: between(anchors.gradeX, anchors.gradeY, anchors.description),
-    balance: between(anchors.description, anchors.balance, anchors.cost),
-  };
-}
-
-function groupPdfRows(parts) {
-  const grouped = [];
-  [...parts].sort((a, b) => b.y - a.y).forEach((part) => {
-    let row = grouped.find((candidate) => Math.abs(candidate.y - part.y) <= 2);
-    if (!row) {
-      row = { y: part.y, parts: [] };
-      grouped.push(row);
-    }
-    row.parts.push(part);
-  });
-  return grouped;
-}
-
-function integerInColumn(parts, column, allowNegative = false) {
-  const pattern = allowNegative ? /^-?\d+$/ : /^\d+$/;
-  const matches = parts
-    .filter((part) => part.x >= column.min && part.x < column.max && pattern.test(part.text))
-    .sort((a, b) => a.x - b.x);
-  if (matches.length !== 1) return null;
-  const value = Number.parseInt(matches[0].text, 10);
-  return Number.isSafeInteger(value) ? value : null;
-}
-
-function normalizePdfText(value) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
 }
 
 function readFileAsDataUrl(file) {

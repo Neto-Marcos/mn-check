@@ -13,9 +13,9 @@ MVP empresarial local com backend em Java e frontend em React para controle de m
 
 O Render cria um endereço HTTPS para o MN - Check. No plano gratuito, o primeiro acesso após um período parado pode levar cerca de um minuto.
 
-## Leitura de mapas com IA
+## Leitura de documentos com IA
 
-O MN - Check usa o Gemini 2.5 Flash para extrair os dados de PDFs e fotos de mapas de carga. Crie uma chave gratuita no [Google AI Studio](https://aistudio.google.com/apikey) e adicione no Render:
+O MN - Check usa o Gemini 2.5 Flash para extrair dados de PDFs e fotos de mapas de carga e também dos relatórios de saldo com várias folhas. Crie uma chave gratuita no [Google AI Studio](https://aistudio.google.com/apikey) e adicione no Render:
 
 ```text
 GEMINI_API_KEY=sua-chave
