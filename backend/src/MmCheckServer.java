@@ -50,7 +50,7 @@ public class MmCheckServer {
     executor = Executors.newFixedThreadPool(8);
     server.setExecutor(executor);
     server.start();
-    System.out.println("MM check Java rodando em http://0.0.0.0:" + PORT);
+    System.out.println("MN - Check Java rodando em http://0.0.0.0:" + PORT);
     Thread.currentThread().join();
   }
 
@@ -87,7 +87,7 @@ public class MmCheckServer {
     }
 
     if ("GET".equals(method) && "/api/health".equals(path)) {
-      json(exchange, 200, Map.of("status", "ok", "app", "MM check"));
+      json(exchange, 200, Map.of("status", "ok", "app", "MN - Check"));
       return;
     }
 

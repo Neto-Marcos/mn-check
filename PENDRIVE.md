@@ -1,4 +1,4 @@
-# MM check no pendrive
+# MN - Check no pendrive
 
 Copie a pasta inteira do projeto para o pendrive e abra `iniciar-mm-check.bat`. O computador precisa ter Java 17 ou superior.
 

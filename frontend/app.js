@@ -17,7 +17,7 @@ const TITLES = {
 };
 
 function App() {
-  const [token, setToken] = React.useState(localStorage.getItem("mmJavaToken") || "");
+  const [token, setToken] = React.useState(localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "");
   const [user, setUser] = React.useState(null);
   const [data, setData] = React.useState(emptyData());
   const [view, setView] = React.useState("overview");
@@ -33,6 +33,7 @@ function App() {
   React.useEffect(() => {
     if (!token) return;
     loadBootstrap(token).catch(() => {
+      localStorage.removeItem("mnCheckToken");
       localStorage.removeItem("mmJavaToken");
       setToken("");
     });
@@ -70,7 +71,8 @@ function App() {
     event.preventDefault();
     try {
       const body = await request("/api/login", { method: "POST", body: login });
-      localStorage.setItem("mmJavaToken", body.token);
+      localStorage.setItem("mnCheckToken", body.token);
+      localStorage.removeItem("mmJavaToken");
       setToken(body.token);
       setUser(body.user);
       const bootstrap = await request("/api/bootstrap", { token: body.token });
@@ -225,6 +227,7 @@ function App() {
   }
 
   function logout() {
+    localStorage.removeItem("mnCheckToken");
     localStorage.removeItem("mmJavaToken");
     setToken("");
     setUser(null);
@@ -234,9 +237,9 @@ function App() {
   if (!user) {
     return h("main", { className: "login-view" },
       h("section", { className: "brand-panel" },
-        h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=2", alt: "MM check" }),
+        h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
         h("p", { className: "eyebrow" }, "conferência operacional"),
-        h("h1", null, "MM check"),
+        h("h1", null, "MN - Check"),
         h("p", null, "Controle de mapas de carga, separação, expedição, contagem e auditoria para eletrodomésticos e eletroportáteis."),
         h("div", { className: "login-stats" },
           h("span", null, h("strong", null, "Java"), " backend"),
@@ -246,7 +249,7 @@ function App() {
       ),
       h("form", { className: "login-card", onSubmit: handleLogin },
         h("p", { className: "eyebrow" }, "acesso"),
-        h("h2", null, "Entrar no MM check"),
+        h("h2", null, "Entrar no MN - Check"),
         h("label", null, "Usuário",
           h("input", {
             value: login.username,
@@ -274,8 +277,8 @@ function App() {
   return h("main", { className: "dashboard-view" },
     h("aside", { className: "sidebar" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.svg?v=2", alt: "MM check" }),
-        h("div", null, h("strong", null, "MM check"), h("span", null, `${user.name} - ${user.label}`))
+        h("img", { className: "app-logo small", src: "/logo.svg?v=3", alt: "MN - Check" }),
+        h("div", null, h("strong", null, "MN - Check"), h("span", null, `${user.name} - ${user.label}`))
       ),
       h("div", { className: "branch-context" }, h("strong", null, "Filial 281"), h("span", null, "Setor único de expedição")),
       h("nav", { className: "nav-list" },

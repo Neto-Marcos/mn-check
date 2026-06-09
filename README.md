@@ -1,4 +1,4 @@
-# MM check
+# MN - Check
 
 MVP empresarial local com backend em Java e frontend em React para controle de mapas de carga, separação, expedição, contagem, usuários, auditoria e histórico.
 
@@ -11,11 +11,11 @@ MVP empresarial local com backend em Java e frontend em React para controle de m
 3. Informe uma senha segura no campo `MMCHECK_ADMIN_PASSWORD`.
 4. Confirme a criação do serviço.
 
-O Render cria um endereço HTTPS para o MM check. No plano gratuito, o primeiro acesso após um período parado pode levar cerca de um minuto.
+O Render cria um endereço HTTPS para o MN - Check. No plano gratuito, o primeiro acesso após um período parado pode levar cerca de um minuto.
 
 ## Leitura de mapas com IA
 
-O MM check usa o Gemini 2.5 Flash para extrair os dados de PDFs e fotos de mapas de carga. Crie uma chave gratuita no [Google AI Studio](https://aistudio.google.com/apikey) e adicione no Render:
+O MN - Check usa o Gemini 2.5 Flash para extrair os dados de PDFs e fotos de mapas de carga. Crie uma chave gratuita no [Google AI Studio](https://aistudio.google.com/apikey) e adicione no Render:
 
 ```text
 GEMINI_API_KEY=sua-chave
@@ -55,7 +55,7 @@ java -cp backend/out MmCheckServer
 
 No Windows, `iniciar-mm-check.bat` abre o servidor e o navegador. Consulte [PENDRIVE.md](PENDRIVE.md) para uma apresentação portátil.
 
-Na conferência de expedição, o MM check lê códigos Code 128 pela câmera, aceita digitação manual e registra foto como evidência.
+Na conferência de expedição, o MN - Check lê códigos Code 128 pela câmera, aceita digitação manual e registra foto como evidência.
 
 ## GitHub e deploy
 
