@@ -12,7 +12,7 @@ const TITLES = {
   separation: ["operação", "Separação"],
   counting: ["estoque", "Contagem"],
   conference: ["validação", "Conferência"],
-  history: ["admin", "Auditoria e histórico"],
+  history: ["admin", "Histórico"],
   users: ["admin", "Usuários"],
 };
 
@@ -218,6 +218,16 @@ function App() {
     }
   }
 
+  async function deleteMap(map) {
+    if (!window.confirm(`Apagar o mapa ${map.id}? Esta ação não pode ser desfeita.`)) return;
+    try {
+      await request(`/api/maps/${map.id}`, { method: "DELETE" });
+      await refresh(`Mapa ${map.id} apagado.`, "separation");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
   async function scanBarcode(mapId, code) {
     try {
       const result = await request(`/api/maps/${mapId}/scan`, {
@@ -279,7 +289,7 @@ function App() {
         h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
         h("p", { className: "eyebrow" }, "conferência operacional"),
         h("h1", null, "MN - Check"),
-        h("p", null, "Controle de mapas de carga, separação, expedição, contagem e auditoria para eletrodomésticos e eletroportáteis."),
+        h("p", null, "Controle de mapas de carga, separação, expedição, contagem e histórico para eletrodomésticos e eletroportáteis."),
         h("div", { className: "login-stats" },
           h("span", null, h("strong", null, "Java"), " backend"),
           h("span", null, h("strong", null, "React"), " frontend"),
@@ -366,7 +376,12 @@ function App() {
         )
       ),
       view === "overview" && h(Overview, { data }),
-      view === "separation" && h(Separation, { maps: data.maps, onToggle: toggleItem, onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferência.") }),
+      view === "separation" && h(Separation, {
+        maps: data.maps,
+        onToggle: toggleItem,
+        onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferência."),
+        onDelete: deleteMap
+      }),
       view === "conference" && h(Conference, {
         maps: data.maps,
         onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
@@ -593,12 +608,14 @@ function Overview({ data }) {
   );
 }
 
-function Separation({ maps, onToggle, onSend }) {
+function Separation({ maps, onToggle, onSend, onDelete }) {
   const separationMaps = maps.filter((map) => map.status === "separacao");
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Separação de mapas"), h("span", null, "marque os itens separados")),
-      h("div", { className: "stack" }, separationMaps.length ? separationMaps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend })) : empty("Nenhum mapa em separação."))
+      h("div", { className: "stack" }, separationMaps.length
+        ? separationMaps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend, onDelete }))
+        : empty("Nenhum mapa em separação."))
     ),
     h(QueueSummary, { maps: separationMaps, mode: "separation" })
   );
@@ -752,6 +769,11 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
 }
 
 function History({ data }) {
+  const mapHistory = data.maps
+    .filter((map) => ["aguardando conferencia", "conferencia", "corrigir problema", "perfeito", "conferido"].includes(map.status))
+    .slice()
+    .sort((a, b) => Number(b.id) - Number(a.id));
+
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Divergências e correções"), h("span", null, "histórico")),
@@ -760,15 +782,18 @@ function History({ data }) {
       ) : empty("Nenhum erro registrado."))
     ),
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Auditoria"), h("span", null, "ações recentes")),
-      h("div", { className: "stack" }, data.auditLog.length ? data.auditLog.slice().reverse().map((item, index) =>
-        h("div", { className: "list-item", key: index }, h("strong", null, item.userName), h("span", null, `${item.description} - ${formatDate(item.at)}`))
-      ) : empty("Nenhuma ação registrada."))
+      h("div", { className: "panel-header" }, h("h3", null, "Histórico de mapas"), h("span", null, `${mapHistory.length} registros`)),
+      h("div", { className: "stack" }, mapHistory.length ? mapHistory.map((map) =>
+        h("div", { className: "list-item", key: map.id },
+          h("strong", null, `Mapa ${map.id} - ${map.client}`),
+          h("span", null, `${status(map.status)} - Rota ${map.route}`)
+        )
+      ) : empty("Nenhum mapa no histórico."))
     )
   );
 }
 
-function MapCard({ map, onToggle, onSend }) {
+function MapCard({ map, onToggle, onSend, onDelete }) {
   const editable = map.status === "separacao";
   return h("article", { className: "order-card" },
     h("div", { className: "order-head" },
@@ -788,7 +813,18 @@ function MapCard({ map, onToggle, onSend }) {
     )),
     h("div", { className: "order-actions" },
       editable
-        ? h("button", { className: "primary-action compact", onClick: () => onSend(map.id) }, "Enviar para conferência")
+        ? [
+            h("button", {
+              className: "primary-action compact",
+              key: "send",
+              onClick: () => onSend(map.id)
+            }, "Enviar para conferência"),
+            h("button", {
+              className: "danger-action",
+              key: "delete",
+              onClick: () => onDelete(map)
+            }, "Apagar mapa")
+          ]
         : h("span", { className: "status-note" }, "Mapa mantido no histórico desta tela.")
     )
   );
@@ -797,70 +833,102 @@ function MapCard({ map, onToggle, onSend }) {
 function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
   const actionable = ["aguardando conferencia", "conferencia"].includes(map.status);
   const needsCorrection = map.status === "corrigir problema";
-  const allChecked = map.items.every((item) => (item.checkedQuantity || 0) >= item.quantity);
-  return h("article", { className: "order-card" },
+  return h("article", { className: "order-card conference-card" },
     h("div", { className: "order-head" },
       h("div", { className: "order-title" },
         h("strong", null, `Mapa ${map.id}`),
         h("span", null, map.client),
-        h("small", null, plural(map.items.length, "item", "itens"))
+        h("small", null, `Rota ${map.route} - ${plural(map.items.length, "produto", "produtos")}`)
       ),
       h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
     ),
     map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),
-    (actionable || needsCorrection) && h(BarcodeScanner, { map, onScan }),
-    h("div", { className: "order-actions" },
-      actionable
-        ? [
-            h("button", {
-              className: "primary-action compact",
-              key: "approve",
-              disabled: !allChecked,
-              title: allChecked ? "Finalizar conferência" : "Confira todas as unidades para finalizar",
-              onClick: () => onApprove(map.id)
-            }, allChecked ? "Conferido" : "Conferência incompleta"),
-            h("button", { className: "danger-action", key: "problem", onClick: () => onProblem(map.id) }, "Não, corrigir")
-          ]
-        : needsCorrection
-          ? h("button", { className: "primary-action compact corrected-action", onClick: () => onCorrected(map.id) }, "Já corrigido")
-          : h("span", { className: "status-note" }, "Mapa mantido no histórico desta tela.")
-    )
+    (actionable || needsCorrection) && h(BarcodeScanner, {
+      map,
+      onScan,
+      onApprove,
+      onProblem,
+      onCorrected,
+      actionable,
+      needsCorrection
+    })
   );
 }
 
-function BarcodeScanner({ map, onScan }) {
+function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, actionable, needsCorrection }) {
   const [manualCode, setManualCode] = React.useState("");
   const [result, setResult] = React.useState(null);
   const [scanning, setScanning] = React.useState(false);
+  const [validating, setValidating] = React.useState(false);
+  const [history, setHistory] = React.useState([]);
+  const [lastCode, setLastCode] = React.useState("");
   const scannerRef = React.useRef(null);
   const readerId = `barcode-reader-${map.id}`;
+  const totalQuantity = map.items.reduce((sum, item) => sum + item.quantity, 0);
+  const checkedQuantity = map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
+  const remainingQuantity = Math.max(0, totalQuantity - checkedQuantity);
+  const allChecked = remainingQuantity === 0;
+  const expectedItem = map.items.find((item) => (item.checkedQuantity || 0) < item.quantity)
+    || map.items[map.items.length - 1];
 
   React.useEffect(() => () => stopScanner(), []);
 
   async function validate(code) {
     const cleanCode = String(code || "").replace(/\D/g, "");
-    if (!cleanCode) return;
+    if (!cleanCode || validating) {
+      if (!cleanCode) {
+        setResult({ type: "error", title: "Código obrigatório", text: "Digite ou escaneie um código para validar." });
+      }
+      return;
+    }
+    setValidating(true);
+    setLastCode(cleanCode);
     try {
       const response = await onScan(map.id, cleanCode);
       setResult({
         type: "success",
-        text: `${response.item.name} confirmado (${response.item.checkedQuantity}/${response.item.quantity})`
+        title: response.allChecked ? "Conferência concluída" : "Produto confirmado",
+        text: response.allChecked
+          ? "Todas as unidades foram lidas. Toque em OK para finalizar."
+          : `${response.item.name}: ${response.item.checkedQuantity}/${response.item.quantity} unidades.`
       });
+      setHistory((current) => [{
+        code: cleanCode,
+        name: response.item.name,
+        ok: true,
+        at: new Date().toISOString(),
+      }, ...current].slice(0, 12));
       setManualCode("");
       playFeedback(true);
     } catch (error) {
-      setResult({ type: "error", text: error.message });
+      setResult({ type: "error", title: "Código não confere", text: error.message });
+      setHistory((current) => [{
+        code: cleanCode,
+        name: error.message,
+        ok: false,
+        at: new Date().toISOString(),
+      }, ...current].slice(0, 12));
       playFeedback(false);
+    } finally {
+      setValidating(false);
     }
   }
 
   async function startScanner() {
     if (!window.Html5Qrcode) {
-      setResult({ type: "error", text: "Leitor indisponível. Verifique a conexão com a internet." });
+      setResult({
+        type: "error",
+        title: "Leitor indisponível",
+        text: "Verifique a conexão com a internet ou use o código manual."
+      });
       return;
     }
     if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
-      setResult({ type: "error", text: "A leitura ao vivo precisa de HTTPS. Use o campo manual ou acesse o endereço seguro." });
+      setResult({
+        type: "error",
+        title: "A câmera precisa de HTTPS",
+        text: "Use o campo manual ou acesse o endereço seguro."
+      });
       return;
     }
 
@@ -879,7 +947,11 @@ function BarcodeScanner({ map, onScan }) {
       );
     } catch (error) {
       setScanning(false);
-      setResult({ type: "error", text: "Não foi possível abrir a câmera. Confira a permissão do navegador." });
+      setResult({
+        type: "error",
+        title: "Câmera não disponível",
+        text: "Não foi possível abrir a câmera. Confira a permissão do navegador."
+      });
     }
   }
 
@@ -894,33 +966,130 @@ function BarcodeScanner({ map, onScan }) {
     } catch (_) {}
   }
 
-  return h("section", { className: "scanner-box" },
-    h("div", { className: "scanner-heading" },
-      h("div", null, h("strong", null, "Conferência por código de barras"), h("span", null, "Code 128 ou código do produto")),
-      h("span", { className: "scan-count" }, `${map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0)}/${map.items.reduce((sum, item) => sum + item.quantity, 0)}`)
-    ),
-    h("div", { id: readerId, className: `barcode-reader ${scanning ? "active" : ""}` }),
-    h("div", { className: "scanner-controls" },
-      h("input", {
-        inputMode: "numeric",
-        placeholder: "Digite o código ou use o leitor",
-        value: manualCode,
-        onChange: (event) => setManualCode(event.target.value),
-        onKeyDown: (event) => event.key === "Enter" && validate(manualCode)
-      }),
+  const resultTitle = allChecked
+    ? "Conferência concluída"
+    : result?.title || "Aguardando leitura";
+  const resultType = allChecked ? "success" : result?.type || "waiting";
+
+  return h("div", { className: "conference-flow" },
+    h("section", { className: "conference-step scan-step" },
+      h("div", { className: "conference-step-title" },
+        h("span", null, "1"),
+        h("div", null,
+          h("strong", null, "Leitura da etiqueta"),
+          h("small", null, "Use a câmera ou digite o código impresso")
+        )
+      ),
       h("button", {
-        className: "secondary-action compact",
+        className: `camera-action ${scanning ? "active" : ""}`,
+        disabled: validating || needsCorrection,
         onClick: scanning ? stopScanner : startScanner
-      }, scanning ? "Fechar leitor" : "Escanear código")
-    ),
-    result && h("div", { className: `scan-result ${result.type}` }, result.text),
-    h("div", { className: "scan-items" }, map.items.map((item) =>
-      h("div", { className: (item.checkedQuantity || 0) >= item.quantity ? "complete" : "", key: item.sku },
-        h("span", null, item.name),
-        h("strong", null, `${item.checkedQuantity || 0}/${item.quantity}`)
+      }, scanning ? "Fechar câmera" : "Ler etiqueta pela câmera"),
+      h("div", { id: readerId, className: `barcode-reader ${scanning ? "active" : ""}` }),
+      h("div", { className: "manual-validation" },
+        h("input", {
+          inputMode: "numeric",
+          placeholder: "Ou digite o código manualmente",
+          value: manualCode,
+          disabled: needsCorrection,
+          onChange: (event) => setManualCode(event.target.value),
+          onKeyDown: (event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            validate(manualCode);
+          }
+        }),
+        h("button", {
+          className: "primary-action",
+          disabled: needsCorrection || validating || !manualCode.replace(/\D/g, ""),
+          onClick: () => validate(manualCode)
+        }, validating ? "Validando..." : "Validar")
+      ),
+      h("p", { className: "scanner-help" },
+        "No iPhone, abra pelo Safari e permita o acesso à câmera. Se a leitura não iniciar, use o código manual."
       )
-    ))
+    ),
+    h("section", { className: "conference-step result-step" },
+      h("div", { className: "conference-step-title" },
+        h("span", null, "2"),
+        h("div", null,
+          h("strong", null, "Resultado da conferência"),
+          h("small", null, `${checkedQuantity} de ${totalQuantity} unidades conferidas`)
+        )
+      ),
+      h("div", { className: `conference-result ${resultType}` },
+        h("strong", null, resultTitle),
+        h("span", null, allChecked ? "Tudo pronto para finalizar" : result?.text || "Aproxime a etiqueta da câmera ou digite o código.")
+      ),
+      h("div", { className: "conference-progress" },
+        h("div", { style: { width: `${totalQuantity ? Math.round((checkedQuantity / totalQuantity) * 100) : 0}%` } })
+      ),
+      expectedItem && h("div", { className: "expected-details" },
+        detailRow(
+          allChecked ? "Último código esperado" : "Próximo código esperado",
+          expectedItem.barcode || String(expectedItem.sku || "").replace(/\D/g, "")
+        ),
+        detailRow("Produto", expectedItem.name),
+        detailRow("SKU", expectedItem.sku),
+        detailRow("Voltagem esperada", voltageFromSku(expectedItem.sku)),
+        detailRow("Quantidade", `${expectedItem.checkedQuantity || 0}/${expectedItem.quantity}`),
+        detailRow("Último código lido", lastCode || "---")
+      ),
+      h("div", { className: "conference-final-actions" },
+        actionable && h("button", {
+          className: "primary-action finish-conference",
+          disabled: !allChecked,
+          onClick: () => onApprove(map.id)
+        }, allChecked ? "OK - Finalizar conferência" : `Faltam ${remainingQuantity} unidades`),
+        actionable && h("button", {
+          className: "danger-action",
+          onClick: () => onProblem(map.id)
+        }, "Informar divergência"),
+        needsCorrection && h("button", {
+          className: "primary-action finish-conference",
+          onClick: () => onCorrected(map.id)
+        }, "OK - Problema corrigido")
+      )
+    ),
+    h("section", { className: "conference-step history-step" },
+      h("div", { className: "conference-step-title simple" },
+        h("div", null,
+          h("strong", null, "Histórico"),
+          h("small", null, "Últimas leituras desta conferência")
+        )
+      ),
+      history.length
+        ? h("div", { className: "scan-history" }, history.map((entry, index) =>
+            h("div", { className: entry.ok ? "success" : "error", key: `${entry.at}-${index}` },
+              h("span", null, entry.ok ? "OK" : "!"),
+              h("div", null,
+                h("strong", null, entry.code),
+                h("small", null, entry.name)
+              ),
+              h("time", null, new Date(entry.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }))
+            )
+          ))
+        : h("p", { className: "empty-history" }, "Nenhuma conferência realizada ainda.")
+    )
   );
+}
+
+function detailRow(label, value) {
+  return h("div", { className: "detail-row", key: label },
+    h("span", null, label),
+    h("strong", null, value)
+  );
+}
+
+function voltageFromSku(sku) {
+  const gradeY = String(sku || "").split(".").pop();
+  return {
+    "0": "Não se aplica",
+    "1": "110V",
+    "2": "127V",
+    "3": "220V",
+    "4": "Bivolt",
+  }[gradeY] || "Não informado";
 }
 
 function playFeedback(success) {
@@ -1029,42 +1198,119 @@ async function extractCountsFromPdf(file) {
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
   const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-  const lines = [];
+  const found = new Map();
+  let recognizedRows = 0;
+
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
-    const grouped = new Map();
+    const viewport = page.getViewport({ scale: 1 });
+    const parts = content.items
+      .map((item) => ({
+        x: item.transform[4],
+        y: item.transform[5],
+        text: item.str.trim(),
+      }))
+      .filter((item) => item.text);
+    const columns = findBalanceColumns(parts, viewport.width);
+    const rows = groupPdfRows(parts);
 
-    content.items.forEach((item) => {
-      const y = Math.round(item.transform[5] / 3) * 3;
-      if (!grouped.has(y)) grouped.set(y, []);
-      grouped.get(y).push({ x: item.transform[4], text: item.str.trim() });
+    rows.forEach((row) => {
+      if (row.y >= columns.headerY - 2) return;
+
+      const product = integerInColumn(row.parts, columns.product);
+      const color = integerInColumn(row.parts, columns.gradeX);
+      const voltage = integerInColumn(row.parts, columns.gradeY);
+      const balance = integerInColumn(row.parts, columns.balance, true);
+      if (product === null || color === null || voltage === null || balance === null) return;
+
+      recognizedRows++;
+      const sku = `${product}-${color}.${voltage}`;
+      const existing = found.get(sku);
+      if (existing && existing.system !== balance) {
+        throw new Error(`O SKU ${sku} apareceu mais de uma vez com saldos diferentes.`);
+      }
+      found.set(sku, { sku, system: balance, counted: 0 });
     });
-
-    [...grouped.entries()]
-      .sort((a, b) => b[0] - a[0])
-      .forEach(([, parts]) => {
-        const line = parts.sort((a, b) => a.x - b.x).map((part) => part.text).filter(Boolean).join(" ");
-        if (line) lines.push(line);
-      });
   }
-
-  const found = new Map();
-  lines.forEach((line) => {
-    const skuMatch = line.match(/\b(?:\d{4,}-\d+(?:\.\d+)?|\d{6,14})\b/);
-    if (!skuMatch) return;
-    const remainder = line.slice((skuMatch.index || 0) + skuMatch[0].length);
-    const quantities = remainder.match(/-?\d+(?:[.,]\d+)?/g);
-    if (!quantities || !quantities.length) return;
-    const system = Math.max(0, Math.trunc(Number(quantities[0].replace(",", "."))));
-    found.set(skuMatch[0], { sku: skuMatch[0], system, counted: 0 });
-  });
 
   const rows = [...found.values()];
   if (!rows.length) {
-    throw new Error("Não foi possível identificar linhas com SKU e saldo nesse PDF.");
+    throw new Error("Não foi possível identificar Produto, Grade X, Grade Y e Saldo nesse PDF.");
+  }
+  if (rows.length !== recognizedRows) {
+    throw new Error("O PDF contém SKUs repetidos. Revise o relatório antes de importar.");
   }
   return rows;
+}
+
+function findBalanceColumns(parts, pageWidth) {
+  const normalized = parts.map((part) => ({ ...part, normalized: normalizePdfText(part.text) }));
+  const header = (matcher, fallbackX) => {
+    const match = normalized.find((part) => matcher(part.normalized));
+    return match ? match.x : pageWidth * fallbackX;
+  };
+
+  const anchors = {
+    branch: header((text) => text === "cod filial", 0.04),
+    product: header((text) => text === "cod produto", 0.12),
+    gradeX: header((text) => text === "grade 'x'" || text === "grade x", 0.19),
+    gradeY: header((text) => text === "grade 'y'" || text === "grade y", 0.25),
+    description: header((text) => text === "produto", 0.31),
+    balance: header((text) => text === "saldo", 0.65),
+    cost: header((text) => text.startsWith("custo medio"), 0.76),
+  };
+  const headerParts = normalized.filter((part) =>
+    ["cod filial", "cod produto", "grade 'x'", "grade x", "grade 'y'", "grade y", "produto", "saldo"]
+      .includes(part.normalized)
+  );
+  const headerY = headerParts.length
+    ? Math.max(...headerParts.map((part) => part.y))
+    : Math.max(...parts.map((part) => part.y)) - 40;
+  const between = (left, center, right) => ({
+    min: (left + center) / 2,
+    max: (center + right) / 2,
+  });
+
+  return {
+    headerY,
+    product: between(anchors.branch, anchors.product, anchors.gradeX),
+    gradeX: between(anchors.product, anchors.gradeX, anchors.gradeY),
+    gradeY: between(anchors.gradeX, anchors.gradeY, anchors.description),
+    balance: between(anchors.description, anchors.balance, anchors.cost),
+  };
+}
+
+function groupPdfRows(parts) {
+  const grouped = [];
+  [...parts].sort((a, b) => b.y - a.y).forEach((part) => {
+    let row = grouped.find((candidate) => Math.abs(candidate.y - part.y) <= 2);
+    if (!row) {
+      row = { y: part.y, parts: [] };
+      grouped.push(row);
+    }
+    row.parts.push(part);
+  });
+  return grouped;
+}
+
+function integerInColumn(parts, column, allowNegative = false) {
+  const pattern = allowNegative ? /^-?\d+$/ : /^\d+$/;
+  const matches = parts
+    .filter((part) => part.x >= column.min && part.x < column.max && pattern.test(part.text))
+    .sort((a, b) => a.x - b.x);
+  if (matches.length !== 1) return null;
+  const value = Number.parseInt(matches[0].text, 10);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+function normalizePdfText(value) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function readFileAsDataUrl(file) {

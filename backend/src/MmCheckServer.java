@@ -273,6 +273,25 @@ public class MmCheckServer {
       return;
     }
 
+    if ("DELETE".equals(method) && path.startsWith("/api/maps/")) {
+      if (!List.of("admin", "separation").contains(user.role)) {
+        throw new ApiException(403, "Ação permitida apenas para administradores e conferentes de separação.");
+      }
+      String mapId = URLDecoder.decode(path.substring("/api/maps/".length()), StandardCharsets.UTF_8);
+      CargoMap map = db.maps.stream().filter(item -> item.id.equals(mapId)).findFirst()
+          .orElseThrow(() -> new ApiException(404, "Mapa não encontrado."));
+      if (!"separacao".equals(map.status)) {
+        throw new ApiException(409, "Somente mapas ainda em separação podem ser apagados.");
+      }
+
+      deleteUpload(map.attachmentPath);
+      db.maps.remove(map);
+      db.audit(user, "delete_map", "Mapa " + map.id + " apagado durante a separação");
+      db.save(DB_PATH);
+      json(exchange, 200, visibleData(user));
+      return;
+    }
+
     String[] parts = path.split("/");
     if (parts.length >= 5 && "api".equals(parts[1]) && "maps".equals(parts[2])) {
       CargoMap map = db.maps.stream().filter(item -> item.id.equals(parts[3])).findFirst()
@@ -510,6 +529,18 @@ public class MmCheckServer {
   private static String safeFileName(String fileName) {
     String cleaned = fileName.replaceAll("[^A-Za-z0-9._-]", "_");
     return cleaned.isBlank() ? "mapa.pdf" : cleaned;
+  }
+
+  private static void deleteUpload(String attachmentPath) throws IOException {
+    if (attachmentPath == null || attachmentPath.isBlank()) return;
+    Path fileName = Path.of(attachmentPath).getFileName();
+    if (fileName == null) return;
+    Path uploadRoot = UPLOAD_DIR.normalize();
+    Path target = uploadRoot.resolve(fileName).normalize();
+    if (!target.startsWith(uploadRoot)) {
+      throw new IOException("Caminho de anexo inválido.");
+    }
+    Files.deleteIfExists(target);
   }
 
   private static String digits(String value) {

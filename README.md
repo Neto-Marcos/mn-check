@@ -1,6 +1,6 @@
 # MN - Check
 
-MVP empresarial local com backend em Java e frontend em React para controle de mapas de carga, separação, expedição, contagem, usuários, auditoria e histórico.
+MVP empresarial local com backend em Java e frontend em React para controle de mapas de carga, separação, expedição, contagem, usuários e histórico operacional.
 
 [![Publicar no Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Neto-Marcos/mm-check)
 
