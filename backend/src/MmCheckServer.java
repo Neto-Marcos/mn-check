@@ -248,6 +248,29 @@ public class MmCheckServer {
       return;
     }
 
+    if ("GET".equals(method) && "/api/notifications".equals(path)) {
+      requireAdmin(user);
+      json(exchange, 200, Map.of(
+          "notifications", db.notifications.stream().map(item -> item.toMap(user.id)).toList()
+      ));
+      return;
+    }
+
+    if ("POST".equals(method) && path.startsWith("/api/notifications/") && path.endsWith("/read")) {
+      requireAdmin(user);
+      String notificationId = path.substring("/api/notifications/".length(), path.length() - "/read".length());
+      AdminNotification notification = db.notifications.stream()
+          .filter(item -> item.id.equals(notificationId))
+          .findFirst()
+          .orElseThrow(() -> new ApiException(404, "Notificação não encontrada."));
+      if (!notification.readBy.contains(user.id)) notification.readBy.add(user.id);
+      db.save(DB_PATH);
+      json(exchange, 200, Map.of(
+          "notifications", db.notifications.stream().map(item -> item.toMap(user.id)).toList()
+      ));
+      return;
+    }
+
     String[] parts = path.split("/");
     if (parts.length >= 5 && "api".equals(parts[1]) && "maps".equals(parts[2])) {
       CargoMap map = db.maps.stream().filter(item -> item.id.equals(parts[3])).findFirst()
@@ -328,8 +351,17 @@ public class MmCheckServer {
           db.audit(user, "approve_map", "Mapa " + map.id + " conferido sem divergência");
         } else if ("problem".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if ("corrigir problema".equals(map.status)) throw new ApiException(409, "Este mapa já foi marcado com divergência.");
           map.status = "corrigir problema";
           db.errors.add(0, new ErrorRecord(map.id, "Divergência na conferência", user.name));
+          db.notifications.add(0, new AdminNotification(
+              UUID.randomUUID().toString(),
+              map.id,
+              "Divergência encontrada no mapa " + map.id,
+              user.name + " solicitou correção na conferência.",
+              Instant.now().toString(),
+              new ArrayList<>()
+          ));
           db.audit(user, "problem_map", "Mapa " + map.id + " marcado com divergência");
         } else if ("corrected".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
@@ -367,6 +399,7 @@ public class MmCheckServer {
         "counts", List.of("admin", "stock").contains(user.role) ? db.counts.stream().map(CountItem::toMap).toList() : List.of(),
         "errors", "admin".equals(user.role) ? db.errors.stream().map(ErrorRecord::toMap).toList() : List.of(),
         "auditLog", "admin".equals(user.role) ? db.auditLog.stream().map(AuditRecord::toMap).toList() : List.of(),
+        "notifications", "admin".equals(user.role) ? db.notifications.stream().map(item -> item.toMap(user.id)).toList() : List.of(),
         "metrics", Map.of("separating", separating, "waiting", waiting, "perfect", perfect, "errorCount", db.errors.size())
     );
   }
@@ -788,12 +821,57 @@ public class MmCheckServer {
     }
   }
 
+  private static class AdminNotification {
+    final String id;
+    final String mapId;
+    final String title;
+    final String message;
+    final String at;
+    final List<String> readBy;
+
+    AdminNotification(String id, String mapId, String title, String message, String at, List<String> readBy) {
+      this.id = id;
+      this.mapId = mapId;
+      this.title = title;
+      this.message = message;
+      this.at = at;
+      this.readBy = readBy;
+    }
+
+    Map<String, Object> toMap(String userId) {
+      return Map.of(
+          "id", id,
+          "mapId", mapId,
+          "title", title,
+          "message", message,
+          "at", at,
+          "read", readBy.contains(userId)
+      );
+    }
+
+    Map<String, Object> toStoredMap() {
+      return Map.of("id", id, "mapId", mapId, "title", title, "message", message, "at", at, "readBy", readBy);
+    }
+
+    static AdminNotification fromMap(Map<String, Object> map) {
+      return new AdminNotification(
+          string(map.get("id")),
+          string(map.get("mapId")),
+          string(map.get("title")),
+          string(map.get("message")),
+          string(map.get("at")),
+          new ArrayList<>(list(map.get("readBy")).stream().map(MmCheckServer::string).toList())
+      );
+    }
+  }
+
   private static class Database {
     List<User> users = new ArrayList<>();
     List<CargoMap> maps = new ArrayList<>();
     List<CountItem> counts = new ArrayList<>();
     List<ErrorRecord> errors = new ArrayList<>();
     List<AuditRecord> auditLog = new ArrayList<>();
+    List<AdminNotification> notifications = new ArrayList<>();
 
     static Database load(Path file) throws IOException {
       if (!Files.exists(file)) {
@@ -817,6 +895,8 @@ public class MmCheckServer {
         Map<String, Object> audit = castMap(item);
         return new AuditRecord(string(audit.get("at")), string(audit.get("userName")), string(audit.get("action")), string(audit.get("description")));
       }).toList());
+      db.notifications = new ArrayList<>(list(map.get("notifications")).stream()
+          .map(item -> AdminNotification.fromMap(castMap(item))).toList());
       boolean removedExamples = db.maps.removeIf(Database::isLegacyExampleMap);
       removedExamples |= db.errors.removeIf(error -> "15727".equals(error.order));
       if (removedExamples) db.save(file);
@@ -854,6 +934,7 @@ public class MmCheckServer {
       map.put("counts", counts.stream().map(CountItem::toMap).toList());
       map.put("errors", errors.stream().map(ErrorRecord::toMap).toList());
       map.put("auditLog", auditLog.stream().map(AuditRecord::toMap).toList());
+      map.put("notifications", notifications.stream().map(AdminNotification::toStoredMap).toList());
       Files.writeString(file, Json.stringify(map), StandardCharsets.UTF_8);
     }
   }

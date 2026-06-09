@@ -396,6 +396,125 @@ select {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.notification-action {
+  min-height: 44px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-weight: 800;
+}
+
+.notification-action strong {
+  min-width: 28px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  text-align: center;
+}
+
+.notification-action.has-unread {
+  border-color: #ff9eaa;
+  background: rgba(255, 231, 234, 0.15);
+}
+
+.notification-action.has-unread strong {
+  background: #fff;
+  color: var(--red-700);
+}
+
+.notification-panel {
+  position: fixed;
+  z-index: 90;
+  top: 18px;
+  right: 18px;
+  bottom: 18px;
+  width: min(430px, calc(100vw - 36px));
+  padding: 18px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  animation: panelIn 220ms ease both;
+}
+
+.notification-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.notification-panel-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.notification-panel-head span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.notification-list {
+  display: grid;
+  gap: 10px;
+}
+
+.notification-item {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--page);
+}
+
+.notification-item.unread {
+  border-left: 4px solid var(--red-700);
+  background: var(--red-50);
+}
+
+.notification-item > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.notification-item p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.notification-item span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.notification-item-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.notification-read-action {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--red-700);
+  color: #fff;
+  font-weight: 800;
+}
+
 .nav-list {
   display: grid;
   gap: 12px;
@@ -1089,6 +1208,20 @@ th + th {
 
   .workspace {
     overflow: hidden;
+  }
+
+  .notification-panel {
+    inset: 10px;
+    width: auto;
+    padding: 14px;
+  }
+
+  .notification-item-actions {
+    flex-direction: column;
+  }
+
+  .notification-item-actions button {
+    width: 100%;
   }
 
   .panel {

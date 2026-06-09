@@ -25,10 +25,12 @@ function App() {
   const [mapImportOpen, setMapImportOpen] = React.useState(false);
   const [mapImporting, setMapImporting] = React.useState(false);
   const [passwordTarget, setPasswordTarget] = React.useState(null);
+  const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
   const mapPdfInputRef = React.useRef(null);
   const mapCameraInputRef = React.useRef(null);
+  const unreadNotificationsRef = React.useRef(null);
 
   React.useEffect(() => {
     if (!token) return;
@@ -38,6 +40,32 @@ function App() {
       setToken("");
     });
   }, []);
+
+  React.useEffect(() => {
+    if (!token || user?.role !== "admin") return;
+    let active = true;
+
+    async function pollNotifications() {
+      try {
+        const body = await request("/api/notifications");
+        if (!active) return;
+        const notifications = body.notifications || [];
+        const unread = notifications.filter((item) => !item.read).length;
+        if (unreadNotificationsRef.current !== null && unread > unreadNotificationsRef.current) {
+          notify("Nova divergência encontrada. Verifique as notificações.");
+        }
+        unreadNotificationsRef.current = unread;
+        setData((current) => ({ ...current, notifications }));
+      } catch (_) {}
+    }
+
+    pollNotifications();
+    const interval = window.setInterval(pollNotifications, 10000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [token, user?.role]);
 
   async function request(path, options = {}) {
     const response = await fetch(path, {
@@ -129,6 +157,17 @@ function App() {
       notify(`Senha de ${target.name} redefinida.`);
     } catch (error) {
       throw error;
+    }
+  }
+
+  async function markNotificationRead(notificationId) {
+    try {
+      const body = await request(`/api/notifications/${notificationId}/read`, { method: "POST" });
+      const notifications = body.notifications || [];
+      unreadNotificationsRef.current = notifications.filter((item) => !item.read).length;
+      setData((current) => ({ ...current, notifications }));
+    } catch (error) {
+      notify(error.message);
     }
   }
 
@@ -273,6 +312,8 @@ function App() {
 
   const allowedViews = user.allowedViews || [];
   const [eyebrow, title] = TITLES[view] || TITLES[allowedViews[0]];
+  const notifications = data.notifications || [];
+  const unreadNotifications = notifications.filter((item) => !item.read).length;
 
   return h("main", { className: "dashboard-view" },
     h("aside", { className: "sidebar" },
@@ -281,6 +322,13 @@ function App() {
         h("div", null, h("strong", null, "MN - Check"), h("span", null, `${user.name} - ${user.label}`))
       ),
       h("div", { className: "branch-context" }, h("strong", null, "Filial 281"), h("span", null, "Setor único de expedição")),
+      user.role === "admin" && h("button", {
+        className: `notification-action ${unreadNotifications ? "has-unread" : ""}`,
+        onClick: () => setNotificationsOpen(!notificationsOpen)
+      },
+        h("span", null, "Notificações"),
+        h("strong", null, unreadNotifications)
+      ),
       h("nav", { className: "nav-list" },
         allowedViews.map((item) => h("button", {
           key: item,
@@ -295,14 +343,14 @@ function App() {
       h("header", { className: "topbar" },
         h("div", null, h("p", { className: "eyebrow" }, eyebrow), h("h2", null, title)),
         h("div", { className: "topbar-actions" },
-          user.role === "admin" && h("input", {
+          user.role === "admin" && view === "separation" && h("input", {
             className: "hidden",
             ref: mapPdfInputRef,
             type: "file",
             accept: "application/pdf,.pdf",
             onChange: uploadMapFile
           }),
-          user.role === "admin" && h("input", {
+          user.role === "admin" && view === "separation" && h("input", {
             className: "hidden",
             ref: mapCameraInputRef,
             type: "file",
@@ -310,7 +358,7 @@ function App() {
             capture: "environment",
             onChange: uploadMapFile
           }),
-          user.role === "admin" && h("button", {
+          user.role === "admin" && view === "separation" && h("button", {
             className: "primary-action compact",
             disabled: mapImporting,
             onClick: () => setMapImportOpen(true)
@@ -337,6 +385,15 @@ function App() {
         changeUserPassword: setPasswordTarget
       }),
     ),
+    notificationsOpen && user.role === "admin" && h(NotificationPanel, {
+      notifications,
+      onClose: () => setNotificationsOpen(false),
+      onRead: markNotificationRead,
+      onOpenMap: () => {
+        setView("conference");
+        setNotificationsOpen(false);
+      }
+    }),
     mapImportOpen && h(NewMapDialog, {
       busy: mapImporting,
       onClose: () => setMapImportOpen(false),
@@ -421,6 +478,36 @@ function PasswordDialog({ target, ownPassword, onClose, onSave }) {
         h("button", { className: "secondary-action compact", type: "button", disabled: saving, onClick: onClose }, "Cancelar"),
         h("button", { className: "primary-action compact", type: "submit", disabled: saving }, saving ? "Salvando..." : "Salvar nova senha")
       )
+    )
+  );
+}
+
+function NotificationPanel({ notifications, onClose, onRead, onOpenMap }) {
+  return h("aside", { className: "notification-panel" },
+    h("div", { className: "notification-panel-head" },
+      h("div", null, h("strong", null, "Notificações"), h("span", null, "Divergências operacionais")),
+      h("button", { className: "dialog-close", onClick: onClose, "aria-label": "Fechar notificações" }, "×")
+    ),
+    h("div", { className: "notification-list" },
+      notifications.length
+        ? notifications.map((item) => h("article", {
+            className: `notification-item ${item.read ? "" : "unread"}`,
+            key: item.id
+          },
+            h("div", null,
+              h("strong", null, item.title),
+              h("p", null, item.message),
+              h("span", null, formatDate(item.at))
+            ),
+            h("div", { className: "notification-item-actions" },
+              h("button", { className: "secondary-action compact", onClick: onOpenMap }, "Abrir mapa"),
+              !item.read && h("button", {
+                className: "notification-read-action",
+                onClick: () => onRead(item.id)
+              }, "Marcar como lida")
+            )
+          ))
+        : empty("Nenhuma notificação.")
     )
   );
 }
@@ -990,7 +1077,7 @@ function readFileAsDataUrl(file) {
 }
 
 function emptyData() {
-  return { maps: [], users: [], counts: [], errors: [], auditLog: [], metrics: {} };
+  return { maps: [], users: [], counts: [], errors: [], auditLog: [], notifications: [], metrics: {} };
 }
 
 ReactDOM.createRoot(document.querySelector("#root")).render(h(App));
