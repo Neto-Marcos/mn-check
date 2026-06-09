@@ -813,12 +813,15 @@ function BarcodeScanner({ map, onScan }) {
     h("div", { className: "scanner-controls" },
       h("input", {
         inputMode: "numeric",
-        placeholder: "Digite ou escaneie o código",
+        placeholder: "Digite o código ou use o leitor",
         value: manualCode,
         onChange: (event) => setManualCode(event.target.value),
         onKeyDown: (event) => event.key === "Enter" && validate(manualCode)
       }),
-      h("button", { className: "secondary-action compact", onClick: scanning ? stopScanner : startScanner }, scanning ? "Fechar câmera" : "Ler câmera")
+      h("button", {
+        className: "secondary-action compact",
+        onClick: scanning ? stopScanner : startScanner
+      }, scanning ? "Fechar leitor" : "Escanear código")
     ),
     result && h("div", { className: `scan-result ${result.type}` }, result.text),
     h("div", { className: "scan-items" }, map.items.map((item) =>
