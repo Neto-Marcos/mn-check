@@ -395,7 +395,7 @@ function Separation({ maps, onToggle, onSend }) {
       h("div", { className: "panel-header" }, h("h3", null, "Separação de mapas"), h("span", null, "marque os itens separados")),
       h("div", { className: "stack" }, maps.length ? maps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend })) : empty("Nenhum mapa em separação."))
     ),
-    h(MapExample)
+    h(QueueSummary, { maps, mode: "separation" })
   );
 }
 
@@ -405,7 +405,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
       h("div", { className: "panel-header" }, h("h3", null, "Reconferência da expedição"), h("span", null, "mapas já separados")),
       h("div", { className: "stack" }, maps.length ? maps.map((map) => h(ConferenceCard, { key: map.id, map, onApprove, onProblem, onCorrected, onScan })) : empty("Nenhum mapa aguardando conferência."))
     ),
-    h(MapExample)
+    h(QueueSummary, { maps, mode: "conference" })
   );
 }
 
@@ -719,6 +719,49 @@ function playFeedback(success) {
     oscillator.start();
     oscillator.stop(context.currentTime + (success ? 0.12 : 0.28));
   } catch (_) {}
+}
+
+function QueueSummary({ maps, mode }) {
+  const activeStatuses = mode === "separation"
+    ? ["separacao"]
+    : ["corrigir problema", "aguardando conferencia", "conferencia"];
+  const queue = maps
+    .filter((map) => activeStatuses.includes(map.status))
+    .sort((a, b) => {
+      if (a.status === "corrigir problema" && b.status !== "corrigir problema") return -1;
+      if (b.status === "corrigir problema" && a.status !== "corrigir problema") return 1;
+      return Number(a.id) - Number(b.id);
+    })
+    .slice(0, 8);
+
+  return h("article", { className: "panel" },
+    h("div", { className: "panel-header" },
+      h("h3", null, mode === "separation" ? "Fila de separação" : "Fila de conferência"),
+      h("span", null, `${queue.length} ${queue.length === 1 ? "mapa ativo" : "mapas ativos"}`)
+    ),
+    queue.length
+      ? h("div", { className: "queue-list" }, queue.map((map) => {
+          const checked = mode === "separation"
+            ? map.items.filter((item) => item.ok).length
+            : map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
+          const total = mode === "separation"
+            ? map.items.length
+            : map.items.reduce((sum, item) => sum + item.quantity, 0);
+          const percent = total ? Math.round((checked / total) * 100) : 0;
+          return h("div", { className: `queue-item ${map.status === "corrigir problema" ? "urgent" : ""}`, key: map.id },
+            h("div", { className: "queue-item-head" },
+              h("div", null, h("strong", null, `Mapa ${map.id}`), h("span", null, map.client)),
+              h("b", null, `${checked}/${total}`)
+            ),
+            h("div", { className: "queue-progress" }, h("div", { style: { width: `${percent}%` } })),
+            h("div", { className: "queue-meta" },
+              h("span", null, status(map.status)),
+              h("span", null, `${percent}% concluído`)
+            )
+          );
+        }))
+      : empty(mode === "separation" ? "Nenhum mapa aguardando separação." : "Nenhum mapa aguardando conferência.")
+  );
 }
 
 function MapExample() {

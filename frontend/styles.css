@@ -835,6 +835,67 @@ select {
   background: var(--success);
 }
 
+.queue-list {
+  display: grid;
+  gap: 10px;
+}
+
+.queue-item {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--red-50);
+}
+
+.queue-item.urgent {
+  border-color: #e49aa4;
+  background: #ffe7ea;
+}
+
+.queue-item-head,
+.queue-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.queue-item-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.queue-item-head strong,
+.queue-item-head span {
+  overflow-wrap: anywhere;
+}
+
+.queue-item-head b {
+  flex: 0 0 auto;
+  color: var(--red-800);
+}
+
+.queue-progress {
+  height: 7px;
+  margin: 10px 0 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.queue-progress > div {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--red-700);
+}
+
+.queue-meta span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .map-preview {
   min-height: 300px;
   padding: 18px;
