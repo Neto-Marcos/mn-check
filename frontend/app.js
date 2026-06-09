@@ -504,22 +504,26 @@ function Overview({ data }) {
 }
 
 function Separation({ maps, onToggle, onSend }) {
+  const separationMaps = maps.filter((map) => map.status === "separacao");
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Separação de mapas"), h("span", null, "marque os itens separados")),
-      h("div", { className: "stack" }, maps.length ? maps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend })) : empty("Nenhum mapa em separação."))
+      h("div", { className: "stack" }, separationMaps.length ? separationMaps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend })) : empty("Nenhum mapa em separação."))
     ),
-    h(QueueSummary, { maps, mode: "separation" })
+    h(QueueSummary, { maps: separationMaps, mode: "separation" })
   );
 }
 
 function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
+  const conferenceMaps = maps.filter((map) =>
+    ["aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status)
+  );
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Reconferência da expedição"), h("span", null, "mapas já separados")),
-      h("div", { className: "stack" }, maps.length ? maps.map((map) => h(ConferenceCard, { key: map.id, map, onApprove, onProblem, onCorrected, onScan })) : empty("Nenhum mapa aguardando conferência."))
+      h("div", { className: "stack" }, conferenceMaps.length ? conferenceMaps.map((map) => h(ConferenceCard, { key: map.id, map, onApprove, onProblem, onCorrected, onScan })) : empty("Nenhum mapa aguardando conferência."))
     ),
-    h(QueueSummary, { maps, mode: "conference" })
+    h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
   );
 }
 
@@ -881,24 +885,6 @@ function QueueSummary({ maps, mode }) {
           );
         }))
       : empty(mode === "separation" ? "Nenhum mapa aguardando separação." : "Nenhum mapa aguardando conferência.")
-  );
-}
-
-function MapExample() {
-  return h("article", { className: "panel" },
-    h("div", { className: "panel-header" }, h("h3", null, "Mapa de carga"), h("span", null, "modelo analítico")),
-    h("div", { className: "map-preview" },
-      h("strong", null, "15728.2 - Mapa de Carga - Analítico"),
-      h("p", null, "Filial: 281 | Data: 29/05/2026 | Rota: 1135/1135-CEDRAL"),
-      h("table", null,
-        h("thead", null, h("tr", null, h("th", null, "Produto"), h("th", null, "Qtde"), h("th", null, "Descrição"))),
-        h("tbody", null,
-          h("tr", null, h("td", null, "73578-1.2"), h("td", null, "6,00"), h("td", null, "Lavadora Midea")),
-          h("tr", null, h("td", null, "75480-1.2"), h("td", null, "6,00"), h("td", null, "Refrigerador Midea")),
-          h("tr", null, h("td", null, "66878-1.2"), h("td", null, "2,00"), h("td", null, "Freezer Consul horizontal"))
-        )
-      )
-    )
   );
 }
 

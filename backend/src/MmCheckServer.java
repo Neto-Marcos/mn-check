@@ -817,6 +817,9 @@ public class MmCheckServer {
         Map<String, Object> audit = castMap(item);
         return new AuditRecord(string(audit.get("at")), string(audit.get("userName")), string(audit.get("action")), string(audit.get("description")));
       }).toList());
+      boolean removedExamples = db.maps.removeIf(Database::isLegacyExampleMap);
+      removedExamples |= db.errors.removeIf(error -> "15727".equals(error.order));
+      if (removedExamples) db.save(file);
       return db;
     }
 
@@ -827,16 +830,13 @@ public class MmCheckServer {
         throw new IOException("Defina MMCHECK_ADMIN_PASSWORD antes de criar o primeiro banco de dados.");
       }
       db.users.add(new User(UUID.randomUUID().toString(), "Marcos", "Marcos", "admin", "Administrador", hash(adminPassword)));
-      db.maps.add(CargoMap.sample("15728", "Marcos"));
-      CargoMap second = CargoMap.sample("15729", "Marcos");
-      second.client = "RENOVA MATERIAIS DE CONSTRUÇÃO";
-      second.status = "aguardando conferencia";
-      second.items.get(0).ok = true;
-      second.items.get(1).ok = true;
-      second.items.get(2).ok = true;
-      db.maps.add(second);
-      db.errors.add(new ErrorRecord("15727", "Quantidade divergente no mapa", "Expedição"));
       return db;
+    }
+
+    private static boolean isLegacyExampleMap(CargoMap map) {
+      return List.of("15728", "15729").contains(map.id)
+          && "Marcos".equalsIgnoreCase(map.createdBy)
+          && (map.attachmentName == null || map.attachmentName.isBlank());
     }
 
     Optional<User> findUserByUsername(String username) {
