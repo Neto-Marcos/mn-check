@@ -42,6 +42,21 @@ CREATE INDEX IF NOT EXISTS idx_contagens_criado_em
 CREATE INDEX IF NOT EXISTS idx_itens_contagem_contagem
   ON itens_contagem(contagem_id);
 
+CREATE TABLE IF NOT EXISTS historico_scanner (
+  id BIGSERIAL PRIMARY KEY,
+  mapa_id TEXT NOT NULL,
+  operador TEXT NOT NULL,
+  codigo_esperado VARCHAR(16) NOT NULL,
+  codigo_lido VARCHAR(16) NOT NULL,
+  aprovado BOOLEAN NOT NULL,
+  motivo TEXT NOT NULL,
+  origem VARCHAR(16) NOT NULL,
+  criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_historico_scanner_mapa
+  ON historico_scanner(mapa_id, criado_em DESC);
+
 -- Estado operacional restante e anexos também ficam no PostgreSQL.
 CREATE TABLE IF NOT EXISTS mn_check_state (
   id SMALLINT PRIMARY KEY CHECK (id = 1),

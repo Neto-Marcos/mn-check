@@ -2,7 +2,118 @@
 
 Controle de separação, conferência e estoque.
 
-Versão atual: **1.5.0**
+Versão atual: **1.6.0**
+
+## Leitor CODE 128
+
+A tela de **Conferência** possui um leitor industrial mobile-first:
+
+- câmera traseira iniciada automaticamente;
+- leitura contínua de CODE 128 com `html5-qrcode`;
+- preferência pela API nativa `BarcodeDetector` quando disponível;
+- linha verde para posicionamento da etiqueta;
+- confirmação por som e vibração;
+- cooldown de 1 segundo contra leituras duplicadas;
+- entrada manual;
+- scanners USB e Bluetooth que funcionam como teclado;
+- validação no backend Spring Boot;
+- histórico persistente no PostgreSQL.
+
+Padrão do produto:
+
+```text
+SKU.COR.VOLTAGEM
+```
+
+Os valores `7426613`, `74266 1 3` e `74266.1.3` são normalizados para:
+
+```text
+74266.1.3
+```
+
+Regras:
+
+- SKU: primeiros 5 números;
+- cor: penúltimo número;
+- voltagem: último número.
+
+O backend consulta o próximo item pendente do mapa autenticado. O navegador não decide livremente qual produto é esperado.
+
+Exemplo:
+
+```text
+Esperado: 74266.1.3
+Lido:     74266.1.2
+Status:   BLOQUEADO
+Motivo:   Voltagem incorreta
+```
+
+Leituras bloqueadas ficam no histórico, mas não incrementam a quantidade conferida.
+
+### Celular
+
+- Use o endereço HTTPS do Render.
+- No Android, abra no Chrome e autorize a câmera.
+- No iPhone, abra no Safari e autorize a câmera.
+- Posicione o código de barras horizontalmente sobre a linha verde.
+
+### Scanner USB ou Bluetooth
+
+1. Conecte ou pareie o scanner.
+2. Configure o scanner para enviar `Enter` após a leitura, comportamento padrão da maioria dos modelos.
+3. Abra a conferência.
+4. Leia a etiqueta. O campo reconhece automaticamente a digitação rápida como scanner físico.
+
+### API do scanner
+
+Validar leitura:
+
+```http
+POST /api/scanner/validate
+Authorization: Bearer TOKEN
+Content-Type: application/json
+
+{
+  "mapId": "15740",
+  "scannedCode": "7426613",
+  "operator": "Marcos",
+  "source": "camera"
+}
+```
+
+Resposta aprovada:
+
+```json
+{
+  "status": "APROVADO",
+  "approved": true,
+  "expected": "74266.1.3",
+  "scanned": "74266.1.3",
+  "reason": "Produto correto"
+}
+```
+
+Outras rotas:
+
+| Método | Endpoint | Função |
+|---|---|---|
+| `POST` | `/api/scanner/validate` | Validar e registrar uma leitura |
+| `GET` | `/api/scanner/history?mapId=15740` | Histórico persistente do mapa |
+| `POST` | `/api/scanner/decode` | Decodificar imagem CODE 128 com ZXing Java |
+
+`POST /api/scanner/decode` usa `multipart/form-data` com o campo `file`.
+
+## Arquitetura
+
+O processo principal é Spring Boot. O módulo novo de scanner é nativo em Spring MVC. Durante a migração, as rotas operacionais anteriores são encaminhadas internamente ao núcleo legado na porta `4174`, preservando login, mapas, estoque e usuários.
+
+Bibliotecas principais:
+
+- Spring Boot 3.5;
+- ZXing 3.5 para decodificação Java;
+- html5-qrcode 2.3.8 no navegador;
+- PostgreSQL JDBC;
+- Apache PDFBox.
 
 ## Persistência
 
@@ -14,6 +125,7 @@ Os dados de saldo e contagem usam as tabelas relacionais:
 - `saldos`;
 - `contagens`;
 - `itens_contagem`.
+- `historico_scanner`.
 
 Usuários, mapas, notificações e anexos também permanecem no PostgreSQL. As tabelas são criadas automaticamente com `CREATE TABLE IF NOT EXISTS`.
 
@@ -62,7 +174,7 @@ $env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/n
 $env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
 mvn test
 mvn package
-java -jar target/mn-check.jar
+java -jar target/mn-check-1.6.0.jar
 ```
 
 Abra:
@@ -138,6 +250,9 @@ O relatório mantém PDF de origem, datas, SKU, saldo, contado, diferença, stat
 | `POST` | `/api/importar` | Importar PDF e gravar no PostgreSQL |
 | `POST` | `/api/contagem` | Gravar contagem e itens |
 | `GET` | `/api/historico` | Histórico persistente |
+| `POST` | `/api/scanner/validate` | Validar CODE 128 |
+| `GET` | `/api/scanner/history` | Histórico de leituras |
+| `POST` | `/api/scanner/decode` | Ler CODE 128 de uma imagem |
 
 ## Testes
 
@@ -158,5 +273,8 @@ docker build -t mn-check-ci .
 - gravação da contagem;
 - leitura do histórico;
 - persistência ao criar uma nova conexão, simulando reinício.
+- parser do padrão SKU.COR.VOLTAGEM;
+- bloqueio específico por SKU, cor ou voltagem;
+- decodificação de imagem CODE 128 com ZXing.
 
 Para uma validação no Neon, execute `mvn test` com a `DATABASE_URL` real configurada.

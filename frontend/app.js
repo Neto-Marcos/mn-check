@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.6.0";
 const MAP_FILE_TYPES = new Set([
   "application/pdf",
   "image/png",
@@ -285,13 +285,19 @@ function App() {
     }
   }
 
-  async function scanBarcode(mapId, code) {
+  async function scanBarcode(mapId, code, expectedCode, source) {
     try {
-      const result = await request(`/api/maps/${mapId}/scan`, {
+      const result = await request("/api/scanner/validate", {
         method: "POST",
-        body: { code },
+        body: {
+          mapId,
+          expectedCode,
+          scannedCode: code,
+          operator: user?.name || user?.username || "Operador",
+          source
+        },
       });
-      await refresh(null, "conference");
+      if (result.approved) await refresh(null, "conference");
       return result;
     } catch (error) {
       notify(error.message);
@@ -727,7 +733,15 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Reconferência da expedição"), h("span", null, "mapas já separados")),
-      h("div", { className: "stack" }, conferenceMaps.length ? conferenceMaps.map((map) => h(ConferenceCard, { key: map.id, map, onApprove, onProblem, onCorrected, onScan })) : empty("Nenhum mapa aguardando conferência."))
+      h("div", { className: "stack" }, conferenceMaps.length ? conferenceMaps.map((map, index) => h(ConferenceCard, {
+        key: map.id,
+        map,
+        onApprove,
+        onProblem,
+        onCorrected,
+        onScan,
+        autoStart: index === 0
+      })) : empty("Nenhum mapa aguardando conferência."))
     ),
     h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
   );
@@ -1027,7 +1041,7 @@ function MapCard({ map, onToggle, onSend, onDelete }) {
   );
 }
 
-function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
+function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, autoStart }) {
   const actionable = ["aguardando conferencia", "conferencia"].includes(map.status);
   const needsCorrection = map.status === "corrigir problema";
   return h("article", { className: "order-card conference-card" },
@@ -1047,12 +1061,13 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
       onProblem,
       onCorrected,
       actionable,
-      needsCorrection
+      needsCorrection,
+      autoStart
     })
   );
 }
 
-function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, actionable, needsCorrection }) {
+function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, actionable, needsCorrection, autoStart }) {
   const [manualCode, setManualCode] = React.useState("");
   const [result, setResult] = React.useState(null);
   const [scanning, setScanning] = React.useState(false);
@@ -1060,6 +1075,11 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
   const [history, setHistory] = React.useState([]);
   const [lastCode, setLastCode] = React.useState("");
   const scannerRef = React.useRef(null);
+  const lastScanRef = React.useRef({ code: "", at: 0 });
+  const manualStartedAtRef = React.useRef(0);
+  const expectedItemRef = React.useRef(null);
+  const validatingRef = React.useRef(false);
+  const physicalScannerRef = React.useRef({ value: "", lastKeyAt: 0 });
   const readerId = `barcode-reader-${map.id}`;
   const totalQuantity = map.items.reduce((sum, item) => sum + item.quantity, 0);
   const checkedQuantity = map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
@@ -1067,46 +1087,108 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
   const allChecked = remainingQuantity === 0;
   const expectedItem = map.items.find((item) => (item.checkedQuantity || 0) < item.quantity)
     || map.items[map.items.length - 1];
+  expectedItemRef.current = expectedItem;
 
-  React.useEffect(() => () => stopScanner(), []);
+  React.useEffect(() => {
+    let active = true;
+    authorizedJson(`/api/scanner/history?mapId=${encodeURIComponent(map.id)}&limit=30`)
+      .then((body) => {
+        if (!active) return;
+        setHistory((body.history || []).map((entry) => ({
+          code: entry.scanned,
+          name: entry.reason,
+          ok: entry.approved,
+          source: entry.source,
+          at: entry.at
+        })));
+      })
+      .catch(() => {});
 
-  async function validate(code) {
+    const autoStartTimer = window.setTimeout(() => {
+      if (active && actionable && !needsCorrection && autoStart) startScanner();
+    }, 350);
+    function capturePhysicalScanner(event) {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName)) return;
+      const current = physicalScannerRef.current;
+      const now = Date.now();
+      if (now - current.lastKeyAt > 120) current.value = "";
+      current.lastKeyAt = now;
+      if (event.key === "Enter") {
+        if (current.value.replace(/\D/g, "").length === 7) {
+          event.preventDefault();
+          validate(current.value, "scanner");
+        }
+        current.value = "";
+        return;
+      }
+      if (/^[\d .-]$/.test(event.key)) current.value += event.key;
+    }
+    function releaseCamera(event) {
+      if (String(event.detail) !== String(map.id)) stopScanner();
+    }
+    document.addEventListener("keydown", capturePhysicalScanner);
+    window.addEventListener("mncheck-camera-request", releaseCamera);
+    return () => {
+      active = false;
+      window.clearTimeout(autoStartTimer);
+      document.removeEventListener("keydown", capturePhysicalScanner);
+      window.removeEventListener("mncheck-camera-request", releaseCamera);
+      stopScanner();
+    };
+  }, [map.id]);
+
+  async function validate(code, source = "manual") {
     const cleanCode = String(code || "").replace(/\D/g, "");
-    if (!cleanCode || validating) {
+    if (!cleanCode || validatingRef.current) {
       if (!cleanCode) {
         setResult({ type: "error", title: "Código obrigatório", text: "Digite ou escaneie um código para validar." });
       }
       return;
     }
+    const now = Date.now();
+    if (lastScanRef.current.code === cleanCode && now - lastScanRef.current.at < 1000) return;
+    lastScanRef.current = { code: cleanCode, at: now };
+
+    const currentExpected = expectedItemRef.current;
+    if (!currentExpected) return;
+    validatingRef.current = true;
     setValidating(true);
     setLastCode(cleanCode);
     try {
-      const response = await onScan(map.id, cleanCode);
+      const response = await onScan(map.id, cleanCode, currentExpected.sku, source);
+      const approved = Boolean(response.approved);
       setResult({
-        type: "success",
-        title: response.allChecked ? "Conferência concluída" : "Produto confirmado",
-        text: response.allChecked
-          ? "Todas as unidades foram lidas. Toque em OK para finalizar."
-          : `${response.item.name}: ${response.item.checkedQuantity}/${response.item.quantity} unidades.`
+        type: approved ? "success" : "error",
+        title: approved
+          ? (response.allChecked ? "Conferência concluída" : "APROVADO")
+          : "BLOQUEADO",
+        text: approved
+          ? (response.allChecked
+              ? "Todas as unidades foram lidas. Toque em OK para finalizar."
+              : `${response.item.name}: ${response.item.checkedQuantity}/${response.item.quantity} unidades.`)
+          : response.reason
       });
       setHistory((current) => [{
-        code: cleanCode,
-        name: response.item.name,
-        ok: true,
-        at: new Date().toISOString(),
-      }, ...current].slice(0, 12));
+        code: response.scanned || cleanCode,
+        name: approved ? response.reason : `${response.reason} - esperado ${response.expected}`,
+        ok: approved,
+        source,
+        at: response.at || new Date().toISOString(),
+      }, ...current].slice(0, 30));
       setManualCode("");
-      playFeedback(true);
+      playFeedback(approved);
     } catch (error) {
       setResult({ type: "error", title: "Código não confere", text: error.message });
       setHistory((current) => [{
         code: cleanCode,
         name: error.message,
         ok: false,
+        source,
         at: new Date().toISOString(),
-      }, ...current].slice(0, 12));
+      }, ...current].slice(0, 30));
       playFeedback(false);
     } finally {
+      validatingRef.current = false;
       setValidating(false);
     }
   }
@@ -1130,16 +1212,28 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
     }
 
     try {
+      window.dispatchEvent(new CustomEvent("mncheck-camera-request", { detail: map.id }));
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
       setScanning(true);
       setResult(null);
-      scannerRef.current = new Html5Qrcode(readerId);
+      if (scannerRef.current) return;
+      scannerRef.current = new Html5Qrcode(readerId, {
+        formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128],
+        verbose: false
+      });
       await scannerRef.current.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 280, height: 120 }, formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128] },
-        async (decodedText) => {
-          await stopScanner();
-          await validate(decodedText);
+        {
+          fps: 20,
+          aspectRatio: 1.777778,
+          disableFlip: false,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          qrbox: (width, height) => ({
+            width: Math.min(Math.floor(width * 0.9), 420),
+            height: Math.min(Math.floor(height * 0.32), 150)
+          })
         },
+        (decodedText) => validate(decodedText, "camera"),
         () => {}
       );
     } catch (error) {
@@ -1147,7 +1241,7 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
       setResult({
         type: "error",
         title: "Câmera não disponível",
-        text: "Não foi possível abrir a câmera. Confira a permissão do navegador."
+        text: "Não foi possível abrir a câmera traseira. Confira a permissão do navegador."
       });
     }
   }
@@ -1182,28 +1276,37 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
         disabled: validating || needsCorrection,
         onClick: scanning ? stopScanner : startScanner
       }, scanning ? "Fechar câmera" : "Ler etiqueta pela câmera"),
-      h("div", { id: readerId, className: `barcode-reader ${scanning ? "active" : ""}` }),
+      h("div", { className: `barcode-reader-shell ${scanning ? "active" : ""}` },
+        h("div", { id: readerId, className: `barcode-reader ${scanning ? "active" : ""}` }),
+        h("div", { className: "scanner-target-line", "aria-hidden": "true" })
+      ),
       h("div", { className: "manual-validation" },
         h("input", {
           inputMode: "numeric",
-          placeholder: "Ou digite o código manualmente",
+          autoFocus: true,
+          autoComplete: "off",
+          placeholder: "Digite ou use o scanner USB/Bluetooth",
           value: manualCode,
           disabled: needsCorrection,
-          onChange: (event) => setManualCode(event.target.value),
+          onChange: (event) => {
+            if (!manualCode) manualStartedAtRef.current = Date.now();
+            setManualCode(event.target.value);
+          },
           onKeyDown: (event) => {
             if (event.key !== "Enter") return;
             event.preventDefault();
-            validate(manualCode);
+            const elapsed = Date.now() - manualStartedAtRef.current;
+            validate(manualCode, elapsed < 700 ? "scanner" : "manual");
           }
         }),
         h("button", {
           className: "primary-action",
           disabled: needsCorrection || validating || !manualCode.replace(/\D/g, ""),
-          onClick: () => validate(manualCode)
+          onClick: () => validate(manualCode, "manual")
         }, validating ? "Validando..." : "Validar")
       ),
       h("p", { className: "scanner-help" },
-        "No iPhone, abra pelo Safari e permita o acesso à câmera. Se a leitura não iniciar, use o código manual."
+        "A câmera lê CODE 128 continuamente. Scanners USB e Bluetooth funcionam diretamente no campo acima."
       )
     ),
     h("section", { className: "conference-step result-step" },
@@ -1224,13 +1327,13 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
       expectedItem && h("div", { className: "expected-details" },
         detailRow(
           allChecked ? "Último código esperado" : "Próximo código esperado",
-          expectedItem.barcode || String(expectedItem.sku || "").replace(/\D/g, "")
+          normalizeProductCode(expectedItem.sku)
         ),
         detailRow("Produto", expectedItem.name),
         detailRow("SKU", expectedItem.sku),
         detailRow("Voltagem esperada", voltageFromSku(expectedItem.sku)),
         detailRow("Quantidade", `${expectedItem.checkedQuantity || 0}/${expectedItem.quantity}`),
-        detailRow("Último código lido", lastCode || "---")
+        detailRow("Produto lido", lastCode ? normalizeProductCode(lastCode) : "---")
       ),
       h("div", { className: "conference-final-actions" },
         actionable && h("button", {
@@ -1252,7 +1355,7 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
       h("div", { className: "conference-step-title simple" },
         h("div", null,
           h("strong", null, "Histórico"),
-          h("small", null, "Últimas leituras desta conferência")
+          h("small", null, `${history.length} leituras registradas`)
         )
       ),
       history.length
@@ -1261,7 +1364,7 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
               h("span", null, entry.ok ? "OK" : "!"),
               h("div", null,
                 h("strong", null, entry.code),
-                h("small", null, entry.name)
+                h("small", null, `${entry.name} - ${scanSourceLabel(entry.source)}`)
               ),
               h("time", null, new Date(entry.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }))
             )
@@ -1287,6 +1390,30 @@ function voltageFromSku(sku) {
     "3": "220V",
     "4": "Bivolt",
   }[gradeY] || "Não informado";
+}
+
+function normalizeProductCode(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length !== 7) return value || "---";
+  return `${digits.slice(0, 5)}.${digits[5]}.${digits[6]}`;
+}
+
+function scanSourceLabel(source) {
+  return {
+    camera: "câmera",
+    scanner: "scanner físico",
+    manual: "digitação manual"
+  }[source] || "leitura";
+}
+
+async function authorizedJson(path) {
+  const token = localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "";
+  const response = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || "Não foi possível carregar os dados.");
+  return body;
 }
 
 function playFeedback(success) {

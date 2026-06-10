@@ -34,7 +34,13 @@ https://mm-check.onrender.com/api/health
 Versão esperada:
 
 ```json
-{"app":"MN - Check","version":"1.5.0"}
+{"app":"MN - Check","version":"1.6.0"}
 ```
 
 O primeiro boot cria automaticamente todas as tabelas. Uma falha de conexão impede a inicialização, evitando perda silenciosa de dados.
+
+## Câmera no celular
+
+O navegador exige HTTPS para `getUserMedia`. O endereço público do Render já usa HTTPS, portanto basta autorizar a câmera no Chrome Android ou Safari do iPhone.
+
+O serviço precisa expor somente a porta pública definida por `PORT`. O núcleo de compatibilidade roda internamente na porta `4174`.

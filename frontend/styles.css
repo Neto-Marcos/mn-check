@@ -1,13 +1,13 @@
 :root {
   --red-900: #5b1018;
-  --red-800: #7d1721;
-  --red-700: #a51f2d;
-  --red-600: #c92838;
+  --red-800: #9f1714;
+  --red-700: #cd1e1a;
+  --red-600: #e53935;
   --red-100: #ffe7ea;
   --red-50: #fff4f5;
   --ink: #21191b;
   --muted: #766b6e;
-  --line: #ead8db;
+  --line: #e6e6e6;
   --page: #fbf7f7;
   --panel: #ffffff;
   --success: #1f8a5b;
@@ -1292,6 +1292,14 @@ select {
   background: #f6f6f6;
 }
 
+.scan-history > div.success {
+  border-left: 4px solid #178557;
+}
+
+.scan-history > div.error {
+  border-left: 4px solid #cd1e1a;
+}
+
 .scan-history > div > span {
   width: 30px;
   height: 30px;
@@ -1328,6 +1336,17 @@ select {
 
 .empty-history {
   margin: 0;
+}
+
+@keyframes scannerLine {
+  0%, 100% {
+    opacity: 0.65;
+    transform: translateY(-18px);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(18px);
+  }
 }
 
 .scanner-heading,
@@ -1369,6 +1388,53 @@ select {
   overflow: hidden;
   border-radius: 8px;
   background: #171214;
+}
+
+.barcode-reader-shell {
+  position: relative;
+  display: none;
+  width: 100%;
+  max-width: 620px;
+  min-height: 220px;
+  margin: 14px auto;
+  overflow: hidden;
+  border: 2px solid rgba(229, 57, 53, 0.35);
+  border-radius: 8px;
+  background: #171214;
+  box-shadow: 0 16px 34px rgba(38, 26, 29, 0.18);
+}
+
+.barcode-reader-shell.active {
+  display: block;
+  animation: panelIn 240ms ease both;
+}
+
+.barcode-reader-shell .barcode-reader {
+  max-width: none;
+  min-height: 220px;
+  margin: 0;
+  border-radius: 0;
+}
+
+.barcode-reader video {
+  width: 100% !important;
+  min-height: 220px;
+  object-fit: cover;
+}
+
+.scanner-target-line {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 8%;
+  right: 8%;
+  height: 3px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75), 0 0 18px rgba(34, 197, 94, 0.9);
+  transform: translateY(-50%);
+  pointer-events: none;
+  animation: scannerLine 1.8s ease-in-out infinite;
 }
 
 .barcode-reader.active {

@@ -1,3 +1,5 @@
+package br.com.mncheck;
+
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -223,6 +225,84 @@ public final class PostgresDatabase {
     }
   }
 
+  public ScanHistoryEntry saveScanHistory(
+      String mapId,
+      String operator,
+      String expectedCode,
+      String scannedCode,
+      boolean approved,
+      String reason,
+      String source
+  ) {
+    String sql = """
+        INSERT INTO historico_scanner
+          (mapa_id, operador, codigo_esperado, codigo_lido, aprovado, motivo, origem, criado_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?, now())
+        RETURNING id, criado_em
+        """;
+    try (Connection connection = connect();
+         PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, safeText(mapId, "sem-mapa"));
+      statement.setString(2, safeText(operator, "Operador"));
+      statement.setString(3, expectedCode);
+      statement.setString(4, scannedCode);
+      statement.setBoolean(5, approved);
+      statement.setString(6, reason);
+      statement.setString(7, source);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new SQLException("O histórico não retornou identificador.");
+        return new ScanHistoryEntry(
+            result.getLong("id"),
+            safeText(mapId, "sem-mapa"),
+            safeText(operator, "Operador"),
+            expectedCode,
+            scannedCode,
+            approved,
+            reason,
+            source,
+            result.getTimestamp("criado_em").toInstant()
+        );
+      }
+    } catch (SQLException error) {
+      throw new DatabaseException("Não foi possível salvar o histórico do scanner.", error);
+    }
+  }
+
+  public List<ScanHistoryEntry> loadScanHistory(String mapId, int limit) {
+    String sql = """
+        SELECT id, mapa_id, operador, codigo_esperado, codigo_lido,
+               aprovado, motivo, origem, criado_em
+        FROM historico_scanner
+        WHERE mapa_id = ?
+        ORDER BY criado_em DESC, id DESC
+        LIMIT ?
+        """;
+    List<ScanHistoryEntry> history = new ArrayList<>();
+    try (Connection connection = connect();
+         PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, mapId);
+      statement.setInt(2, limit);
+      try (ResultSet result = statement.executeQuery()) {
+        while (result.next()) {
+          history.add(new ScanHistoryEntry(
+              result.getLong("id"),
+              result.getString("mapa_id"),
+              result.getString("operador"),
+              result.getString("codigo_esperado"),
+              result.getString("codigo_lido"),
+              result.getBoolean("aprovado"),
+              result.getString("motivo"),
+              result.getString("origem"),
+              result.getTimestamp("criado_em").toInstant()
+          ));
+        }
+      }
+      return history;
+    } catch (SQLException error) {
+      throw new DatabaseException("Não foi possível carregar o histórico do scanner.", error);
+    }
+  }
+
   private ImportSummary latestImport() {
     String sql = """
         SELECT id, nome_arquivo, quantidade_skus, atualizado_em,
@@ -313,9 +393,23 @@ public final class PostgresDatabase {
           UNIQUE (contagem_id, sku)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS historico_scanner (
+          id BIGSERIAL PRIMARY KEY,
+          mapa_id TEXT NOT NULL,
+          operador TEXT NOT NULL,
+          codigo_esperado VARCHAR(16) NOT NULL,
+          codigo_lido VARCHAR(16) NOT NULL,
+          aprovado BOOLEAN NOT NULL,
+          motivo TEXT NOT NULL,
+          origem VARCHAR(16) NOT NULL,
+          criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
         "CREATE INDEX IF NOT EXISTS idx_saldos_importacao ON saldos(importacao_id)",
         "CREATE INDEX IF NOT EXISTS idx_contagens_criado_em ON contagens(criado_em DESC)",
-        "CREATE INDEX IF NOT EXISTS idx_itens_contagem_contagem ON itens_contagem(contagem_id)"
+        "CREATE INDEX IF NOT EXISTS idx_itens_contagem_contagem ON itens_contagem(contagem_id)",
+        "CREATE INDEX IF NOT EXISTS idx_historico_scanner_mapa ON historico_scanner(mapa_id, criado_em DESC)"
     };
     try (Connection connection = connect(); Statement statement = connection.createStatement()) {
       for (String sql : statements) statement.execute(sql);
@@ -342,6 +436,17 @@ public final class PostgresDatabase {
     }
   }
   public record HistoryEntry(Instant at, String operator, String action, String description) {}
+  public record ScanHistoryEntry(
+      long id,
+      String mapId,
+      String operator,
+      String expectedCode,
+      String scannedCode,
+      boolean approved,
+      String reason,
+      String source,
+      Instant createdAt
+  ) {}
 
   public static final class DatabaseException extends RuntimeException {
     DatabaseException(String message) {
@@ -387,5 +492,9 @@ public final class PostgresDatabase {
     private static String decodeCredential(String value) {
       return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
     }
+  }
+
+  private static String safeText(String value, String fallback) {
+    return value == null || value.isBlank() ? fallback : value.trim();
   }
 }

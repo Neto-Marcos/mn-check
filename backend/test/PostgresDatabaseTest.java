@@ -1,3 +1,5 @@
+package br.com.mncheck;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,13 +65,29 @@ public class PostgresDatabaseTest {
     assertTrue(history.stream().anyMatch(item ->
         item.action().equals("update_counts") && item.operator().contains(suffix)));
 
+    PostgresDatabase.ScanHistoryEntry scan = firstConnection.saveScanHistory(
+        "mapa-" + suffix,
+        "Teste automatizado",
+        "74266.1.3",
+        "74266.1.2",
+        false,
+        "Voltagem incorreta",
+        "scanner"
+    );
+    List<PostgresDatabase.ScanHistoryEntry> scanHistory =
+        afterRestart.loadScanHistory("mapa-" + suffix, 10);
+    assertEquals(1, scanHistory.size());
+    assertEquals(scan.id(), scanHistory.get(0).id());
+    assertEquals("Voltagem incorreta", scanHistory.get(0).reason());
+
     System.out.println("NEON_TEST conexão=" + afterRestart.testConnection()
         + " importacao_id=" + imported.id()
         + " skus=" + snapshot.rows().size()
         + " contagem_id=" + countId
-        + " historico_total=" + history.size());
+        + " historico_total=" + history.size()
+        + " leituras_scanner=" + scanHistory.size());
 
-    cleanup(firstConnection, imported.id(), countId);
+    cleanup(firstConnection, imported.id(), countId, "mapa-" + suffix);
   }
 
   private int countedOf(PostgresDatabase.BalanceSnapshot snapshot, String sku) {
@@ -80,8 +98,19 @@ public class PostgresDatabaseTest {
         .countedQuantity();
   }
 
-  private void cleanup(PostgresDatabase database, long importId, long countId) throws Exception {
+  private void cleanup(
+      PostgresDatabase database,
+      long importId,
+      long countId,
+      String mapId
+  ) throws Exception {
     try (Connection connection = database.connect()) {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "DELETE FROM historico_scanner WHERE mapa_id = ?"
+      )) {
+        statement.setString(1, mapId);
+        statement.executeUpdate();
+      }
       try (PreparedStatement statement = connection.prepareStatement("DELETE FROM contagens WHERE id = ?")) {
         statement.setLong(1, countId);
         statement.executeUpdate();

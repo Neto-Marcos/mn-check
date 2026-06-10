@@ -1,3 +1,5 @@
+package br.com.mncheck;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -33,9 +35,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.5.0";
+  private static final String APP_VERSION = "1.6.0";
   private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
-  private static final int PORT = Integer.parseInt(System.getenv().getOrDefault("PORT", "4173"));
+  private static final int PORT = Integer.parseInt(
+      System.getProperty("mmcheck.legacy.port", System.getenv().getOrDefault("PORT", "4173"))
+  );
   private static final Path ROOT = Path.of("").toAbsolutePath();
   private static final Path FRONTEND = ROOT.resolve("frontend");
   private static final Map<String, String> SESSIONS = new LinkedHashMap<>();

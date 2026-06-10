@@ -42,11 +42,11 @@ jobs:
         run: mvn --batch-mode --no-transfer-progress -DskipTests package
       - name: Smoke test API
         run: |
-          java -jar target/mn-check.jar > /tmp/mn-check.log 2>&1 &
+          java -jar target/mn-check-1.6.0.jar > /tmp/mn-check.log 2>&1 &
           SERVER_PID=$!
-          sleep 3
+          sleep 6
           curl --fail http://127.0.0.1:4173/api/health
-          curl --fail http://127.0.0.1:4173/api/version | grep '"version":"1.5.0"'
+          curl --fail http://127.0.0.1:4173/api/version | grep '"version":"1.6.0"'
           kill $SERVER_PID
           cat /tmp/mn-check.log
       - name: Build production image
