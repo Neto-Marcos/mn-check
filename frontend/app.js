@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.6.1";
 const MAP_FILE_TYPES = new Set([
   "application/pdf",
   "image/png",
@@ -305,6 +305,19 @@ function App() {
     }
   }
 
+  async function decodeBarcodePhoto(file) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/scanner/decode", {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Não foi possível ler a etiqueta.");
+    return body;
+  }
+
   async function mapAction(mapId, action, message) {
     try {
       await request(`/api/maps/${mapId}/${action}`, { method: "POST" });
@@ -466,7 +479,8 @@ function App() {
         onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
         onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
         onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
-        onScan: scanBarcode
+        onScan: scanBarcode,
+        onDecodePhoto: decodeBarcodePhoto
       }),
       view === "counting" && h(Counting, {
         counts: data.counts,
@@ -726,7 +740,7 @@ function Separation({ maps, onToggle, onSend, onDelete }) {
   );
 }
 
-function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
+function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onDecodePhoto }) {
   const conferenceMaps = maps.filter((map) =>
     ["aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status)
   );
@@ -740,6 +754,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
         onProblem,
         onCorrected,
         onScan,
+        onDecodePhoto,
         autoStart: index === 0
       })) : empty("Nenhum mapa aguardando conferência."))
     ),
@@ -1041,7 +1056,7 @@ function MapCard({ map, onToggle, onSend, onDelete }) {
   );
 }
 
-function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, autoStart }) {
+function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, onDecodePhoto, autoStart }) {
   const actionable = ["aguardando conferencia", "conferencia"].includes(map.status);
   const needsCorrection = map.status === "corrigir problema";
   return h("article", { className: "order-card conference-card" },
@@ -1060,6 +1075,7 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, autoSt
       onApprove,
       onProblem,
       onCorrected,
+      onDecodePhoto,
       actionable,
       needsCorrection,
       autoStart
@@ -1067,14 +1083,16 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, autoSt
   );
 }
 
-function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, actionable, needsCorrection, autoStart }) {
+function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCorrected, actionable, needsCorrection, autoStart }) {
   const [manualCode, setManualCode] = React.useState("");
   const [result, setResult] = React.useState(null);
   const [scanning, setScanning] = React.useState(false);
   const [validating, setValidating] = React.useState(false);
+  const [photoProcessing, setPhotoProcessing] = React.useState(false);
   const [history, setHistory] = React.useState([]);
   const [lastCode, setLastCode] = React.useState("");
   const scannerRef = React.useRef(null);
+  const photoInputRef = React.useRef(null);
   const lastScanRef = React.useRef({ code: "", at: 0 });
   const manualStartedAtRef = React.useRef(0);
   const expectedItemRef = React.useRef(null);
@@ -1257,6 +1275,45 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
     } catch (_) {}
   }
 
+  async function processLabelPhoto(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setResult({
+        type: "error",
+        title: "Arquivo inválido",
+        text: "Tire uma foto ou selecione uma imagem da etiqueta."
+      });
+      return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      setResult({
+        type: "error",
+        title: "Foto muito grande",
+        text: "Use uma imagem de até 12 MB."
+      });
+      return;
+    }
+
+    await stopScanner();
+    setPhotoProcessing(true);
+    setResult({
+      type: "waiting",
+      title: "Processando fotografia",
+      text: "Ajustando a imagem e procurando o código CODE 128..."
+    });
+    try {
+      const decoded = await onDecodePhoto(file);
+      await validate(decoded.normalized || decoded.raw, "photo");
+    } catch (error) {
+      setResult({ type: "error", title: "Código não identificado", text: error.message });
+      playFeedback(false);
+    } finally {
+      setPhotoProcessing(false);
+    }
+  }
+
   const resultTitle = allChecked
     ? "Conferência concluída"
     : result?.title || "Aguardando leitura";
@@ -1271,11 +1328,26 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
           h("small", null, "Use a câmera ou digite o código impresso")
         )
       ),
-      h("button", {
-        className: `camera-action ${scanning ? "active" : ""}`,
-        disabled: validating || needsCorrection,
-        onClick: scanning ? stopScanner : startScanner
-      }, scanning ? "Fechar câmera" : "Ler etiqueta pela câmera"),
+      h("div", { className: "capture-actions" },
+        h("button", {
+          className: `camera-action ${scanning ? "active" : ""}`,
+          disabled: validating || photoProcessing || needsCorrection,
+          onClick: scanning ? stopScanner : startScanner
+        }, scanning ? "Fechar câmera" : "Leitura ao vivo"),
+        h("button", {
+          className: "camera-action photo-action",
+          disabled: validating || photoProcessing || needsCorrection,
+          onClick: () => photoInputRef.current?.click()
+        }, photoProcessing ? "Lendo fotografia..." : "Fotografar etiqueta"),
+        h("input", {
+          ref: photoInputRef,
+          className: "visually-hidden",
+          type: "file",
+          accept: "image/*",
+          capture: "environment",
+          onChange: processLabelPhoto
+        })
+      ),
       h("div", { className: `barcode-reader-shell ${scanning ? "active" : ""}` },
         h("div", { id: readerId, className: `barcode-reader ${scanning ? "active" : ""}` }),
         h("div", { className: "scanner-target-line", "aria-hidden": "true" })
@@ -1306,7 +1378,7 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
         }, validating ? "Validando..." : "Validar")
       ),
       h("p", { className: "scanner-help" },
-        "A câmera lê CODE 128 continuamente. Scanners USB e Bluetooth funcionam diretamente no campo acima."
+        "Use a leitura ao vivo ou fotografe a etiqueta de perto. Scanners USB e Bluetooth funcionam diretamente no campo acima."
       )
     ),
     h("section", { className: "conference-step result-step" },
@@ -1401,6 +1473,7 @@ function normalizeProductCode(value) {
 function scanSourceLabel(source) {
   return {
     camera: "câmera",
+    photo: "fotografia",
     scanner: "scanner físico",
     manual: "digitação manual"
   }[source] || "leitura";

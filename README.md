@@ -2,7 +2,7 @@
 
 Controle de separação, conferência e estoque.
 
-Versão atual: **1.6.0**
+Versão atual: **1.6.1**
 
 ## Leitor CODE 128
 
@@ -10,6 +10,7 @@ A tela de **Conferência** possui um leitor industrial mobile-first:
 
 - câmera traseira iniciada automaticamente;
 - leitura contínua de CODE 128 com `html5-qrcode`;
+- botão para fotografar a etiqueta e processar a imagem no servidor;
 - preferência pela API nativa `BarcodeDetector` quando disponível;
 - linha verde para posicionamento da etiqueta;
 - confirmação por som e vibração;
@@ -18,6 +19,8 @@ A tela de **Conferência** possui um leitor industrial mobile-first:
 - scanners USB e Bluetooth que funcionam como teclado;
 - validação no backend Spring Boot;
 - histórico persistente no PostgreSQL.
+
+Na leitura por fotografia, o backend testa rotações e diferentes recortes da imagem. Para melhores resultados, mantenha todas as barras visíveis, aproxime a câmera e evite reflexos.
 
 Padrão do produto:
 
@@ -182,7 +185,7 @@ $env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/n
 $env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
 mvn test
 mvn package
-java -jar target/mn-check-1.6.0.jar
+java -jar target/mn-check-1.6.1.jar
 ```
 
 Abra:

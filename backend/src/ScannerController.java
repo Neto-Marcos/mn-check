@@ -241,6 +241,7 @@ public class ScannerController {
   private String normalizeSource(String source) {
     return switch (source == null ? "" : source.toLowerCase()) {
       case "camera" -> "camera";
+      case "photo" -> "photo";
       case "scanner" -> "scanner";
       default -> "manual";
     };
