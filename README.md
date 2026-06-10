@@ -2,7 +2,7 @@
 
 Controle de separação, conferência e estoque.
 
-Versão atual: **1.6.1**
+Versão atual: **1.6.2**
 
 ## Leitor CODE 128
 
@@ -21,6 +21,13 @@ A tela de **Conferência** possui um leitor industrial mobile-first:
 - histórico persistente no PostgreSQL.
 
 Na leitura por fotografia, o backend testa rotações e diferentes recortes da imagem. Para melhores resultados, mantenha todas as barras visíveis, aproxime a câmera e evite reflexos.
+
+Ao criar um mapa pela câmera, o operador informa manualmente:
+
+- o número do mapa;
+- todos os números de pedido existentes no mapa.
+
+Os pedidos podem ser separados por vírgula, espaço ou quebra de linha. Esses identificadores têm prioridade sobre qualquer texto interpretado na fotografia, e o sistema impede o cadastro de um número de mapa já existente.
 
 Padrão do produto:
 
@@ -185,7 +192,7 @@ $env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/n
 $env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
 mvn test
 mvn package
-java -jar target/mn-check-1.6.1.jar
+java -jar target/mn-check-1.6.2.jar
 ```
 
 Abra:

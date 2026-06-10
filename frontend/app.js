@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.6.1";
+const APP_VERSION = "1.6.2";
 const MAP_FILE_TYPES = new Set([
   "application/pdf",
   "image/png",
@@ -46,6 +46,7 @@ function App() {
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
   const mapFileInputRef = React.useRef(null);
   const mapCameraInputRef = React.useRef(null);
+  const mapUploadMetadataRef = React.useRef({ mapNumber: "", orderNumbers: [] });
   const unreadNotificationsRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -252,8 +253,11 @@ function App() {
           fileName: file.name,
           contentType,
           dataUrl,
+          mapNumber: mapUploadMetadataRef.current.mapNumber,
+          orderNumbers: mapUploadMetadataRef.current.orderNumbers,
         },
       });
+      mapUploadMetadataRef.current = { mapNumber: "", orderNumbers: [] };
       setMapImportOpen(false);
       await refresh("Mapa lido pela IA e enviado para separação.", "separation");
     } catch (error) {
@@ -261,6 +265,16 @@ function App() {
     } finally {
       setMapImporting(false);
     }
+  }
+
+  function openMapCamera(metadata) {
+    mapUploadMetadataRef.current = metadata;
+    mapCameraInputRef.current?.click();
+  }
+
+  function openMapFile(metadata = { mapNumber: "", orderNumbers: [] }) {
+    mapUploadMetadataRef.current = metadata;
+    mapFileInputRef.current?.click();
   }
 
   async function toggleItem(mapId, sku, ok) {
@@ -513,8 +527,8 @@ function App() {
     mapImportOpen && h(NewMapDialog, {
       busy: mapImporting,
       onClose: () => setMapImportOpen(false),
-      onCamera: () => mapCameraInputRef.current?.click(),
-      onFile: () => mapFileInputRef.current?.click()
+      onCamera: openMapCamera,
+      onFile: openMapFile
     }),
     passwordTarget && h(PasswordDialog, {
       target: passwordTarget,
@@ -629,6 +643,32 @@ function NotificationPanel({ notifications, onClose, onRead, onOpenMap }) {
 }
 
 function NewMapDialog({ busy, onClose, onCamera, onFile }) {
+  const [mapNumber, setMapNumber] = React.useState("");
+  const [ordersText, setOrdersText] = React.useState("");
+  const [error, setError] = React.useState("");
+
+  function metadata() {
+    const cleanMapNumber = mapNumber.replace(/\D/g, "");
+    const orderNumbers = Array.from(new Set(
+      ordersText.split(/[\s,;]+/).map((value) => value.replace(/\D/g, "")).filter(Boolean)
+    ));
+    return { mapNumber: cleanMapNumber, orderNumbers };
+  }
+
+  function useCamera() {
+    const values = metadata();
+    if (!values.mapNumber) {
+      setError("Informe o número do mapa.");
+      return;
+    }
+    if (!values.orderNumbers.length) {
+      setError("Informe pelo menos um número de pedido.");
+      return;
+    }
+    setError("");
+    onCamera(values);
+  }
+
   return h("div", { className: "modal-backdrop", role: "presentation", onMouseDown: onClose },
     h("section", {
       className: "new-map-dialog",
@@ -644,12 +684,35 @@ function NewMapDialog({ busy, onClose, onCamera, onFile }) {
         ),
         h("button", { className: "dialog-close", disabled: busy, onClick: onClose, "aria-label": "Fechar" }, "×")
       ),
-      h("div", { className: "map-source-grid" },
-        h("button", { className: "map-source-option", disabled: busy, onClick: onCamera },
-          h("strong", null, "Câmera"),
-          h("span", null, "Fotografar o mapa agora")
+      h("div", { className: "map-manual-fields" },
+        h("label", null, "Número do mapa",
+          h("input", {
+            inputMode: "numeric",
+            placeholder: "Ex.: 15728",
+            value: mapNumber,
+            disabled: busy,
+            onChange: (event) => setMapNumber(event.target.value)
+          })
         ),
-        h("button", { className: "map-source-option", disabled: busy, onClick: onFile },
+        h("label", null, "Números dos pedidos",
+          h("textarea", {
+            rows: 3,
+            inputMode: "numeric",
+            placeholder: "Ex.: 55196, 55198, 55204",
+            value: ordersText,
+            disabled: busy,
+            onChange: (event) => setOrdersText(event.target.value)
+          }),
+          h("small", null, "Informe todos os pedidos do mapa, separados por vírgula, espaço ou uma linha para cada pedido.")
+        )
+      ),
+      error && h("div", { className: "form-error" }, error),
+      h("div", { className: "map-source-grid" },
+        h("button", { className: "map-source-option", disabled: busy, onClick: useCamera },
+          h("strong", null, "Câmera"),
+          h("span", null, "Usa os números informados e lê somente os itens da foto")
+        ),
+        h("button", { className: "map-source-option", disabled: busy, onClick: () => onFile(metadata()) },
           h("strong", null, "Arquivo ou imagem"),
           h("span", null, "PDF, PNG, JPG, WebP, HEIC ou HEIF")
         )
@@ -1031,6 +1094,10 @@ function MapCard({ map, onToggle, onSend, onDelete }) {
       h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
     ),
     map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),
+    map.orderNumbers?.length && h("div", { className: "order-numbers-line" },
+      h("strong", null, "Pedidos"),
+      h("span", null, map.orderNumbers.join(", "))
+    ),
     h("div", { className: "item-checks" }, map.items.map((item) =>
       h("label", { className: "check-line", key: item.sku },
         h("input", { type: "checkbox", checked: item.ok, disabled: !editable, onChange: (event) => onToggle(map.id, item.sku, event.target.checked) }),
@@ -1069,6 +1136,10 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, onDeco
       h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
     ),
     map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),
+    map.orderNumbers?.length && h("div", { className: "order-numbers-line" },
+      h("strong", null, "Pedidos"),
+      h("span", null, map.orderNumbers.join(", "))
+    ),
     (actionable || needsCorrection) && h(BarcodeScanner, {
       map,
       onScan,

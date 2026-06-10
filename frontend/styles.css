@@ -442,6 +442,59 @@ select {
   gap: 12px;
 }
 
+.map-manual-fields {
+  margin-top: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.map-manual-fields label {
+  display: grid;
+  gap: 7px;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.map-manual-fields input,
+.map-manual-fields textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.map-manual-fields textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.map-manual-fields small {
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.order-numbers-line {
+  margin: 10px 0;
+  padding: 10px 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--red-50);
+  overflow-wrap: anywhere;
+}
+
+.order-numbers-line strong {
+  flex: 0 0 auto;
+  color: var(--red-800);
+}
+
+.order-numbers-line span {
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .map-source-option {
   min-height: 124px;
   padding: 18px;

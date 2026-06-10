@@ -35,7 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.6.1";
+  private static final String APP_VERSION = "1.6.2";
   private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
   private static final int PORT = Integer.parseInt(
       System.getProperty("mmcheck.legacy.port", System.getenv().getOrDefault("PORT", "4173"))
@@ -231,6 +231,13 @@ public class MmCheckServer {
       String fileName = string(body.get("fileName")).trim();
       String contentType = string(body.get("contentType")).trim();
       String dataUrl = string(body.get("dataUrl")).trim();
+      String manualMapNumber = string(body.get("mapNumber")).replaceAll("\\D", "");
+      List<String> manualOrderNumbers = list(body.get("orderNumbers")).stream()
+          .map(MmCheckServer::string)
+          .map(value -> value.replaceAll("\\D", ""))
+          .filter(value -> !value.isBlank())
+          .distinct()
+          .toList();
       if (fileName.isBlank() || dataUrl.isBlank()) {
         throw new ApiException(400, "Selecione um PDF ou imagem para importar.");
       }
@@ -244,15 +251,28 @@ public class MmCheckServer {
       ).contains(contentType)) {
         throw new ApiException(400, "Formato não permitido. Use PDF, PNG, JPG, WebP, HEIC ou HEIF.");
       }
+      boolean imageUpload = contentType.startsWith("image/");
+      if (imageUpload && manualMapNumber.isBlank()) {
+        throw new ApiException(400, "Informe manualmente o número do mapa antes de enviar a imagem.");
+      }
+      if (imageUpload && manualOrderNumbers.isEmpty()) {
+        throw new ApiException(400, "Informe pelo menos um número de pedido antes de enviar a imagem.");
+      }
 
       byte[] documentBytes = decodeDataUrl(dataUrl);
       if (documentBytes.length == 0 || documentBytes.length > 10 * 1024 * 1024) {
         throw new ApiException(400, "O arquivo deve ter entre 1 byte e 10 MB.");
       }
-      String next = String.valueOf(db.maps.stream().mapToInt(item -> Integer.parseInt(item.id)).max().orElse(15727) + 1);
+      String next = manualMapNumber.isBlank()
+          ? String.valueOf(db.maps.stream().mapToInt(item -> Integer.parseInt(item.id)).max().orElse(15727) + 1)
+          : manualMapNumber;
+      if (db.maps.stream().anyMatch(item -> item.id.equals(next))) {
+        throw new ApiException(409, "O mapa " + next + " já está cadastrado.");
+      }
       String storedName = next + "-" + safeFileName(fileName);
 
       CargoMap map = analyzeMapWithGemini(next, user.id, contentType, dataUrl);
+      map.orderNumbers = new ArrayList<>(manualOrderNumbers);
       persistence.saveFile(storedName, contentType, documentBytes);
       map.attachmentName = fileName;
       map.attachmentType = contentType;
@@ -838,6 +858,8 @@ public class MmCheckServer {
     );
     String prompt = """
         Extraia este mapa de carga logístico brasileiro. Não invente nenhum dado.
+        O número do mapa e os números dos pedidos são informados manualmente pelo operador;
+        não tente extraí-los nem usá-los como identificação.
         Identifique rota, cliente principal, transportadora, filial, data e todos os produtos.
         Para cada produto extraia SKU, descrição, quantidade inteira e código de barras quando visível.
         Ignore totais, pesos, cabeçalhos repetidos e anotações manuscritas.
@@ -1130,6 +1152,7 @@ public class MmCheckServer {
     String evidenceAt = "";
     String evidenceBy = "";
     List<MapItem> items = new ArrayList<>();
+    List<String> orderNumbers = new ArrayList<>();
 
     static CargoMap sample(String id, String createdBy) {
       int variant = Math.abs(number(id)) % 4;
@@ -1162,6 +1185,7 @@ public class MmCheckServer {
       map.put("date", date);
       map.put("status", status);
       map.put("createdBy", createdBy);
+      map.put("orderNumbers", orderNumbers == null ? List.of() : orderNumbers);
       map.put("attachmentName", attachmentName == null ? "" : attachmentName);
       map.put("attachmentType", attachmentType == null ? "" : attachmentType);
       map.put("attachmentPath", attachmentPath == null ? "" : attachmentPath);
@@ -1183,6 +1207,10 @@ public class MmCheckServer {
       cargo.date = string(map.get("date"));
       cargo.status = string(map.get("status"));
       cargo.createdBy = string(map.get("createdBy"));
+      cargo.orderNumbers = list(map.get("orderNumbers")).stream()
+          .map(MmCheckServer::string)
+          .filter(value -> !value.isBlank())
+          .toList();
       cargo.attachmentName = string(map.get("attachmentName"));
       cargo.attachmentType = string(map.get("attachmentType"));
       cargo.attachmentPath = string(map.get("attachmentPath"));
