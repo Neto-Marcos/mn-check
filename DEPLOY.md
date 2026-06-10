@@ -1,95 +1,44 @@
 # Deploy do MN - Check
 
-## O que vai no GitHub
+## Render com PostgreSQL
 
-Use o GitHub para guardar e versionar o código:
+O `render.yaml` define o serviço web e o PostgreSQL. Para criar uma nova instalação:
 
-- `backend/`
-- `frontend/`
-- `database/`
-- `Dockerfile`
-- `.github/workflows/ci.yml`
+1. Conecte o repositório ao Render usando **New Blueprint Instance**.
+2. Confirme a criação de `mm-check` e `mn-check-db`.
+3. Configure `MMCHECK_ADMIN_PASSWORD`.
+4. Configure `GEMINI_API_KEY`.
+5. Aguarde o health check em `/api/health`.
 
-Não use GitHub como banco de dados operacional.
+O Render fornece `DATABASE_URL` automaticamente por `fromDatabase`.
 
-## Banco de dados
+O plano `free` do PostgreSQL do Render expira após 30 dias. Para operação contínua, altere o plano no `render.yaml` ou configure no serviço uma `DATABASE_URL` de um PostgreSQL externo permanente.
 
-O app ainda roda com JSON local:
+## Atualizações
 
-```text
-data/java-db.json
-```
-
-Para produção, use PostgreSQL. O arquivo inicial de tabelas está em:
+Cada push na branch conectada inicia um novo deploy. A versão pública pode ser conferida em:
 
 ```text
-database/postgres-schema.sql
+https://SEU-SERVICO.onrender.com/api/version
 ```
 
-Opções recomendadas:
+Resposta esperada:
 
-- Supabase PostgreSQL
-- Neon PostgreSQL
-- Railway PostgreSQL
-- Render PostgreSQL
-- PostgreSQL instalado em servidor privado
-
-## Servidor privado
-
-1. Instale Java 21 ou superior.
-2. Copie o projeto para o servidor.
-3. Compile:
-
-```bash
-javac -encoding UTF-8 -d backend/out backend/src/MmCheckServer.java
+```json
+{"app":"MN - Check","version":"1.5.0"}
 ```
 
-4. Rode:
+## Banco já existente
 
-```bash
-PORT=4173 java -cp backend/out MmCheckServer
-```
+Se o serviço web já existe sem banco:
 
-5. Configure firewall liberando a porta `4173` somente para a rede desejada.
+1. Crie um PostgreSQL no Render.
+2. Copie a **Internal Database URL**.
+3. Adicione a variável `DATABASE_URL` ao serviço web.
+4. Faça um novo deploy.
 
-## Servidor na internet com Docker
+As tabelas são criadas automaticamente. Quando um arquivo JSON local ainda estiver disponível e o PostgreSQL estiver vazio, o backend tenta migrá-lo na inicialização.
 
-Build:
+## Observação sobre arquivos
 
-```bash
-docker build -t mm-check .
-```
-
-Run:
-
-```bash
-docker run -p 4173:4173 -v mm-check-data:/app/data mm-check
-```
-
-Depois acesse:
-
-```text
-http://IP_DO_SERVIDOR:4173/
-```
-
-Para internet pública, coloque HTTPS com Nginx, Caddy, Cloudflare Tunnel ou proxy do provedor.
-
-## Próxima etapa para banco real
-
-O próximo desenvolvimento é trocar o repositório JSON por PostgreSQL via JDBC.
-
-Variáveis que já existem para ambiente:
-
-```text
-PORT
-MMCHECK_DB_PATH
-MMCHECK_UPLOAD_DIR
-```
-
-Quando migrar para PostgreSQL, adicionar:
-
-```text
-DATABASE_URL
-DATABASE_USER
-DATABASE_PASSWORD
-```
+Mapas, usuários, saldos, contagens, notificações, histórico, PDFs e evidências ficam no PostgreSQL. O diretório local de uploads é usado somente quando `DATABASE_URL` não está configurada.

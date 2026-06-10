@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.5.0";
 
 const ROLE_OPTIONS = [
   ["separation", "Conferente de separação"],
@@ -19,6 +19,7 @@ const TITLES = {
 
 function App() {
   const [token, setToken] = React.useState(localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "");
+  const [appVersion, setAppVersion] = React.useState(APP_VERSION);
   const [user, setUser] = React.useState(null);
   const [data, setData] = React.useState(emptyData());
   const [view, setView] = React.useState("overview");
@@ -32,6 +33,12 @@ function App() {
   const mapPdfInputRef = React.useRef(null);
   const mapCameraInputRef = React.useRef(null);
   const unreadNotificationsRef = React.useRef(null);
+
+  React.useEffect(() => {
+    request("/api/version")
+      .then((body) => setAppVersion(body.version || APP_VERSION))
+      .catch(() => setAppVersion(APP_VERSION));
+  }, []);
 
   React.useEffect(() => {
     if (!token) return;
@@ -87,7 +94,35 @@ function App() {
     const body = await request("/api/bootstrap", { token: activeToken });
     setUser(body.user);
     setData(body);
+    setAppVersion(body.version || APP_VERSION);
     setView(body.user.allowedViews.includes(preferredView) ? preferredView : body.user.allowedViews[0]);
+  }
+
+  async function selectView(nextView) {
+    setView(nextView);
+    try {
+      if (nextView === "history") {
+        const history = await request("/api/historico");
+        setData((current) => ({
+          ...current,
+          historyMaps: history.maps || [],
+          errors: history.errors || [],
+          historyEvents: history.events || []
+        }));
+      }
+      if (nextView === "counting") {
+        const balances = await request("/api/saldos");
+        setData((current) => ({
+          ...current,
+          counts: balances.counts || [],
+          countsUpdatedAt: balances.updatedAt || "",
+          countsSourceName: balances.sourceName || "",
+          countsImportWarnings: balances.warnings || []
+        }));
+      }
+    } catch (error) {
+      notify(error.message);
+    }
   }
 
   function notify(message) {
@@ -255,7 +290,7 @@ function App() {
   async function countUpload(file) {
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      await request("/api/counts/upload", {
+      await request("/api/importar", {
         method: "POST",
         body: {
           fileName: file.name,
@@ -272,7 +307,7 @@ function App() {
 
   async function updateCounts(counts) {
     try {
-      await request("/api/counts", { method: "PATCH", body: { counts } });
+      await request("/api/contagem", { method: "POST", body: { counts } });
       await refresh("Contagem física atualizada.", "counting");
     } catch (error) {
       notify(error.message);
@@ -295,8 +330,8 @@ function App() {
           h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
-          h("p", null, "Separação, conferência e estoque em um só lugar."),
-          h("span", { className: "version-badge" }, `Versão ${APP_VERSION}`)
+          h("p", null, "Controle de separação, conferência e estoque."),
+          h("span", { className: "version-badge" }, `Versão ${appVersion}`)
         )
       ),
       h("form", { className: "login-card", onSubmit: handleLogin },
@@ -332,7 +367,11 @@ function App() {
     h("aside", { className: "sidebar" },
       h("div", { className: "sidebar-brand" },
         h("img", { className: "app-logo small", src: "/logo.svg?v=3", alt: "MN - Check" }),
-        h("div", null, h("strong", null, "MN - Check"), h("span", null, `${user.name} - ${user.label}`))
+        h("div", null,
+          h("strong", null, "MN - Check"),
+          h("span", null, `${user.name} - ${user.label}`),
+          h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
+        )
       ),
       h("div", { className: "branch-context" }, h("strong", null, "Filial 281"), h("span", null, "Setor único de expedição")),
       user.role === "admin" && h("button", {
@@ -346,7 +385,7 @@ function App() {
         allowedViews.map((item) => h("button", {
           key: item,
           className: `nav-item ${view === item ? "active" : ""}`,
-          onClick: () => setView(item)
+          onClick: () => selectView(item)
         }, TITLES[item][1]))
       ),
       h("button", { className: "ghost-action account-action", onClick: () => setPasswordTarget(user) }, "Alterar minha senha"),
@@ -396,6 +435,7 @@ function App() {
         counts: data.counts,
         updatedAt: data.countsUpdatedAt,
         sourceName: data.countsSourceName,
+        warnings: data.countsImportWarnings,
         onUpload: countUpload,
         onUpdate: updateCounts
       }),
@@ -643,9 +683,10 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
   );
 }
 
-function Counting({ counts, updatedAt, sourceName, onUpload, onUpdate }) {
+function Counting({ counts, updatedAt, sourceName, warnings = [], onUpload, onUpdate }) {
   const [draft, setDraft] = React.useState(counts);
   const [importing, setImporting] = React.useState(false);
+  const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
   const fileInputRef = React.useRef(null);
 
   React.useEffect(() => setDraft(counts), [counts]);
@@ -678,6 +719,15 @@ function Counting({ counts, updatedAt, sourceName, onUpload, onUpdate }) {
     setDraft((current) => current.map((item) => item.sku === sku ? { ...item, counted } : item));
   }
 
+  function printCountReport() {
+    setPrintGeneratedAt(new Date());
+    window.setTimeout(() => window.print(), 50);
+  }
+
+  const totalSystem = draft.reduce((sum, item) => sum + item.system, 0);
+  const totalCounted = draft.reduce((sum, item) => sum + item.counted, 0);
+  const divergentItems = draft.filter((item) => item.counted !== item.system).length;
+
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" },
@@ -693,6 +743,10 @@ function Counting({ counts, updatedAt, sourceName, onUpload, onUpdate }) {
           h("span", { className: "count-import-label" }, "Resultado"),
           h("strong", null, `${counts.length} SKUs processados pelo Gemini`)
         )
+      ),
+      warnings.length > 0 && h("div", { className: "count-import-warnings" },
+        h("strong", null, "Avisos da importação"),
+        h("ul", null, warnings.map((warning) => h("li", { key: warning }, warning)))
       ),
       h("input", {
         className: "hidden",
@@ -711,7 +765,12 @@ function Counting({ counts, updatedAt, sourceName, onUpload, onUpdate }) {
           className: "primary-action compact",
           disabled: !draft.length,
           onClick: () => onUpdate(draft)
-        }, "Atualizar contagem")
+        }, "Atualizar contagem"),
+        h("button", {
+          className: "secondary-action compact",
+          disabled: !draft.length,
+          onClick: printCountReport
+        }, "Imprimir contagem")
       ),
       draft.length ? h("div", { className: "table-wrap" },
         h("table", null,
@@ -741,6 +800,52 @@ function Counting({ counts, updatedAt, sourceName, onUpload, onUpdate }) {
           )
         )
         : empty("Nenhuma divergência informada."))
+    ),
+    h("section", { className: "count-print-sheet", "aria-hidden": "true" },
+      h("header", { className: "count-print-header" },
+        h("div", null,
+          h("span", null, "MN - Check"),
+          h("h1", null, "Relatório de contagem de estoque"),
+          h("p", null, "Resultado da contagem física comparado ao saldo do sistema")
+        ),
+        h("strong", null, `Versão ${APP_VERSION}`)
+      ),
+      h("div", { className: "count-print-meta" },
+        h("div", null, h("span", null, "Arquivo de saldo"), h("strong", null, sourceName || "Não informado")),
+        h("div", null, h("span", null, "Saldo importado em"), h("strong", null, updatedAt ? formatDate(updatedAt) : "Não informado")),
+        h("div", null, h("span", null, "Relatório emitido em"), h("strong", null, formatDate(printGeneratedAt)))
+      ),
+      h("div", { className: "count-print-totals" },
+        h("div", null, h("span", null, "SKUs"), h("strong", null, draft.length)),
+        h("div", null, h("span", null, "Saldo do sistema"), h("strong", null, totalSystem)),
+        h("div", null, h("span", null, "Total contado"), h("strong", null, totalCounted)),
+        h("div", null, h("span", null, "Itens divergentes"), h("strong", null, divergentItems))
+      ),
+      h("table", { className: "count-print-table" },
+        h("thead", null,
+          h("tr", null,
+            h("th", null, "SKU"),
+            h("th", null, "Sistema"),
+            h("th", null, "Contado"),
+            h("th", null, "Diferença"),
+            h("th", null, "Resultado")
+          )
+        ),
+        h("tbody", null, draft.map((item) => {
+          const difference = item.counted - item.system;
+          return h("tr", { key: item.sku },
+            h("td", null, item.sku),
+            h("td", null, item.system),
+            h("td", null, item.counted),
+            h("td", null, difference > 0 ? `+${difference}` : difference),
+            h("td", null, difference === 0 ? "Conforme" : "Divergente")
+          );
+        }))
+      ),
+      h("footer", { className: "count-print-signatures" },
+        h("div", null, h("span", null, "Responsável pela contagem")),
+        h("div", null, h("span", null, "Responsável pela validação"))
+      )
     )
   );
 }
@@ -790,10 +895,11 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
 }
 
 function History({ data }) {
-  const mapHistory = data.maps
+  const mapHistory = (data.historyMaps || data.maps)
     .filter((map) => ["aguardando conferencia", "conferencia", "corrigir problema", "perfeito", "conferido"].includes(map.status))
     .slice()
     .sort((a, b) => Number(b.id) - Number(a.id));
+  const events = (data.historyEvents || []).slice().reverse();
 
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
@@ -810,6 +916,18 @@ function History({ data }) {
           h("span", null, `${status(map.status)} - Rota ${map.route}`)
         )
       ) : empty("Nenhum mapa no histórico."))
+    ),
+    h("article", { className: "panel history-events-panel" },
+      h("div", { className: "panel-header" },
+        h("h3", null, "Movimentações"),
+        h("span", null, `${events.length} registros`)
+      ),
+      h("div", { className: "stack" }, events.length ? events.map((event, index) =>
+        h("div", { className: "list-item", key: `${event.at}-${index}` },
+          h("strong", null, event.description),
+          h("span", null, `${event.userName} - ${formatDate(event.at)}`)
+        )
+      ) : empty("Nenhuma movimentação registrada."))
     )
   );
 }
@@ -1210,7 +1328,14 @@ function plural(value, singular, pluralText) {
 }
 
 function formatDate(value) {
-  return new Date(value).toLocaleString("pt-BR");
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(new Date(value)).replace(",", "");
 }
 
 function readFileAsDataUrl(file) {
@@ -1225,12 +1350,14 @@ function readFileAsDataUrl(file) {
 function emptyData() {
   return {
     maps: [],
+    historyMaps: [],
     users: [],
     counts: [],
     countsUpdatedAt: "",
     countsSourceName: "",
+    countsImportWarnings: [],
     errors: [],
-    auditLog: [],
+    historyEvents: [],
     notifications: [],
     metrics: {}
   };

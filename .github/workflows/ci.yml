@@ -19,4 +19,18 @@ jobs:
       - name: Check frontend syntax
         run: node --check frontend/app.js
       - name: Compile backend
-        run: javac -encoding UTF-8 -d backend/out backend/src/MmCheckServer.java
+        run: javac -encoding UTF-8 -d backend/out backend/src/MmCheckServer.java backend/test/MmCheckServerTest.java
+      - name: Test balance normalization
+        run: java -cp backend/out MmCheckServerTest
+      - name: Smoke test API
+        env:
+          MMCHECK_ADMIN_PASSWORD: ci-password
+        run: |
+          java -cp backend/out MmCheckServer > /tmp/mn-check.log 2>&1 &
+          SERVER_PID=$!
+          sleep 2
+          curl --fail http://127.0.0.1:4173/api/health
+          curl --fail http://127.0.0.1:4173/api/version | grep '"version":"1.5.0"'
+          kill $SERVER_PID
+      - name: Build production image
+        run: docker build -t mn-check-ci .

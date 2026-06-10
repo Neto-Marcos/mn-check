@@ -14,6 +14,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -27,7 +33,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.3.0";
+  private static final String APP_VERSION = "1.5.0";
   private static final int PORT = Integer.parseInt(System.getenv().getOrDefault("PORT", "4173"));
   private static final Path ROOT = Path.of("").toAbsolutePath();
   private static final Path FRONTEND = ROOT.resolve("frontend");
@@ -40,10 +46,12 @@ public class MmCheckServer {
   private static final Map<String, String> SESSIONS = new LinkedHashMap<>();
   private static HttpServer server;
   private static ExecutorService executor;
+  private static PersistenceStore persistence;
   private static Database db;
 
   public static void main(String[] args) throws Exception {
     Files.createDirectories(DB_PATH.getParent());
+    persistence = createPersistenceStore();
     db = Database.load(DB_PATH);
 
     server = HttpServer.create(new InetSocketAddress("0.0.0.0", PORT), 0);
@@ -51,7 +59,8 @@ public class MmCheckServer {
     executor = Executors.newFixedThreadPool(8);
     server.setExecutor(executor);
     server.start();
-    System.out.println("MN - Check Java rodando em http://0.0.0.0:" + PORT);
+    System.out.println("MN - Check " + APP_VERSION + " rodando em http://0.0.0.0:" + PORT
+        + " com persistência " + persistence.description());
     Thread.currentThread().join();
   }
 
@@ -65,6 +74,14 @@ public class MmCheckServer {
       }
     } catch (ApiException error) {
       json(exchange, error.status, Map.of("error", error.getMessage()));
+    } catch (PersistenceException error) {
+      error.printStackTrace();
+      try {
+        db = Database.load(DB_PATH);
+      } catch (Exception recoveryError) {
+        recoveryError.printStackTrace();
+      }
+      json(exchange, 503, Map.of("error", "Banco de dados temporariamente indisponível. A alteração não foi confirmada."));
     } catch (Exception error) {
       error.printStackTrace();
       json(exchange, 500, Map.of("error", "Erro interno do servidor."));
@@ -88,7 +105,17 @@ public class MmCheckServer {
     }
 
     if ("GET".equals(method) && "/api/health".equals(path)) {
-      json(exchange, 200, Map.of("status", "ok", "app", "MN - Check", "version", APP_VERSION));
+      json(exchange, 200, Map.of(
+          "status", "ok",
+          "app", "MN - Check",
+          "version", APP_VERSION,
+          "database", persistence.description()
+      ));
+      return;
+    }
+
+    if ("GET".equals(method) && "/api/version".equals(path)) {
+      json(exchange, 200, Map.of("app", "MN - Check", "version", APP_VERSION));
       return;
     }
 
@@ -96,6 +123,18 @@ public class MmCheckServer {
 
     if ("GET".equals(method) && "/api/bootstrap".equals(path)) {
       json(exchange, 200, visibleData(user));
+      return;
+    }
+
+    if ("GET".equals(method) && "/api/saldos".equals(path)) {
+      requireRole(user, "admin", "stock");
+      json(exchange, 200, countData());
+      return;
+    }
+
+    if ("GET".equals(method) && "/api/historico".equals(path)) {
+      requireAdmin(user);
+      json(exchange, 200, historyData());
       return;
     }
 
@@ -119,7 +158,7 @@ public class MmCheckServer {
       if (db.findUserByUsername(username).isPresent()) throw new ApiException(409, "Usuário já cadastrado.");
       User created = new User(UUID.randomUUID().toString(), username, name, role, User.label(role), hash(password));
       db.users.add(created);
-      db.audit(user, "create_user", "Usuário " + username + " cadastrado");
+      db.recordHistory(user, "create_user", "Usuário " + username + " cadastrado");
       db.save(DB_PATH);
       json(exchange, 201, Map.of("user", created.publicMap()));
       return;
@@ -135,7 +174,7 @@ public class MmCheckServer {
       }
       db.users.remove(target);
       SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
-      db.audit(user, "delete_user", "Usuário " + target.username + " removido");
+      db.recordHistory(user, "delete_user", "Usuário " + target.username + " removido");
       db.save(DB_PATH);
       json(exchange, 200, visibleData(user));
       return;
@@ -166,7 +205,7 @@ public class MmCheckServer {
       int index = db.users.indexOf(target);
       db.users.set(index, updated);
       SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
-      db.audit(user, ownPassword ? "change_password" : "reset_password",
+      db.recordHistory(user, ownPassword ? "change_password" : "reset_password",
           ownPassword ? "Senha própria alterada" : "Senha de " + target.username + " redefinida");
       db.save(DB_PATH);
       json(exchange, 200, Map.of("message", ownPassword ? "Senha alterada." : "Senha redefinida."));
@@ -188,23 +227,26 @@ public class MmCheckServer {
         throw new ApiException(400, "Formato não permitido. Use PDF, PNG ou JPG.");
       }
 
-      Files.createDirectories(UPLOAD_DIR);
+      byte[] documentBytes = decodeDataUrl(dataUrl);
+      if (documentBytes.length == 0 || documentBytes.length > 10 * 1024 * 1024) {
+        throw new ApiException(400, "O arquivo deve ter entre 1 byte e 10 MB.");
+      }
       String next = String.valueOf(db.maps.stream().mapToInt(item -> Integer.parseInt(item.id)).max().orElse(15727) + 1);
       String storedName = next + "-" + safeFileName(fileName);
-      Files.write(UPLOAD_DIR.resolve(storedName), decodeDataUrl(dataUrl));
 
       CargoMap map = analyzeMapWithGemini(next, user.id, contentType, dataUrl);
+      persistence.saveFile(storedName, contentType, documentBytes);
       map.attachmentName = fileName;
       map.attachmentType = contentType;
       map.attachmentPath = "data/uploads/" + storedName;
       db.maps.add(0, map);
-      db.audit(user, "upload_map", "Mapa " + next + " criado por upload: " + fileName);
+      db.recordHistory(user, "upload_map", "Mapa " + next + " criado por upload: " + fileName);
       db.save(DB_PATH);
       json(exchange, 201, visibleData(user));
       return;
     }
 
-    if ("POST".equals(method) && "/api/counts/upload".equals(path)) {
+    if ("POST".equals(method) && List.of("/api/counts/upload", "/api/importar").contains(path)) {
       if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
       Map<String, Object> body = readJson(exchange);
       String fileName = string(body.get("fileName")).trim();
@@ -213,35 +255,48 @@ public class MmCheckServer {
       if (fileName.isBlank() || dataUrl.isBlank()) throw new ApiException(400, "Selecione um PDF de saldo.");
       if (contentType.isBlank()) contentType = "application/pdf";
       if (!"application/pdf".equals(contentType)) throw new ApiException(400, "O arquivo de saldo deve ser um PDF.");
+      byte[] pdfBytes = decodeDataUrl(dataUrl);
+      if (pdfBytes.length == 0 || pdfBytes.length > 10 * 1024 * 1024) {
+        throw new ApiException(400, "O PDF deve ter entre 1 byte e 10 MB.");
+      }
 
-      List<CountItem> imported = analyzeCountsWithGemini(contentType, dataUrl);
+      CountImportResult importResult = analyzeCountsWithGemini(contentType, dataUrl);
+      List<CountItem> imported = importResult.items();
 
-      Files.createDirectories(UPLOAD_DIR);
       String storedName = "contagem-" + System.currentTimeMillis() + "-" + safeFileName(fileName);
-      Files.write(UPLOAD_DIR.resolve(storedName), decodeDataUrl(dataUrl));
+      persistence.saveFile(storedName, contentType, pdfBytes);
       db.counts = imported;
       db.countsUpdatedAt = Instant.now().toString();
       db.countsSourceName = fileName;
-      db.audit(user, "count_upload", "Saldo atualizado pelo PDF " + fileName + " com " + imported.size() + " SKUs");
+      db.countsImportWarnings = importResult.warnings();
+      db.recordHistory(user, "count_upload", "Saldo atualizado pelo PDF " + fileName + " com " + imported.size() + " SKUs");
       db.save(DB_PATH);
       json(exchange, 200, visibleData(user));
       return;
     }
 
-    if ("PATCH".equals(method) && "/api/counts".equals(path)) {
+    if (("PATCH".equals(method) && "/api/counts".equals(path))
+        || ("POST".equals(method) && "/api/contagem".equals(path))) {
       if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
       Map<String, Object> body = readJson(exchange);
       List<Object> rows = list(body.get("counts"));
       if (rows.isEmpty()) throw new ApiException(400, "Não há contagens para atualizar.");
-      List<CountItem> updated = new ArrayList<>();
+      Map<String, CountItem> updatedBySku = new LinkedHashMap<>();
       for (Object row : rows) {
         Map<String, Object> item = castMap(row);
         String sku = string(item.get("sku")).trim();
-        if (sku.isBlank()) continue;
-        updated.add(new CountItem(sku, number(item.get("system")), number(item.get("counted"))));
+        if (!sku.matches("[A-Za-z0-9.-]{1,64}")) throw new ApiException(400, "SKU inválido na contagem.");
+        int system = integerField(item, "system");
+        int counted = integerField(item, "counted");
+        if (system < 0 || counted < 0) throw new ApiException(400, "As quantidades não podem ser negativas.");
+        if (updatedBySku.putIfAbsent(sku, new CountItem(sku, system, counted)) != null) {
+          throw new ApiException(409, "SKU duplicado na contagem: " + sku + ".");
+        }
       }
+      List<CountItem> updated = new ArrayList<>(updatedBySku.values());
+      if (updated.isEmpty()) throw new ApiException(400, "Nenhuma contagem válida foi informada.");
       db.counts = updated;
-      db.audit(user, "update_counts", "Contagem física atualizada em " + updated.size() + " SKUs");
+      db.recordHistory(user, "update_counts", "Contagem física atualizada em " + updated.size() + " SKUs");
       db.save(DB_PATH);
       json(exchange, 200, visibleData(user));
       return;
@@ -283,7 +338,7 @@ public class MmCheckServer {
 
       deleteUpload(map.attachmentPath);
       db.maps.remove(map);
-      db.audit(user, "delete_map", "Mapa " + map.id + " apagado durante a separação");
+      db.recordHistory(user, "delete_map", "Mapa " + map.id + " apagado durante a separação");
       db.save(DB_PATH);
       json(exchange, 200, visibleData(user));
       return;
@@ -302,7 +357,7 @@ public class MmCheckServer {
         MapItem item = map.items.stream().filter(entry -> entry.sku.equals(sku)).findFirst()
             .orElseThrow(() -> new ApiException(404, "Item não encontrado."));
         item.ok = Boolean.TRUE.equals(body.get("ok"));
-        db.audit(user, "update_item", "Mapa " + map.id + ": " + item.sku);
+        db.recordHistory(user, "update_item", "Mapa " + map.id + ": " + item.sku);
         db.save(DB_PATH);
         json(exchange, 200, visibleData(user));
         return;
@@ -324,7 +379,7 @@ public class MmCheckServer {
               .orElseThrow(() -> new ApiException(422, "Produto não pertence a este mapa."));
           if (item.checkedQuantity >= item.quantity) throw new ApiException(409, "A quantidade deste produto já foi conferida.");
           item.checkedQuantity++;
-          db.audit(user, "scan_item", "Mapa " + map.id + ": código " + code + " conferido");
+          db.recordHistory(user, "scan_item", "Mapa " + map.id + ": código " + code + " conferido");
           db.save(DB_PATH);
           json(exchange, 200, Map.of(
               "item", item.toMap(),
@@ -347,26 +402,25 @@ public class MmCheckServer {
           byte[] image = decodeDataUrl(dataUrl);
           if (image.length > 10 * 1024 * 1024) throw new ApiException(400, "A foto deve ter no máximo 10 MB.");
 
-          Files.createDirectories(UPLOAD_DIR);
           String storedName = "evidence-" + map.id + "-" + System.currentTimeMillis() + "-" + safeFileName(fileName);
-          Files.write(UPLOAD_DIR.resolve(storedName), image);
+          persistence.saveFile(storedName, contentType, image);
           map.evidenceName = fileName;
           map.evidencePath = "data/uploads/" + storedName;
           map.evidenceAt = Instant.now().toString();
           map.evidenceBy = user.name;
-          db.audit(user, "camera_evidence", "Foto de conferência registrada no mapa " + map.id);
+          db.recordHistory(user, "camera_evidence", "Foto de conferência registrada no mapa " + map.id);
         } else if ("send-conference".equals(action)) {
           if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
           if (!map.items.stream().allMatch(item -> item.ok)) throw new ApiException(400, "Todos os itens precisam estar ok.");
           map.status = "aguardando conferencia";
-          db.audit(user, "send_conference", "Mapa " + map.id + " enviado para conferência");
+          db.recordHistory(user, "send_conference", "Mapa " + map.id + " enviado para conferência");
         } else if ("approve".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
           if (!map.items.stream().allMatch(item -> item.checkedQuantity >= item.quantity)) {
             throw new ApiException(400, "Confira todas as unidades antes de finalizar o mapa.");
           }
           map.status = "conferido";
-          db.audit(user, "approve_map", "Mapa " + map.id + " conferido sem divergência");
+          db.recordHistory(user, "approve_map", "Mapa " + map.id + " conferido sem divergência");
         } else if ("problem".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
           if ("corrigir problema".equals(map.status)) throw new ApiException(409, "Este mapa já foi marcado com divergência.");
@@ -380,12 +434,12 @@ public class MmCheckServer {
               Instant.now().toString(),
               new ArrayList<>()
           ));
-          db.audit(user, "problem_map", "Mapa " + map.id + " marcado com divergência");
+          db.recordHistory(user, "problem_map", "Mapa " + map.id + " marcado com divergência");
         } else if ("corrected".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
           if (!"corrigir problema".equals(map.status)) throw new ApiException(403, "Mapa fora da etapa de correção.");
           map.status = "conferido";
-          db.audit(user, "corrected_map", "Mapa " + map.id + " corrigido e conferido");
+          db.recordHistory(user, "corrected_map", "Mapa " + map.id + " corrigido e conferido");
         } else {
           throw new ApiException(404, "Rota não encontrada.");
         }
@@ -410,17 +464,50 @@ public class MmCheckServer {
     long waiting = db.maps.stream().filter(map -> "aguardando conferencia".equals(map.status)).count();
     long perfect = db.maps.stream().filter(map -> List.of("perfeito", "conferido").contains(map.status)).count();
 
+    boolean canSeeCounts = List.of("admin", "stock").contains(user.role);
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("user", user.publicMap());
+    result.put("version", APP_VERSION);
+    result.put("database", persistence.description());
+    result.put("maps", maps.stream().map(CargoMap::toMap).toList());
+    result.put("users", "admin".equals(user.role) ? db.users.stream().map(User::publicMap).toList() : List.of());
+    result.put("counts", canSeeCounts ? db.counts.stream().map(CountItem::toMap).toList() : List.of());
+    result.put("countsUpdatedAt", canSeeCounts ? db.countsUpdatedAt : "");
+    result.put("countsSourceName", canSeeCounts ? db.countsSourceName : "");
+    result.put("countsImportWarnings", canSeeCounts ? db.countsImportWarnings : List.of());
+    result.put("errors", "admin".equals(user.role) ? db.errors.stream().map(ErrorRecord::toMap).toList() : List.of());
+    result.put("historyEvents", "admin".equals(user.role)
+        ? db.historyEvents.stream().map(HistoryRecord::toMap).toList()
+        : List.of());
+    result.put("notifications", "admin".equals(user.role)
+        ? db.notifications.stream().map(item -> item.toMap(user.id)).toList()
+        : List.of());
+    result.put("metrics", Map.of(
+        "separating", separating,
+        "waiting", waiting,
+        "perfect", perfect,
+        "errorCount", db.errors.size()
+    ));
+    return result;
+  }
+
+  private static Map<String, Object> countData() {
     return Map.of(
-        "user", user.publicMap(),
+        "counts", db.counts.stream().map(CountItem::toMap).toList(),
+        "updatedAt", db.countsUpdatedAt,
+        "sourceName", db.countsSourceName,
+        "warnings", db.countsImportWarnings
+    );
+  }
+
+  private static Map<String, Object> historyData() {
+    List<CargoMap> maps = db.maps.stream()
+        .filter(map -> !"separacao".equals(map.status))
+        .toList();
+    return Map.of(
         "maps", maps.stream().map(CargoMap::toMap).toList(),
-        "users", "admin".equals(user.role) ? db.users.stream().map(User::publicMap).toList() : List.of(),
-        "counts", List.of("admin", "stock").contains(user.role) ? db.counts.stream().map(CountItem::toMap).toList() : List.of(),
-        "countsUpdatedAt", List.of("admin", "stock").contains(user.role) ? db.countsUpdatedAt : "",
-        "countsSourceName", List.of("admin", "stock").contains(user.role) ? db.countsSourceName : "",
-        "errors", "admin".equals(user.role) ? db.errors.stream().map(ErrorRecord::toMap).toList() : List.of(),
-        "auditLog", "admin".equals(user.role) ? db.auditLog.stream().map(AuditRecord::toMap).toList() : List.of(),
-        "notifications", "admin".equals(user.role) ? db.notifications.stream().map(item -> item.toMap(user.id)).toList() : List.of(),
-        "metrics", Map.of("separating", separating, "waiting", waiting, "perfect", perfect, "errorCount", db.errors.size())
+        "errors", db.errors.stream().map(ErrorRecord::toMap).toList(),
+        "events", db.historyEvents.stream().map(HistoryRecord::toMap).toList()
     );
   }
 
@@ -435,6 +522,12 @@ public class MmCheckServer {
 
   private static void requireAdmin(User user) {
     if (!"admin".equals(user.role)) throw new ApiException(403, "Ação permitida apenas para administradores.");
+  }
+
+  private static void requireRole(User user, String... roles) {
+    if (!List.of(roles).contains(user.role)) {
+      throw new ApiException(403, "Ação não permitida para este usuário.");
+    }
   }
 
   private static void serveStatic(HttpExchange exchange, String rawPath) throws IOException {
@@ -523,9 +616,13 @@ public class MmCheckServer {
   }
 
   private static byte[] decodeDataUrl(String dataUrl) {
-    int comma = dataUrl.indexOf(",");
-    String encoded = comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl;
-    return Base64.getDecoder().decode(encoded);
+    try {
+      int comma = dataUrl.indexOf(",");
+      String encoded = comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl;
+      return Base64.getDecoder().decode(encoded);
+    } catch (IllegalArgumentException error) {
+      throw new ApiException(400, "Arquivo enviado em formato inválido.");
+    }
   }
 
   private static String safeFileName(String fileName) {
@@ -533,23 +630,18 @@ public class MmCheckServer {
     return cleaned.isBlank() ? "mapa.pdf" : cleaned;
   }
 
-  private static void deleteUpload(String attachmentPath) throws IOException {
+  private static void deleteUpload(String attachmentPath) {
     if (attachmentPath == null || attachmentPath.isBlank()) return;
     Path fileName = Path.of(attachmentPath).getFileName();
     if (fileName == null) return;
-    Path uploadRoot = UPLOAD_DIR.normalize();
-    Path target = uploadRoot.resolve(fileName).normalize();
-    if (!target.startsWith(uploadRoot)) {
-      throw new IOException("Caminho de anexo inválido.");
-    }
-    Files.deleteIfExists(target);
+    persistence.deleteFile(fileName.toString());
   }
 
   private static String digits(String value) {
     return value == null ? "" : value.replaceAll("\\D", "");
   }
 
-  private static List<CountItem> analyzeCountsWithGemini(String contentType, String dataUrl) throws Exception {
+  private static CountImportResult analyzeCountsWithGemini(String contentType, String dataUrl) throws Exception {
     Map<String, Object> rowSchema = Map.of(
         "type", "object",
         "properties", Map.of(
@@ -588,8 +680,9 @@ public class MmCheckServer {
     return countItemsFromAnalysis(analysis);
   }
 
-  private static List<CountItem> countItemsFromAnalysis(Map<String, Object> analysis) {
+  static CountImportResult countItemsFromAnalysis(Map<String, Object> analysis) {
     Map<String, CountItem> unique = new LinkedHashMap<>();
+    List<String> warnings = new ArrayList<>();
     for (Object value : list(analysis.get("rows"))) {
       Map<String, Object> row = castMap(value);
       String productCode = string(row.get("productCode")).trim();
@@ -604,12 +697,15 @@ public class MmCheckServer {
       if (previous != null && previous.system() != balance) {
         throw new ApiException(422, "A IA encontrou saldos diferentes para o SKU " + sku + ". Revise o PDF.");
       }
+      if (previous != null) {
+        warnings.add("SKU duplicado consolidado: " + sku + ".");
+      }
       unique.putIfAbsent(sku, new CountItem(sku, balance, 0));
     }
     if (unique.isEmpty()) {
       throw new ApiException(422, "A IA não encontrou linhas válidas com Produto, Grade X, Grade Y e Saldo.");
     }
-    return new ArrayList<>(unique.values());
+    return new CountImportResult(new ArrayList<>(unique.values()), warnings.stream().distinct().toList());
   }
 
   private static Map<String, Object> analyzeDocumentWithGemini(
@@ -732,11 +828,261 @@ public class MmCheckServer {
     return value == null ? "" : String.valueOf(value);
   }
 
+  private static PersistenceStore createPersistenceStore() {
+    String databaseUrl = System.getenv("DATABASE_URL");
+    if (databaseUrl == null || databaseUrl.isBlank()) {
+      return new FilePersistenceStore(DB_PATH);
+    }
+    return new PostgresPersistenceStore(databaseUrl);
+  }
+
+  private interface PersistenceStore {
+    Optional<String> load();
+    void save(String payload);
+    void saveFile(String name, String contentType, byte[] content);
+    void deleteFile(String name);
+    String description();
+  }
+
+  private static class FilePersistenceStore implements PersistenceStore {
+    private final Path file;
+
+    FilePersistenceStore(Path file) {
+      this.file = file;
+    }
+
+    public Optional<String> load() {
+      try {
+        return Files.exists(file)
+            ? Optional.of(Files.readString(file, StandardCharsets.UTF_8))
+            : Optional.empty();
+      } catch (IOException error) {
+        throw new PersistenceException("Não foi possível ler o banco JSON local.", error);
+      }
+    }
+
+    public synchronized void save(String payload) {
+      try {
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, payload, StandardCharsets.UTF_8);
+      } catch (IOException error) {
+        throw new PersistenceException("Não foi possível salvar o banco JSON local.", error);
+      }
+    }
+
+    public void saveFile(String name, String contentType, byte[] content) {
+      try {
+        Files.createDirectories(UPLOAD_DIR);
+        Files.write(UPLOAD_DIR.resolve(name), content);
+      } catch (IOException error) {
+        throw new PersistenceException("Não foi possível salvar o arquivo local.", error);
+      }
+    }
+
+    public void deleteFile(String name) {
+      try {
+        Files.deleteIfExists(UPLOAD_DIR.resolve(name));
+      } catch (IOException error) {
+        throw new PersistenceException("Não foi possível remover o arquivo local.", error);
+      }
+    }
+
+    public String description() {
+      return "JSON local";
+    }
+  }
+
+  private static class PostgresPersistenceStore implements PersistenceStore {
+    private final String jdbcUrl;
+    private final String username;
+    private final String password;
+
+    PostgresPersistenceStore(String databaseUrl) {
+      try {
+        Class.forName("org.postgresql.Driver");
+      } catch (ClassNotFoundException error) {
+        throw new PersistenceException("Driver PostgreSQL JDBC não encontrado.", error);
+      }
+
+      JdbcConfig config = JdbcConfig.from(databaseUrl);
+      this.jdbcUrl = config.url();
+      this.username = config.username();
+      this.password = config.password();
+      createTables();
+    }
+
+    private Connection connect() throws SQLException {
+      if (username.isBlank()) return DriverManager.getConnection(jdbcUrl);
+      return DriverManager.getConnection(jdbcUrl, username, password);
+    }
+
+    private void createTables() {
+      String stateSql = """
+          CREATE TABLE IF NOT EXISTS mn_check_state (
+            id SMALLINT PRIMARY KEY CHECK (id = 1),
+            payload JSONB NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          )
+          """;
+      String historySql = """
+          CREATE TABLE IF NOT EXISTS mn_check_state_history (
+            id BIGSERIAL PRIMARY KEY,
+            payload JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          )
+          """;
+      String historyIndexSql = """
+          CREATE INDEX IF NOT EXISTS idx_mn_check_state_history_created_at
+          ON mn_check_state_history (created_at DESC)
+          """;
+      String filesSql = """
+          CREATE TABLE IF NOT EXISTS mn_check_files (
+            name TEXT PRIMARY KEY,
+            content_type TEXT NOT NULL,
+            content BYTEA NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          )
+          """;
+      try (Connection connection = connect(); Statement statement = connection.createStatement()) {
+        statement.execute(stateSql);
+        statement.execute(historySql);
+        statement.execute(historyIndexSql);
+        statement.execute(filesSql);
+      } catch (SQLException error) {
+        throw new PersistenceException("Não foi possível preparar as tabelas do PostgreSQL.", error);
+      }
+    }
+
+    public Optional<String> load() {
+      String sql = "SELECT payload::text FROM mn_check_state WHERE id = 1";
+      try (Connection connection = connect();
+           PreparedStatement statement = connection.prepareStatement(sql);
+           ResultSet result = statement.executeQuery()) {
+        return result.next() ? Optional.of(result.getString(1)) : Optional.empty();
+      } catch (SQLException error) {
+        throw new PersistenceException("Não foi possível carregar os dados do PostgreSQL.", error);
+      }
+    }
+
+    public synchronized void save(String payload) {
+      String upsert = """
+          INSERT INTO mn_check_state (id, payload, updated_at)
+          VALUES (1, CAST(? AS JSONB), now())
+          ON CONFLICT (id) DO UPDATE
+          SET payload = EXCLUDED.payload, updated_at = now()
+          """;
+      String snapshot = "INSERT INTO mn_check_state_history (payload) VALUES (CAST(? AS JSONB))";
+      String cleanup = """
+          DELETE FROM mn_check_state_history
+          WHERE id NOT IN (
+            SELECT id FROM mn_check_state_history ORDER BY id DESC LIMIT 500
+          )
+          """;
+      try (Connection connection = connect()) {
+        connection.setAutoCommit(false);
+        try (PreparedStatement stateStatement = connection.prepareStatement(upsert);
+             PreparedStatement historyStatement = connection.prepareStatement(snapshot);
+             Statement cleanupStatement = connection.createStatement()) {
+          stateStatement.setString(1, payload);
+          stateStatement.executeUpdate();
+          historyStatement.setString(1, payload);
+          historyStatement.executeUpdate();
+          cleanupStatement.executeUpdate(cleanup);
+          connection.commit();
+        } catch (SQLException error) {
+          connection.rollback();
+          throw error;
+        } finally {
+          connection.setAutoCommit(true);
+        }
+      } catch (SQLException error) {
+        throw new PersistenceException("Não foi possível salvar os dados no PostgreSQL.", error);
+      }
+    }
+
+    public void saveFile(String name, String contentType, byte[] content) {
+      String sql = """
+          INSERT INTO mn_check_files (name, content_type, content, created_at)
+          VALUES (?, ?, ?, now())
+          ON CONFLICT (name) DO UPDATE
+          SET content_type = EXCLUDED.content_type,
+              content = EXCLUDED.content,
+              created_at = now()
+          """;
+      try (Connection connection = connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, name);
+        statement.setString(2, contentType);
+        statement.setBytes(3, content);
+        statement.executeUpdate();
+      } catch (SQLException error) {
+        throw new PersistenceException("Não foi possível salvar o arquivo no PostgreSQL.", error);
+      }
+    }
+
+    public void deleteFile(String name) {
+      try (Connection connection = connect();
+           PreparedStatement statement = connection.prepareStatement("DELETE FROM mn_check_files WHERE name = ?")) {
+        statement.setString(1, name);
+        statement.executeUpdate();
+      } catch (SQLException error) {
+        throw new PersistenceException("Não foi possível remover o arquivo do PostgreSQL.", error);
+      }
+    }
+
+    public String description() {
+      return "PostgreSQL";
+    }
+  }
+
+  private record JdbcConfig(String url, String username, String password) {
+    static JdbcConfig from(String databaseUrl) {
+      if (databaseUrl.startsWith("jdbc:postgresql:")) {
+        return new JdbcConfig(
+            databaseUrl,
+            System.getenv().getOrDefault("DATABASE_USER", ""),
+            System.getenv().getOrDefault("DATABASE_PASSWORD", "")
+        );
+      }
+
+      URI uri = URI.create(databaseUrl);
+      if (!List.of("postgres", "postgresql").contains(uri.getScheme())) {
+        throw new PersistenceException("DATABASE_URL deve usar postgres://, postgresql:// ou jdbc:postgresql://.");
+      }
+      String userInfo = uri.getRawUserInfo() == null ? "" : uri.getRawUserInfo();
+      int separator = userInfo.indexOf(':');
+      String username = separator >= 0 ? userInfo.substring(0, separator) : userInfo;
+      String password = separator >= 0 ? userInfo.substring(separator + 1) : "";
+      username = URLDecoder.decode(username.replace("+", "%2B"), StandardCharsets.UTF_8);
+      password = URLDecoder.decode(password.replace("+", "%2B"), StandardCharsets.UTF_8);
+
+      int port = uri.getPort() > 0 ? uri.getPort() : 5432;
+      StringBuilder jdbc = new StringBuilder("jdbc:postgresql://")
+          .append(uri.getHost())
+          .append(":")
+          .append(port)
+          .append(uri.getRawPath());
+      if (uri.getRawQuery() != null && !uri.getRawQuery().isBlank()) {
+        jdbc.append("?").append(uri.getRawQuery());
+      }
+      return new JdbcConfig(jdbc.toString(), username, password);
+    }
+  }
+
   private static class ApiException extends RuntimeException {
     final int status;
     ApiException(int status, String message) {
       super(message);
       this.status = status;
+    }
+  }
+
+  private static class PersistenceException extends RuntimeException {
+    PersistenceException(String message) {
+      super(message);
+    }
+
+    PersistenceException(String message, Throwable cause) {
+      super(message, cause);
     }
   }
 
@@ -910,11 +1256,13 @@ public class MmCheckServer {
     }
   }
 
-  private record CountItem(String sku, int system, int counted) {
+  record CountItem(String sku, int system, int counted) {
     Map<String, Object> toMap() {
       return Map.of("sku", sku, "system", system, "counted", counted);
     }
   }
+
+  record CountImportResult(List<CountItem> items, List<String> warnings) {}
 
   private record ErrorRecord(String order, String issue, String owner) {
     Map<String, Object> toMap() {
@@ -922,7 +1270,7 @@ public class MmCheckServer {
     }
   }
 
-  private record AuditRecord(String at, String userName, String action, String description) {
+  private record HistoryRecord(String at, String userName, String action, String description) {
     Map<String, Object> toMap() {
       return Map.of("at", at, "userName", userName, "action", action, "description", description);
     }
@@ -978,17 +1326,24 @@ public class MmCheckServer {
     List<CountItem> counts = new ArrayList<>();
     String countsUpdatedAt = "";
     String countsSourceName = "";
+    List<String> countsImportWarnings = new ArrayList<>();
     List<ErrorRecord> errors = new ArrayList<>();
-    List<AuditRecord> auditLog = new ArrayList<>();
+    List<HistoryRecord> historyEvents = new ArrayList<>();
     List<AdminNotification> notifications = new ArrayList<>();
 
     static Database load(Path file) throws IOException {
-      if (!Files.exists(file)) {
+      Optional<String> stored = persistence.load();
+      boolean migratedFromLocalFile = false;
+      if (stored.isEmpty() && persistence instanceof PostgresPersistenceStore && Files.exists(file)) {
+        stored = Optional.of(Files.readString(file, StandardCharsets.UTF_8));
+        migratedFromLocalFile = true;
+      }
+      if (stored.isEmpty()) {
         Database created = seed();
         created.save(file);
         return created;
       }
-      Map<String, Object> map = castMap(Json.parse(Files.readString(file, StandardCharsets.UTF_8)));
+      Map<String, Object> map = castMap(Json.parse(stored.get()));
       Database db = new Database();
       db.users = new ArrayList<>(list(map.get("users")).stream().map(item -> User.fromMap(castMap(item))).toList());
       db.maps = new ArrayList<>(list(map.get("maps")).stream().map(item -> CargoMap.fromMap(castMap(item))).toList());
@@ -998,27 +1353,36 @@ public class MmCheckServer {
       }).toList());
       db.countsUpdatedAt = string(map.get("countsUpdatedAt"));
       db.countsSourceName = string(map.get("countsSourceName"));
+      db.countsImportWarnings = new ArrayList<>(list(map.get("countsImportWarnings")).stream()
+          .map(MmCheckServer::string).toList());
       db.errors = new ArrayList<>(list(map.get("errors")).stream().map(item -> {
         Map<String, Object> error = castMap(item);
         return new ErrorRecord(string(error.get("order")), string(error.get("issue")), string(error.get("owner")));
       }).toList());
-      db.auditLog = new ArrayList<>(list(map.get("auditLog")).stream().map(item -> {
-        Map<String, Object> audit = castMap(item);
-        return new AuditRecord(string(audit.get("at")), string(audit.get("userName")), string(audit.get("action")), string(audit.get("description")));
+      List<Object> storedHistory = list(map.get("historyEvents"));
+      if (storedHistory.isEmpty()) storedHistory = list(map.get("auditLog"));
+      db.historyEvents = new ArrayList<>(storedHistory.stream().map(item -> {
+        Map<String, Object> event = castMap(item);
+        return new HistoryRecord(
+            string(event.get("at")),
+            string(event.get("userName")),
+            string(event.get("action")),
+            string(event.get("description"))
+        );
       }).toList());
       boolean migrated = false;
       if (db.countsUpdatedAt.isBlank()) {
-        db.countsUpdatedAt = db.auditLog.stream()
-            .filter(audit -> "count_upload".equals(audit.action()))
-            .map(AuditRecord::at)
+        db.countsUpdatedAt = db.historyEvents.stream()
+            .filter(event -> "count_upload".equals(event.action()))
+            .map(HistoryRecord::at)
             .reduce((first, second) -> second)
             .orElse("");
         migrated = !db.countsUpdatedAt.isBlank();
       }
       if (db.countsSourceName.isBlank()) {
-        String description = db.auditLog.stream()
-            .filter(audit -> "count_upload".equals(audit.action()))
-            .map(AuditRecord::description)
+        String description = db.historyEvents.stream()
+            .filter(event -> "count_upload".equals(event.action()))
+            .map(HistoryRecord::description)
             .reduce((first, second) -> second)
             .orElse("");
         int start = description.indexOf("PDF ");
@@ -1032,7 +1396,7 @@ public class MmCheckServer {
           .map(item -> AdminNotification.fromMap(castMap(item))).toList());
       boolean removedExamples = db.maps.removeIf(Database::isLegacyExampleMap);
       removedExamples |= db.errors.removeIf(error -> "15727".equals(error.order));
-      if (removedExamples || migrated) db.save(file);
+      if (removedExamples || migrated || migratedFromLocalFile) db.save(file);
       return db;
     }
 
@@ -1056,8 +1420,8 @@ public class MmCheckServer {
       return users.stream().filter(user -> user.username.equalsIgnoreCase(username)).findFirst();
     }
 
-    void audit(User user, String action, String description) {
-      auditLog.add(new AuditRecord(Instant.now().toString(), user.name, action, description));
+    void recordHistory(User user, String action, String description) {
+      historyEvents.add(new HistoryRecord(Instant.now().toString(), user.name, action, description));
     }
 
     void save(Path file) throws IOException {
@@ -1067,15 +1431,24 @@ public class MmCheckServer {
       map.put("counts", counts.stream().map(CountItem::toMap).toList());
       map.put("countsUpdatedAt", countsUpdatedAt);
       map.put("countsSourceName", countsSourceName);
+      map.put("countsImportWarnings", countsImportWarnings);
       map.put("errors", errors.stream().map(ErrorRecord::toMap).toList());
-      map.put("auditLog", auditLog.stream().map(AuditRecord::toMap).toList());
+      map.put("historyEvents", historyEvents.stream().map(HistoryRecord::toMap).toList());
       map.put("notifications", notifications.stream().map(AdminNotification::toStoredMap).toList());
-      Files.writeString(file, Json.stringify(map), StandardCharsets.UTF_8);
+      persistence.save(Json.stringify(map));
     }
   }
 
   private static int number(Object value) {
     return value instanceof Number n ? n.intValue() : Integer.parseInt(string(value));
+  }
+
+  private static int integerField(Map<String, Object> item, String field) {
+    try {
+      return number(item.get(field));
+    } catch (RuntimeException error) {
+      throw new ApiException(400, "Valor inteiro inválido no campo " + field + ".");
+    }
   }
 
   private static List<Object> list(Object value) {
