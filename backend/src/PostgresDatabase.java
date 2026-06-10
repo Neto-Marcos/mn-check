@@ -1,8 +1,5 @@
 package br.com.mncheck;
 
-import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -30,11 +27,16 @@ public final class PostgresDatabase {
     } catch (ClassNotFoundException error) {
       throw new DatabaseException("Driver PostgreSQL JDBC não encontrado.", error);
     }
-    JdbcConfig config = JdbcConfig.from(databaseUrl);
+    DatabaseUrlParser.JdbcConfig config;
+    try {
+      config = DatabaseUrlParser.parse(databaseUrl);
+    } catch (DatabaseUrlParser.DatabaseUrlException error) {
+      throw new DatabaseException(error.getMessage(), error);
+    }
     this.jdbcUrl = config.url();
     this.username = config.username();
     this.password = config.password();
-    migrate();
+    migrateWithRetry();
   }
 
   public Connection connect() throws SQLException {
@@ -352,6 +354,27 @@ public final class PostgresDatabase {
     return quantities;
   }
 
+  private void migrateWithRetry() {
+    DatabaseException lastError = null;
+    for (int attempt = 1; attempt <= 6; attempt++) {
+      try {
+        migrate();
+        if (attempt > 1) {
+          System.out.println("PostgreSQL conectado após " + attempt + " tentativas.");
+        }
+        return;
+      } catch (DatabaseException error) {
+        lastError = error;
+        System.err.println(
+            "PostgreSQL indisponível na tentativa " + attempt + "/6: "
+                + rootMessage(error)
+        );
+        if (attempt < 6) sleepBeforeRetry(attempt);
+      }
+    }
+    throw lastError;
+  }
+
   private void migrate() {
     String[] statements = {
         """
@@ -418,6 +441,21 @@ public final class PostgresDatabase {
     }
   }
 
+  private void sleepBeforeRetry(int attempt) {
+    try {
+      Thread.sleep(Math.min(attempt * 2_000L, 10_000L));
+    } catch (InterruptedException error) {
+      Thread.currentThread().interrupt();
+      throw new DatabaseException("Inicialização do PostgreSQL interrompida.", error);
+    }
+  }
+
+  private String rootMessage(Throwable error) {
+    Throwable current = error;
+    while (current.getCause() != null) current = current.getCause();
+    return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+  }
+
   public record BalanceRow(String sku, int balance) {}
   public record CountRow(String sku, int systemBalance, int countedQuantity) {}
   public record ImportSummary(
@@ -455,42 +493,6 @@ public final class PostgresDatabase {
 
     DatabaseException(String message, Throwable cause) {
       super(message, cause);
-    }
-  }
-
-  private record JdbcConfig(String url, String username, String password) {
-    static JdbcConfig from(String databaseUrl) {
-      if (databaseUrl.startsWith("jdbc:postgresql:")) {
-        return new JdbcConfig(
-            ensureSsl(databaseUrl),
-            System.getenv().getOrDefault("DATABASE_USER", ""),
-            System.getenv().getOrDefault("DATABASE_PASSWORD", "")
-        );
-      }
-      URI uri = URI.create(databaseUrl);
-      if (!List.of("postgres", "postgresql").contains(uri.getScheme())) {
-        throw new DatabaseException("DATABASE_URL deve usar postgres://, postgresql:// ou jdbc:postgresql://.");
-      }
-      String userInfo = uri.getRawUserInfo() == null ? "" : uri.getRawUserInfo();
-      int separator = userInfo.indexOf(':');
-      String username = separator >= 0 ? userInfo.substring(0, separator) : userInfo;
-      String password = separator >= 0 ? userInfo.substring(separator + 1) : "";
-      username = decodeCredential(username);
-      password = decodeCredential(password);
-      int port = uri.getPort() > 0 ? uri.getPort() : 5432;
-      String query = uri.getRawQuery();
-      String jdbc = "jdbc:postgresql://" + uri.getHost() + ":" + port + uri.getRawPath()
-          + (query == null || query.isBlank() ? "?sslmode=require" : "?" + query);
-      return new JdbcConfig(ensureSsl(jdbc), username, password);
-    }
-
-    private static String ensureSsl(String jdbcUrl) {
-      if (jdbcUrl.contains("sslmode=")) return jdbcUrl;
-      return jdbcUrl + (jdbcUrl.contains("?") ? "&" : "?") + "sslmode=require";
-    }
-
-    private static String decodeCredential(String value) {
-      return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
     }
   }
 

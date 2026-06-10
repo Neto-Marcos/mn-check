@@ -916,7 +916,12 @@ public class MmCheckServer {
         throw new PersistenceException("Driver PostgreSQL JDBC não encontrado.", error);
       }
 
-      JdbcConfig config = JdbcConfig.from(databaseUrl);
+      DatabaseUrlParser.JdbcConfig config;
+      try {
+        config = DatabaseUrlParser.parse(databaseUrl);
+      } catch (DatabaseUrlParser.DatabaseUrlException error) {
+        throw new PersistenceException(error.getMessage(), error);
+      }
       this.jdbcUrl = config.url();
       this.username = config.username();
       this.password = config.password();
@@ -1043,40 +1048,6 @@ public class MmCheckServer {
 
     public String description() {
       return "PostgreSQL";
-    }
-  }
-
-  private record JdbcConfig(String url, String username, String password) {
-    static JdbcConfig from(String databaseUrl) {
-      if (databaseUrl.startsWith("jdbc:postgresql:")) {
-        return new JdbcConfig(
-            databaseUrl,
-            System.getenv().getOrDefault("DATABASE_USER", ""),
-            System.getenv().getOrDefault("DATABASE_PASSWORD", "")
-        );
-      }
-
-      URI uri = URI.create(databaseUrl);
-      if (!List.of("postgres", "postgresql").contains(uri.getScheme())) {
-        throw new PersistenceException("DATABASE_URL deve usar postgres://, postgresql:// ou jdbc:postgresql://.");
-      }
-      String userInfo = uri.getRawUserInfo() == null ? "" : uri.getRawUserInfo();
-      int separator = userInfo.indexOf(':');
-      String username = separator >= 0 ? userInfo.substring(0, separator) : userInfo;
-      String password = separator >= 0 ? userInfo.substring(separator + 1) : "";
-      username = URLDecoder.decode(username.replace("+", "%2B"), StandardCharsets.UTF_8);
-      password = URLDecoder.decode(password.replace("+", "%2B"), StandardCharsets.UTF_8);
-
-      int port = uri.getPort() > 0 ? uri.getPort() : 5432;
-      StringBuilder jdbc = new StringBuilder("jdbc:postgresql://")
-          .append(uri.getHost())
-          .append(":")
-          .append(port)
-          .append(uri.getRawPath());
-      if (uri.getRawQuery() != null && !uri.getRawQuery().isBlank()) {
-        jdbc.append("?").append(uri.getRawQuery());
-      }
-      return new JdbcConfig(jdbc.toString(), username, password);
     }
   }
 
