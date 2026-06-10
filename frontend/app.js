@@ -1,5 +1,14 @@
 const h = React.createElement;
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.5.2";
+const MAP_FILE_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+const MAP_FILE_ACCEPT = "application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg,image/webp,.webp,image/heic,.heic,image/heif,.heif";
 
 const ROLE_OPTIONS = [
   ["separation", "Conferente de separação"],
@@ -19,6 +28,11 @@ const TITLES = {
 
 function App() {
   const [token, setToken] = React.useState(localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "");
+  const [theme, setTheme] = React.useState(() => {
+    const saved = localStorage.getItem("mnCheckTheme");
+    if (saved === "dark" || saved === "light") return saved;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
   const [appVersion, setAppVersion] = React.useState(APP_VERSION);
   const [user, setUser] = React.useState(null);
   const [data, setData] = React.useState(emptyData());
@@ -30,7 +44,7 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
-  const mapPdfInputRef = React.useRef(null);
+  const mapFileInputRef = React.useRef(null);
   const mapCameraInputRef = React.useRef(null);
   const unreadNotificationsRef = React.useRef(null);
 
@@ -39,6 +53,11 @@ function App() {
       .then((body) => setAppVersion(body.version || APP_VERSION))
       .catch(() => setAppVersion(APP_VERSION));
   }, []);
+
+  React.useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("mnCheckTheme", theme);
+  }, [theme]);
 
   React.useEffect(() => {
     if (!token) return;
@@ -117,7 +136,8 @@ function App() {
           counts: balances.counts || [],
           countsUpdatedAt: balances.updatedAt || "",
           countsSourceName: balances.sourceName || "",
-          countsImportWarnings: balances.warnings || []
+          countsImportWarnings: balances.warnings || [],
+          countsImportMetrics: balances.importMetrics || {}
         }));
       }
     } catch (error) {
@@ -212,8 +232,9 @@ function App() {
     event.target.value = "";
     if (!file) return;
 
-    if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) {
-      notify("Use apenas PDF, PNG ou JPG.");
+    const contentType = mapContentType(file);
+    if (!MAP_FILE_TYPES.has(contentType)) {
+      notify("Use PDF, PNG, JPG, JPEG, WebP, HEIC ou HEIF.");
       return;
     }
 
@@ -229,7 +250,7 @@ function App() {
         method: "POST",
         body: {
           fileName: file.name,
-          contentType: file.type,
+          contentType,
           dataUrl,
         },
       });
@@ -298,7 +319,7 @@ function App() {
           dataUrl
         },
       });
-      await refresh("Saldos lidos e validados pela IA.", "counting");
+      await refresh("Saldos lidos e validados pelo PDFBox.", "counting");
     } catch (error) {
       notify(error.message);
       throw error;
@@ -325,6 +346,11 @@ function App() {
 
   if (!user) {
     return h("main", { className: "login-view" },
+      h(ThemeToggle, {
+        theme,
+        className: "login-theme-toggle",
+        onToggle: () => setTheme((current) => current === "dark" ? "light" : "dark")
+      }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
           h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
@@ -388,6 +414,11 @@ function App() {
           onClick: () => selectView(item)
         }, TITLES[item][1]))
       ),
+      h(ThemeToggle, {
+        theme,
+        className: "sidebar-theme-toggle",
+        onToggle: () => setTheme((current) => current === "dark" ? "light" : "dark")
+      }),
       h("button", { className: "ghost-action account-action", onClick: () => setPasswordTarget(user) }, "Alterar minha senha"),
       h("button", { className: "ghost-action", onClick: logout }, "Sair")
     ),
@@ -397,9 +428,9 @@ function App() {
         h("div", { className: "topbar-actions" },
           ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
             className: "hidden",
-            ref: mapPdfInputRef,
+            ref: mapFileInputRef,
             type: "file",
-            accept: "application/pdf,.pdf",
+            accept: MAP_FILE_ACCEPT,
             onChange: uploadMapFile
           }),
           ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
@@ -436,6 +467,7 @@ function App() {
         updatedAt: data.countsUpdatedAt,
         sourceName: data.countsSourceName,
         warnings: data.countsImportWarnings,
+        importMetrics: data.countsImportMetrics,
         onUpload: countUpload,
         onUpdate: updateCounts
       }),
@@ -462,7 +494,7 @@ function App() {
       busy: mapImporting,
       onClose: () => setMapImportOpen(false),
       onCamera: () => mapCameraInputRef.current?.click(),
-      onPdf: () => mapPdfInputRef.current?.click()
+      onFile: () => mapFileInputRef.current?.click()
     }),
     passwordTarget && h(PasswordDialog, {
       target: passwordTarget,
@@ -576,7 +608,7 @@ function NotificationPanel({ notifications, onClose, onRead, onOpenMap }) {
   );
 }
 
-function NewMapDialog({ busy, onClose, onCamera, onPdf }) {
+function NewMapDialog({ busy, onClose, onCamera, onFile }) {
   return h("div", { className: "modal-backdrop", role: "presentation", onMouseDown: onClose },
     h("section", {
       className: "new-map-dialog",
@@ -597,13 +629,31 @@ function NewMapDialog({ busy, onClose, onCamera, onPdf }) {
           h("strong", null, "Câmera"),
           h("span", null, "Fotografar o mapa agora")
         ),
-        h("button", { className: "map-source-option", disabled: busy, onClick: onPdf },
-          h("strong", null, "PDF"),
-          h("span", null, "Selecionar um arquivo do dispositivo")
+        h("button", { className: "map-source-option", disabled: busy, onClick: onFile },
+          h("strong", null, "Arquivo ou imagem"),
+          h("span", null, "PDF, PNG, JPG, WebP, HEIC ou HEIF")
         )
       ),
       h("button", { className: "secondary-action dialog-cancel", disabled: busy, onClick: onClose }, busy ? "Processando com IA..." : "Cancelar")
     )
+  );
+}
+
+function ThemeToggle({ theme, onToggle, className = "" }) {
+  const dark = theme === "dark";
+  return h("button", {
+    type: "button",
+    className: `theme-toggle ${className}`.trim(),
+    role: "switch",
+    "aria-checked": dark,
+    "aria-label": dark ? "Usar tema claro" : "Usar tema escuro",
+    title: dark ? "Usar tema claro" : "Usar tema escuro",
+    onClick: onToggle
+  },
+    h("span", { className: "theme-toggle-track", "aria-hidden": "true" },
+      h("span", { className: "theme-toggle-thumb" })
+    ),
+    h("span", { className: "theme-toggle-label" }, dark ? "Tema escuro" : "Tema claro")
   );
 }
 
@@ -683,7 +733,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
   );
 }
 
-function Counting({ counts, updatedAt, sourceName, warnings = [], onUpload, onUpdate }) {
+function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics = {}, onUpload, onUpdate }) {
   const [draft, setDraft] = React.useState(counts);
   const [importing, setImporting] = React.useState(false);
   const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
@@ -699,8 +749,8 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], onUpload, onUp
       window.alert("Selecione um arquivo PDF.");
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      window.alert("O PDF deve ter no máximo 10 MB.");
+    if (file.size > 25 * 1024 * 1024) {
+      window.alert("O PDF deve ter no máximo 25 MB.");
       return;
     }
 
@@ -741,8 +791,16 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], onUpload, onUp
         ),
         h("div", null,
           h("span", { className: "count-import-label" }, "Resultado"),
-          h("strong", null, `${counts.length} SKUs processados pelo Gemini`)
+          h("strong", null, `${counts.length} SKUs processados pelo PDFBox`)
         )
+      ),
+      updatedAt && h("div", { className: "count-import-metrics" },
+        h("div", null, h("span", null, "Folhas"), h("strong", null, importMetrics.pagesProcessed || 0)),
+        h("div", null, h("span", null, "SKUs"), h("strong", null, importMetrics.skusRead || counts.length)),
+        h("div", null, h("span", null, "Ignoradas"), h("strong", null, importMetrics.ignoredLines || 0)),
+        h("div", null, h("span", null, "Duplicados"), h("strong", null, importMetrics.duplicateSkus || 0)),
+        h("div", null, h("span", null, "Conflitos"), h("strong", null, importMetrics.conflictsFound || 0)),
+        h("div", null, h("span", null, "Tempo"), h("strong", null, `${importMetrics.elapsedMs || 0} ms`))
       ),
       warnings.length > 0 && h("div", { className: "count-import-warnings" },
         h("strong", null, "Avisos da importação"),
@@ -760,7 +818,7 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], onUpload, onUp
           className: "secondary-action compact",
           disabled: importing,
           onClick: () => fileInputRef.current?.click()
-        }, importing ? "Lendo PDF com IA..." : "Selecionar PDF de saldo"),
+        }, importing ? "Lendo todas as folhas..." : "Selecionar PDF de saldo"),
         h("button", {
           className: "primary-action compact",
           disabled: !draft.length,
@@ -1338,6 +1396,20 @@ function formatDate(value) {
   }).format(new Date(value)).replace(",", "");
 }
 
+function mapContentType(file) {
+  if (MAP_FILE_TYPES.has(file.type)) return file.type;
+  const extension = String(file.name || "").toLowerCase().split(".").pop();
+  return {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    heic: "image/heic",
+    heif: "image/heif",
+  }[extension] || "";
+}
+
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1356,6 +1428,7 @@ function emptyData() {
     countsUpdatedAt: "",
     countsSourceName: "",
     countsImportWarnings: [],
+    countsImportMetrics: {},
     errors: [],
     historyEvents: [],
     notifications: [],

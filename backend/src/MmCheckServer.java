@@ -33,7 +33,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.5.0";
+  private static final String APP_VERSION = "1.5.2";
+  private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
   private static final int PORT = Integer.parseInt(System.getenv().getOrDefault("PORT", "4173"));
   private static final Path ROOT = Path.of("").toAbsolutePath();
   private static final Path FRONTEND = ROOT.resolve("frontend");
@@ -223,8 +224,15 @@ public class MmCheckServer {
       if (fileName.isBlank() || dataUrl.isBlank()) {
         throw new ApiException(400, "Selecione um PDF ou imagem para importar.");
       }
-      if (!List.of("application/pdf", "image/png", "image/jpeg").contains(contentType)) {
-        throw new ApiException(400, "Formato não permitido. Use PDF, PNG ou JPG.");
+      if (!List.of(
+          "application/pdf",
+          "image/png",
+          "image/jpeg",
+          "image/webp",
+          "image/heic",
+          "image/heif"
+      ).contains(contentType)) {
+        throw new ApiException(400, "Formato não permitido. Use PDF, PNG, JPG, WebP, HEIC ou HEIF.");
       }
 
       byte[] documentBytes = decodeDataUrl(dataUrl);
@@ -256,12 +264,21 @@ public class MmCheckServer {
       if (contentType.isBlank()) contentType = "application/pdf";
       if (!"application/pdf".equals(contentType)) throw new ApiException(400, "O arquivo de saldo deve ser um PDF.");
       byte[] pdfBytes = decodeDataUrl(dataUrl);
-      if (pdfBytes.length == 0 || pdfBytes.length > 10 * 1024 * 1024) {
-        throw new ApiException(400, "O PDF deve ter entre 1 byte e 10 MB.");
+      if (pdfBytes.length == 0 || pdfBytes.length > MAX_BALANCE_PDF_BYTES) {
+        throw new ApiException(400, "O PDF deve ter entre 1 byte e 25 MB.");
       }
 
-      CountImportResult importResult = analyzeCountsWithGemini(contentType, dataUrl);
+      CountImportResult importResult = analyzeCountsWithPdfBox(pdfBytes);
       List<CountItem> imported = importResult.items();
+      BalancePdfParser.Metrics metrics = importResult.metrics();
+      System.out.println("SALDO_PDF"
+          + " arquivo=\"" + safeFileName(fileName) + "\""
+          + " paginas=" + metrics.pagesProcessed()
+          + " skus=" + metrics.skusRead()
+          + " linhas_ignoradas=" + metrics.ignoredLines()
+          + " duplicados=" + metrics.duplicateSkus()
+          + " conflitos=" + metrics.conflictsFound()
+          + " duracao_ms=" + metrics.elapsedMs());
 
       String storedName = "contagem-" + System.currentTimeMillis() + "-" + safeFileName(fileName);
       persistence.saveFile(storedName, contentType, pdfBytes);
@@ -269,7 +286,9 @@ public class MmCheckServer {
       db.countsUpdatedAt = Instant.now().toString();
       db.countsSourceName = fileName;
       db.countsImportWarnings = importResult.warnings();
-      db.recordHistory(user, "count_upload", "Saldo atualizado pelo PDF " + fileName + " com " + imported.size() + " SKUs");
+      db.countsImportMetrics = metrics;
+      db.recordHistory(user, "count_upload", "Saldo atualizado pelo PDF " + fileName
+          + " com " + imported.size() + " SKUs em " + metrics.pagesProcessed() + " folhas");
       db.save(DB_PATH);
       json(exchange, 200, visibleData(user));
       return;
@@ -475,6 +494,7 @@ public class MmCheckServer {
     result.put("countsUpdatedAt", canSeeCounts ? db.countsUpdatedAt : "");
     result.put("countsSourceName", canSeeCounts ? db.countsSourceName : "");
     result.put("countsImportWarnings", canSeeCounts ? db.countsImportWarnings : List.of());
+    result.put("countsImportMetrics", canSeeCounts ? db.countsImportMetrics.toMap() : Map.of());
     result.put("errors", "admin".equals(user.role) ? db.errors.stream().map(ErrorRecord::toMap).toList() : List.of());
     result.put("historyEvents", "admin".equals(user.role)
         ? db.historyEvents.stream().map(HistoryRecord::toMap).toList()
@@ -496,7 +516,8 @@ public class MmCheckServer {
         "counts", db.counts.stream().map(CountItem::toMap).toList(),
         "updatedAt", db.countsUpdatedAt,
         "sourceName", db.countsSourceName,
-        "warnings", db.countsImportWarnings
+        "warnings", db.countsImportWarnings,
+        "importMetrics", db.countsImportMetrics.toMap()
     );
   }
 
@@ -641,71 +662,30 @@ public class MmCheckServer {
     return value == null ? "" : value.replaceAll("\\D", "");
   }
 
-  private static CountImportResult analyzeCountsWithGemini(String contentType, String dataUrl) throws Exception {
-    Map<String, Object> rowSchema = Map.of(
-        "type", "object",
-        "properties", Map.of(
-            "productCode", Map.of("type", "string", "description", "Valor exato da coluna Cod Produto"),
-            "gradeX", Map.of("type", "string", "description", "Valor exato da coluna Grade X, que representa a cor"),
-            "gradeY", Map.of("type", "string", "description", "Valor exato da coluna Grade Y, que representa a voltagem"),
-            "balance", Map.of("type", "integer", "description", "Valor inteiro exato da coluna Saldo")
-        ),
-        "required", List.of("productCode", "gradeX", "gradeY", "balance")
-    );
-    Map<String, Object> schema = Map.of(
-        "type", "object",
-        "properties", Map.of(
-            "rows", Map.of("type", "array", "items", rowSchema)
-        ),
-        "required", List.of("rows")
-    );
-    String prompt = """
-        Leia todas as páginas deste relatório brasileiro "Saldo Produto Filial".
-        Extraia somente as linhas de produtos da tabela, sem inventar, completar ou corrigir valores.
-        Para cada linha, retorne separadamente:
-        - productCode: coluna "Cod Produto";
-        - gradeX: coluna "Grade 'X'", que representa a cor;
-        - gradeY: coluna "Grade 'Y'", que representa a voltagem;
-        - balance: coluna "Saldo".
-
-        Regras obrigatórias:
-        - percorra todas as folhas do PDF;
-        - ignore cabeçalhos, filtros, filial, datas, número da folha, custos, totais e descrições;
-        - nunca use 9999999, números da descrição, custo médio ou total como produto ou saldo;
-        - preserve os números exatamente na linha e não una valores de linhas diferentes;
-        - cada linha visual da tabela deve gerar no máximo um registro;
-        - não monte o SKU: retorne as quatro colunas separadas para validação pelo servidor.
-        """;
-    Map<String, Object> analysis = analyzeDocumentWithGemini(contentType, dataUrl, prompt, schema, "saldo");
-    return countItemsFromAnalysis(analysis);
-  }
-
-  static CountImportResult countItemsFromAnalysis(Map<String, Object> analysis) {
-    Map<String, CountItem> unique = new LinkedHashMap<>();
-    List<String> warnings = new ArrayList<>();
-    for (Object value : list(analysis.get("rows"))) {
-      Map<String, Object> row = castMap(value);
-      String productCode = string(row.get("productCode")).trim();
-      String gradeX = string(row.get("gradeX")).trim();
-      String gradeY = string(row.get("gradeY")).trim();
-      if (!productCode.matches("\\d{1,10}") || "0".equals(productCode) || "9999999".equals(productCode)) continue;
-      if (!gradeX.matches("\\d{1,10}") || !gradeY.matches("\\d{1,3}")) continue;
-
-      int balance = number(row.get("balance"));
-      String sku = productCode + "-" + gradeX + "." + gradeY;
-      CountItem previous = unique.get(sku);
-      if (previous != null && previous.system() != balance) {
-        throw new ApiException(422, "A IA encontrou saldos diferentes para o SKU " + sku + ". Revise o PDF.");
-      }
-      if (previous != null) {
-        warnings.add("SKU duplicado consolidado: " + sku + ".");
-      }
-      unique.putIfAbsent(sku, new CountItem(sku, balance, 0));
+  private static CountImportResult analyzeCountsWithPdfBox(byte[] pdfBytes) throws IOException {
+    BalancePdfParser.Result parsed;
+    try {
+      parsed = BalancePdfParser.parse(pdfBytes);
+    } catch (IOException error) {
+      throw new ApiException(422, "Não foi possível ler o PDF de saldo: " + error.getMessage());
     }
-    if (unique.isEmpty()) {
-      throw new ApiException(422, "A IA não encontrou linhas válidas com Produto, Grade X, Grade Y e Saldo.");
+    BalancePdfParser.Metrics metrics = parsed.metrics();
+    if (!parsed.conflicts().isEmpty()) {
+      System.err.println("SALDO_PDF_CONFLITOS paginas=" + metrics.pagesProcessed()
+          + " skus=" + metrics.skusRead()
+          + " linhas_ignoradas=" + metrics.ignoredLines()
+          + " conflitos=" + metrics.conflictsFound()
+          + " detalhes=\"" + String.join(" | ", parsed.conflicts()) + "\"");
+      throw new ApiException(422, "Foram encontrados saldos conflitantes: "
+          + String.join(" ", parsed.conflicts()));
     }
-    return new CountImportResult(new ArrayList<>(unique.values()), warnings.stream().distinct().toList());
+    if (parsed.rows().isEmpty()) {
+      throw new ApiException(422, "O PDFBox não encontrou linhas válidas com Produto, Grade X, Grade Y e Saldo.");
+    }
+    List<CountItem> items = parsed.rows().stream()
+        .map(row -> new CountItem(row.sku(), row.balance(), 0))
+        .toList();
+    return new CountImportResult(items, parsed.warnings(), metrics);
   }
 
   private static Map<String, Object> analyzeDocumentWithGemini(
@@ -1262,7 +1242,11 @@ public class MmCheckServer {
     }
   }
 
-  record CountImportResult(List<CountItem> items, List<String> warnings) {}
+  record CountImportResult(
+      List<CountItem> items,
+      List<String> warnings,
+      BalancePdfParser.Metrics metrics
+  ) {}
 
   private record ErrorRecord(String order, String issue, String owner) {
     Map<String, Object> toMap() {
@@ -1327,6 +1311,7 @@ public class MmCheckServer {
     String countsUpdatedAt = "";
     String countsSourceName = "";
     List<String> countsImportWarnings = new ArrayList<>();
+    BalancePdfParser.Metrics countsImportMetrics = BalancePdfParser.Metrics.empty();
     List<ErrorRecord> errors = new ArrayList<>();
     List<HistoryRecord> historyEvents = new ArrayList<>();
     List<AdminNotification> notifications = new ArrayList<>();
@@ -1355,6 +1340,7 @@ public class MmCheckServer {
       db.countsSourceName = string(map.get("countsSourceName"));
       db.countsImportWarnings = new ArrayList<>(list(map.get("countsImportWarnings")).stream()
           .map(MmCheckServer::string).toList());
+      db.countsImportMetrics = BalancePdfParser.Metrics.fromMap(castMap(map.get("countsImportMetrics")));
       db.errors = new ArrayList<>(list(map.get("errors")).stream().map(item -> {
         Map<String, Object> error = castMap(item);
         return new ErrorRecord(string(error.get("order")), string(error.get("issue")), string(error.get("owner")));
@@ -1432,6 +1418,7 @@ public class MmCheckServer {
       map.put("countsUpdatedAt", countsUpdatedAt);
       map.put("countsSourceName", countsSourceName);
       map.put("countsImportWarnings", countsImportWarnings);
+      map.put("countsImportMetrics", countsImportMetrics.toMap());
       map.put("errors", errors.stream().map(ErrorRecord::toMap).toList());
       map.put("historyEvents", historyEvents.stream().map(HistoryRecord::toMap).toList());
       map.put("notifications", notifications.stream().map(AdminNotification::toStoredMap).toList());

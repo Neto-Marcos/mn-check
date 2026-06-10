@@ -1,3 +1,4 @@
+backend/lib/*.jar
 backend/out/
 java-server.log
 java-server.err

@@ -18,19 +18,21 @@ jobs:
           node-version: "24"
       - name: Check frontend syntax
         run: node --check frontend/app.js
+      - name: Download Apache PDFBox
+        run: curl --fail --location --output /tmp/pdfbox-app.jar https://dlcdn.apache.org/pdfbox/3.0.7/pdfbox-app-3.0.7.jar
       - name: Compile backend
-        run: javac -encoding UTF-8 -d backend/out backend/src/MmCheckServer.java backend/test/MmCheckServerTest.java
-      - name: Test balance normalization
-        run: java -cp backend/out MmCheckServerTest
+        run: javac -encoding UTF-8 -cp /tmp/pdfbox-app.jar -d backend/out backend/src/BalancePdfParser.java backend/src/MmCheckServer.java backend/test/MmCheckServerTest.java
+      - name: Test deterministic balance parser
+        run: java -cp "backend/out:/tmp/pdfbox-app.jar" MmCheckServerTest
       - name: Smoke test API
         env:
           MMCHECK_ADMIN_PASSWORD: ci-password
         run: |
-          java -cp backend/out MmCheckServer > /tmp/mn-check.log 2>&1 &
+          java -cp "backend/out:/tmp/pdfbox-app.jar" MmCheckServer > /tmp/mn-check.log 2>&1 &
           SERVER_PID=$!
           sleep 2
           curl --fail http://127.0.0.1:4173/api/health
-          curl --fail http://127.0.0.1:4173/api/version | grep '"version":"1.5.0"'
+          curl --fail http://127.0.0.1:4173/api/version | grep '"version":"1.5.2"'
           kill $SERVER_PID
       - name: Build production image
         run: docker build -t mn-check-ci .

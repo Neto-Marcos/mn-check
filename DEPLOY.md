@@ -7,7 +7,7 @@ O `render.yaml` define o serviço web e o PostgreSQL. Para criar uma nova instal
 1. Conecte o repositório ao Render usando **New Blueprint Instance**.
 2. Confirme a criação de `mm-check` e `mn-check-db`.
 3. Configure `MMCHECK_ADMIN_PASSWORD`.
-4. Configure `GEMINI_API_KEY`.
+4. Configure `GEMINI_API_KEY` somente se quiser usar IA na leitura de mapas de carga.
 5. Aguarde o health check em `/api/health`.
 
 O Render fornece `DATABASE_URL` automaticamente por `fromDatabase`.
@@ -25,7 +25,7 @@ https://SEU-SERVICO.onrender.com/api/version
 Resposta esperada:
 
 ```json
-{"app":"MN - Check","version":"1.5.0"}
+{"app":"MN - Check","version":"1.5.2"}
 ```
 
 ## Banco já existente
@@ -38,6 +38,16 @@ Se o serviço web já existe sem banco:
 4. Faça um novo deploy.
 
 As tabelas são criadas automaticamente. Quando um arquivo JSON local ainda estiver disponível e o PostgreSQL estiver vazio, o backend tenta migrá-lo na inicialização.
+
+## Importação de saldo
+
+O saldo é lido localmente pelo Apache PDFBox e não precisa de chave de IA. O build baixa `pdfbox-app-3.0.7.jar` do site oficial do Apache. Depois do deploy, importe o relatório e confira no log do Render uma linha iniciada por:
+
+```text
+SALDO_PDF arquivo=...
+```
+
+Ela informa folhas, SKUs, linhas ignoradas, duplicidades, conflitos e duração.
 
 ## Observação sobre arquivos
 
