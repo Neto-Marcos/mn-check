@@ -25,6 +25,35 @@ public final class BarcodeParser {
     public String digits() {
       return sku + color + voltage;
     }
+
+    public VoltageType voltageType() {
+      return VoltageType.fromCode(voltage);
+    }
+  }
+
+  public enum VoltageType {
+    BIVOLT("Bivolt"),
+    V127("127V"),
+    V220("220V");
+
+    private final String label;
+
+    VoltageType(String label) {
+      this.label = label;
+    }
+
+    public String label() {
+      return label;
+    }
+
+    static VoltageType fromCode(String code) {
+      return switch (code) {
+        case "0", "4" -> BIVOLT;
+        case "1", "3" -> V127;
+        case "2" -> V220;
+        default -> throw new InvalidBarcodeException("Código de voltagem inválido: " + code);
+      };
+    }
   }
 
   public static final class InvalidBarcodeException extends RuntimeException {

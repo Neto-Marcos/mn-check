@@ -1384,10 +1384,10 @@ function detailRow(label, value) {
 function voltageFromSku(sku) {
   const gradeY = String(sku || "").split(".").pop();
   return {
-    "0": "Não se aplica",
-    "1": "110V",
-    "2": "127V",
-    "3": "220V",
+    "0": "Bivolt",
+    "1": "127V",
+    "2": "220V",
+    "3": "127V",
     "4": "Bivolt",
   }[gradeY] || "Não informado";
 }

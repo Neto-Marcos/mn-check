@@ -85,7 +85,7 @@ public class ScannerController {
 
     Map<String, Object> legacyResult = Map.of();
     if (validation.approved()) {
-      legacyResult = registerApprovedScan(authorization, request.mapId(), validation.scanned().digits());
+      legacyResult = registerApprovedScan(authorization, request.mapId(), validation.expected().digits());
     }
 
     PostgresDatabase.ScanHistoryEntry saved = database.saveScanHistory(
@@ -105,6 +105,8 @@ public class ScannerController {
     response.put("reason", validation.reason());
     response.put("expected", validation.expected().normalized());
     response.put("scanned", validation.scanned().normalized());
+    response.put("expectedVoltage", validation.expected().voltageType().label());
+    response.put("scannedVoltage", validation.scanned().voltageType().label());
     response.put("source", saved.source());
     response.put("at", saved.createdAt().toString());
     response.putAll(legacyResult);

@@ -37,6 +37,24 @@ public class ScannerModuleTest {
   }
 
   @Test
+  void mapsIndustrialVoltageCodes() {
+    assertEquals("Bivolt", BarcodeParser.parse("7426610").voltageType().label());
+    assertEquals("Bivolt", BarcodeParser.parse("7426614").voltageType().label());
+    assertEquals("127V", BarcodeParser.parse("7426611").voltageType().label());
+    assertEquals("127V", BarcodeParser.parse("7426613").voltageType().label());
+    assertEquals("220V", BarcodeParser.parse("7426612").voltageType().label());
+  }
+
+  @Test
+  void approvesEquivalent127VoltageCodes() {
+    BarcodeValidationService.ValidationResult result =
+        validationService.validate("74266.1.3", "7426611");
+
+    assertTrue(result.approved());
+    assertEquals("APROVADO", result.status());
+  }
+
+  @Test
   void approvesMatchingProduct() {
     BarcodeValidationService.ValidationResult result =
         validationService.validate("74266.1.3", "74266 1 3");

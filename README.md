@@ -37,6 +37,14 @@ Regras:
 - cor: penúltimo número;
 - voltagem: último número.
 
+Tabela de voltagem industrial:
+
+- `0` ou `4`: Bivolt;
+- `1` ou `3`: 127V;
+- `2`: 220V.
+
+Os códigos `1` e `3` são considerados equivalentes entre si, assim como `0` e `4`.
+
 O backend consulta o próximo item pendente do mapa autenticado. O navegador não decide livremente qual produto é esperado.
 
 Exemplo:

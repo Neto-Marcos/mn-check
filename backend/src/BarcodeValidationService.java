@@ -14,7 +14,7 @@ public class BarcodeValidationService {
     if (!expected.color().equals(scanned.color())) {
       return ValidationResult.blocked(expected, scanned, "Cor incorreta");
     }
-    if (!expected.voltage().equals(scanned.voltage())) {
+    if (expected.voltageType() != scanned.voltageType()) {
       return ValidationResult.blocked(expected, scanned, "Voltagem incorreta");
     }
     return ValidationResult.approved(expected, scanned);
