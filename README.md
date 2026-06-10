@@ -1,150 +1,162 @@
 # MN - Check
 
-Sistema operacional para separação, conferência, contagem de estoque e histórico.
+Controle de separação, conferência e estoque.
 
-Versão atual: **1.5.2**
+Versão atual: **1.5.0**
 
-## Interface
+## Persistência
 
-O sistema possui temas claro e escuro. A escolha fica salva no navegador do aparelho e é aplicada novamente no próximo acesso.
+O backend exige PostgreSQL e não utiliza banco em memória, SQLite ou arquivos JSON/TXT locais.
 
-Na tela de **Separação**, o botão **Novo mapa** permite:
+Os dados de saldo e contagem usam as tabelas relacionais:
 
-- fotografar o mapa pela câmera;
-- selecionar PDF;
-- selecionar PNG, JPG, JPEG, WebP, HEIC ou HEIF.
+- `importacoes_saldo`;
+- `saldos`;
+- `contagens`;
+- `itens_contagem`.
 
-Esses formatos são usados para mapas de separação. A importação de saldo continua aceitando exclusivamente PDF, pois utiliza o parser determinístico do Apache PDFBox.
+Usuários, mapas, notificações e anexos também permanecem no PostgreSQL. As tabelas são criadas automaticamente com `CREATE TABLE IF NOT EXISTS`.
 
-## Produção no Render
+## Criar o banco no Neon
 
-O projeto usa PostgreSQL quando `DATABASE_URL` está configurada. O arquivo `render.yaml` cria:
+1. Acesse [Neon](https://neon.tech/) e crie uma conta.
+2. Clique em **New project**.
+3. Escolha um nome, por exemplo `mn-check`.
+4. Mantenha PostgreSQL e uma região próxima do Render.
+5. Abra **Dashboard > Connection Details**.
+6. Selecione a conexão `Pooled connection`.
+7. Copie a URL completa.
 
-- o serviço web `mm-check`;
-- o banco PostgreSQL `mn-check-db`;
-- a variável `DATABASE_URL` ligada automaticamente ao banco.
-
-No primeiro deploy, informe:
-
-```text
-MMCHECK_ADMIN_PASSWORD=senha-inicial-segura
-GEMINI_API_KEY=opcional-para-mapas-de-carga
-```
-
-O backend executa `CREATE TABLE IF NOT EXISTS` automaticamente. Os dados deixam de depender do disco efêmero do Render e continuam disponíveis depois de reinícios e novos deploys.
-
-> O PostgreSQL gratuito do Render expira após 30 dias. Para retenção permanente, atualize o banco para um plano pago ou use uma `DATABASE_URL` de outro provedor PostgreSQL persistente.
-
-## Variáveis de ambiente
+Formato esperado:
 
 ```text
-PORT=4173
-DATABASE_URL=postgresql://usuario:senha@host:5432/mn_check
-MMCHECK_ADMIN_PASSWORD=senha-inicial-segura
-GEMINI_API_KEY=opcional-para-mapas-de-carga
-GEMINI_MODEL=gemini-2.5-flash
+postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require
 ```
 
-Sem `DATABASE_URL`, o sistema usa `data/java-db.json` apenas para desenvolvimento local.
-O Gemini é opcional e continua disponível somente para leitura assistida de mapas de carga. A importação de saldo não depende de IA.
+Não publique essa URL no GitHub. Ela contém a senha do banco.
 
-## Como rodar localmente
+## Configurar no Render
 
-### Com Docker
+1. Abra o serviço `mm-check` no Render.
+2. Entre em **Environment**.
+3. Crie ou substitua `DATABASE_URL` pela URL copiada do Neon.
+4. Mantenha `MMCHECK_ADMIN_PASSWORD` configurada.
+5. Salve as variáveis.
+6. Execute **Manual Deploy > Deploy latest commit**.
+7. Confira `/api/health`; o campo `database` deve indicar PostgreSQL.
+
+O arquivo `render.yaml` declara `DATABASE_URL` como variável secreta (`sync: false`).
+
+## Rodar localmente
+
+Requisitos:
+
+- Java 21;
+- Maven 3.9+;
+- um banco PostgreSQL Neon acessível.
+
+PowerShell:
+
+```powershell
+$env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require"
+$env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
+mvn test
+mvn package
+java -jar target/mn-check.jar
+```
+
+Abra:
+
+```text
+http://127.0.0.1:4173/
+```
+
+Sem `DATABASE_URL`, o servidor interrompe a inicialização. Isso evita executar acidentalmente com dados descartáveis.
+
+## Docker
 
 ```bash
 docker build -t mn-check .
 docker run --rm -p 4173:4173 \
-  -e MMCHECK_ADMIN_PASSWORD=sua-senha \
-  -e GEMINI_API_KEY=sua-chave \
-  -e DATABASE_URL=postgresql://usuario:senha@host:5432/mn_check \
+  -e DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require" \
+  -e MMCHECK_ADMIN_PASSWORD="senha-inicial-segura" \
   mn-check
-```
-
-### Sem PostgreSQL
-
-```bash
-javac -encoding UTF-8 -cp backend/lib/pdfbox-app.jar -d backend/out backend/src/BalancePdfParser.java backend/src/MmCheckServer.java
-java -cp "backend/out;backend/lib/pdfbox-app.jar" MmCheckServer
-```
-
-Defina `MMCHECK_ADMIN_PASSWORD` antes da primeira execução. O endereço local é:
-
-```text
-http://127.0.0.1:4173/
 ```
 
 ## Importação de saldo
 
 1. Entre como administrador ou conferente de estoque.
 2. Abra **Contagem**.
-3. Clique em **Selecionar PDF de saldo**.
-4. Selecione o relatório completo.
-5. Confira arquivo, data, quantidade de SKUs e possíveis avisos.
+3. Selecione o PDF de saldo.
+4. Aguarde a leitura e confira os indicadores.
 
-O Apache PDFBox 3.0.7 percorre todas as folhas, identifica Produto, Grade X, Grade Y e Saldo pelas posições das colunas e monta o SKU no formato:
+O Apache PDFBox percorre todas as páginas. O parser identifica Produto, Grade X, Grade Y e Saldo e monta:
 
 ```text
 produto-gradeX.gradeY
 ```
 
-Linhas vazias, cabeçalhos, totais, rodapés e o código `9999999` são ignorados. SKUs duplicados iguais são consolidados com aviso. Saldos conflitantes interrompem a importação.
-
-Quando a descrição e o saldo estão sobrepostos no texto interno do relatório, o parser valida o saldo pela relação entre **Custo Médio** e **Total**, sem chamar IA. A tela e o log do servidor mostram folhas, SKUs, linhas ignoradas, duplicidades, conflitos e duração.
+Exemplo:
 
 ```text
-SALDO_PDF arquivo="lista_de_balanco.pdf" paginas=5 skus=242 linhas_ignoradas=27 duplicados=0 conflitos=0 duracao_ms=288
+74683-1.2
 ```
 
-O limite atual é de 25 MB por PDF.
+Linhas vazias, cabeçalhos, totais, rodapés e `9999999` são ignorados. Duplicidades são contabilizadas e saldos conflitantes bloqueiam a importação. A IA não participa da leitura principal.
 
-### Testar com um PDF real
+Após a validação, a importação e seus saldos são gravados em uma única transação PostgreSQL.
 
-```powershell
-javac -encoding UTF-8 -cp backend/lib/pdfbox-app.jar -d backend/out backend/src/BalancePdfParser.java backend/src/MmCheckServer.java backend/test/MmCheckServerTest.java
-java -cp "backend/out;backend/lib/pdfbox-app.jar" MmCheckServerTest "C:\caminho\lista de balanco.pdf"
+Log esperado:
+
+```text
+SALDO_PDF arquivo="saldo.pdf" paginas=5 skus=242 linhas_ignoradas=27 duplicados=0 conflitos=0 duracao_ms=259
+SALDO_POSTGRES importacao_id=1 arquivo="saldo.pdf" skus=242 atualizado_em=2026-06-10T...
 ```
 
-O JAR não é versionado. O Docker e o GitHub Actions baixam a versão oficial durante o build.
+## Histórico
 
-## Testar impressão
+`GET /api/historico` consulta importações e contagens diretamente no PostgreSQL. Os registros continuam disponíveis após reinício ou novo deploy do serviço.
+
+## Impressão A4
 
 1. Abra **Contagem**.
-2. Preencha as quantidades contadas.
-3. Clique em **Imprimir contagem**.
-4. Na janela do navegador, escolha uma impressora ou **Salvar como PDF**.
+2. Preencha as quantidades.
+3. Clique em **Atualizar contagem**.
+4. Clique em **Imprimir contagem**.
 
-O relatório A4 mostra origem, datas, SKU, sistema, contado, diferença, resultado, totais e assinaturas.
+O relatório mantém PDF de origem, datas, SKU, saldo, contado, diferença, status, totais e assinaturas. O navegador permite imprimir ou salvar como PDF.
 
 ## Endpoints
 
 | Método | Endpoint | Função |
 |---|---|---|
-| `GET` | `/api/health` | Saúde, versão e tipo de banco |
+| `GET` | `/api/health` | Saúde, versão e banco |
 | `GET` | `/api/version` | Versão pública |
 | `POST` | `/api/login` | Autenticação |
-| `GET` | `/api/bootstrap` | Dados permitidos para o usuário |
-| `GET` | `/api/saldos` | Saldos e metadados da importação |
-| `POST` | `/api/importar` | Importação do PDF de saldo |
-| `POST` | `/api/contagem` | Salvar contagem física |
-| `GET` | `/api/historico` | Histórico operacional persistido |
+| `GET` | `/api/bootstrap` | Dados permitidos ao usuário |
+| `GET` | `/api/saldos` | Última importação e saldo real |
+| `POST` | `/api/importar` | Importar PDF e gravar no PostgreSQL |
+| `POST` | `/api/contagem` | Gravar contagem e itens |
+| `GET` | `/api/historico` | Histórico persistente |
 
-As rotas antigas de contagem foram mantidas temporariamente por compatibilidade.
+## Testes
 
-## Persistência
-
-As tabelas usadas são:
-
-- `mn_check_state`: estado atual completo;
-- `mn_check_state_history`: últimos 500 snapshots para recuperação.
-- `mn_check_files`: PDFs, imagens e evidências enviadas.
-
-O esquema também está em `database/postgres-schema.sql`.
-
-## Validações
+O GitHub Actions inicia PostgreSQL 17 e executa:
 
 ```bash
+mvn test
+mvn package
 node --check frontend/app.js
-javac -encoding UTF-8 -cp backend/lib/pdfbox-app.jar -d backend/out backend/src/BalancePdfParser.java backend/src/MmCheckServer.java backend/test/MmCheckServerTest.java
-docker build -t mn-check .
+docker build -t mn-check-ci .
 ```
+
+`PostgresDatabaseTest` comprova:
+
+- conexão JDBC;
+- criação automática das tabelas;
+- gravação da importação;
+- gravação da contagem;
+- leitura do histórico;
+- persistência ao criar uma nova conexão, simulando reinício.
+
+Para uma validação no Neon, execute `mvn test` com a `DATABASE_URL` real configurada.

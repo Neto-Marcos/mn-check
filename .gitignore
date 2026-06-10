@@ -1,5 +1,6 @@
 backend/lib/*.jar
 backend/out/
+target/
 java-server.log
 java-server.err
 data/java-db.json

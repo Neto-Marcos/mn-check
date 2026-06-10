@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.5.2";
+const APP_VERSION = "1.5.0";
 const MAP_FILE_TYPES = new Set([
   "application/pdf",
   "image/png",

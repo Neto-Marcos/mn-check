@@ -1,0 +1,95 @@
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.util.List;
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+public class PostgresDatabaseTest {
+  private String databaseUrl;
+
+  @BeforeEach
+  void prepareDatabase() {
+    databaseUrl = System.getenv("DATABASE_URL");
+    assertFalse(databaseUrl == null || databaseUrl.isBlank(), "DATABASE_URL deve existir no teste");
+  }
+
+  @Test
+  void persistsImportsCountsAndHistoryAcrossConnections() throws Exception {
+    PostgresDatabase firstConnection = new PostgresDatabase(databaseUrl);
+    String identity = firstConnection.testConnection();
+    assertFalse(identity.isBlank());
+
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    String firstSku = "TESTE-" + suffix + ".1";
+    String secondSku = "TESTE-" + suffix + ".2";
+    PostgresDatabase.ImportSummary imported = firstConnection.saveBalanceImport(
+        "teste-neon-" + suffix + ".pdf",
+        List.of(
+            new PostgresDatabase.BalanceRow(firstSku, 406),
+            new PostgresDatabase.BalanceRow(secondSku, 108)
+        ),
+        5,
+        27,
+        0,
+        0
+    );
+    assertEquals(2, imported.skuCount());
+
+    long countId = firstConnection.saveCount(
+        "Teste automatizado " + suffix,
+        List.of(
+            new PostgresDatabase.CountRow(firstSku, 406, 405),
+            new PostgresDatabase.CountRow(secondSku, 108, 108)
+        )
+    );
+    assertTrue(countId > 0);
+
+    PostgresDatabase afterRestart = new PostgresDatabase(databaseUrl);
+    PostgresDatabase.BalanceSnapshot snapshot = afterRestart.loadLatestBalances();
+    assertEquals("teste-neon-" + suffix + ".pdf", snapshot.importSummary().fileName());
+    assertEquals(2, snapshot.rows().size());
+    assertEquals(405, countedOf(snapshot, firstSku));
+    assertEquals(108, countedOf(snapshot, secondSku));
+
+    List<PostgresDatabase.HistoryEntry> history = afterRestart.loadHistory();
+    assertTrue(history.stream().anyMatch(item ->
+        item.action().equals("count_upload") && item.description().contains(suffix)));
+    assertTrue(history.stream().anyMatch(item ->
+        item.action().equals("update_counts") && item.operator().contains(suffix)));
+
+    System.out.println("NEON_TEST conexão=" + afterRestart.testConnection()
+        + " importacao_id=" + imported.id()
+        + " skus=" + snapshot.rows().size()
+        + " contagem_id=" + countId
+        + " historico_total=" + history.size());
+
+    cleanup(firstConnection, imported.id(), countId);
+  }
+
+  private int countedOf(PostgresDatabase.BalanceSnapshot snapshot, String sku) {
+    return snapshot.rows().stream()
+        .filter(row -> row.sku().equals(sku))
+        .findFirst()
+        .orElseThrow()
+        .countedQuantity();
+  }
+
+  private void cleanup(PostgresDatabase database, long importId, long countId) throws Exception {
+    try (Connection connection = database.connect()) {
+      try (PreparedStatement statement = connection.prepareStatement("DELETE FROM contagens WHERE id = ?")) {
+        statement.setLong(1, countId);
+        statement.executeUpdate();
+      }
+      try (PreparedStatement statement = connection.prepareStatement("DELETE FROM importacoes_saldo WHERE id = ?")) {
+        statement.setLong(1, importId);
+        statement.executeUpdate();
+      }
+    }
+  }
+}

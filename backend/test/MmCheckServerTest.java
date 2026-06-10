@@ -9,12 +9,24 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import org.junit.jupiter.api.Test;
+
 public class MmCheckServerTest {
   public static void main(String[] args) throws Exception {
     shouldReadAllPagesAndApplyBalanceRules();
     shouldDetectConflictingBalances();
     if (args.length > 0) shouldReadRealBalancePdf(Path.of(args[0]));
     System.out.println("MmCheckServerTest: OK");
+  }
+
+  @Test
+  void parserReadsEveryPageAndAppliesRules() throws Exception {
+    shouldReadAllPagesAndApplyBalanceRules();
+  }
+
+  @Test
+  void parserDetectsConflictingBalances() throws Exception {
+    shouldDetectConflictingBalances();
   }
 
   private static void shouldReadAllPagesAndApplyBalanceRules() throws Exception {

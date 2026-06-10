@@ -33,35 +33,33 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.5.2";
+  private static final String APP_VERSION = "1.5.0";
   private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
   private static final int PORT = Integer.parseInt(System.getenv().getOrDefault("PORT", "4173"));
   private static final Path ROOT = Path.of("").toAbsolutePath();
   private static final Path FRONTEND = ROOT.resolve("frontend");
-  private static final Path DB_PATH = Path.of(
-      System.getenv().getOrDefault("MMCHECK_DB_PATH", ROOT.resolve("data").resolve("java-db.json").toString())
-  ).toAbsolutePath();
-  private static final Path UPLOAD_DIR = Path.of(
-      System.getenv().getOrDefault("MMCHECK_UPLOAD_DIR", ROOT.resolve("data").resolve("uploads").toString())
-  ).toAbsolutePath();
   private static final Map<String, String> SESSIONS = new LinkedHashMap<>();
   private static HttpServer server;
   private static ExecutorService executor;
   private static PersistenceStore persistence;
+  private static PostgresDatabase relationalDatabase;
   private static Database db;
 
   public static void main(String[] args) throws Exception {
-    Files.createDirectories(DB_PATH.getParent());
+    String databaseUrl = requireDatabaseUrl();
+    relationalDatabase = new PostgresDatabase(databaseUrl);
     persistence = createPersistenceStore();
-    db = Database.load(DB_PATH);
+    db = Database.load();
+    applyRelationalBalanceSnapshot();
 
     server = HttpServer.create(new InetSocketAddress("0.0.0.0", PORT), 0);
     server.createContext("/", MmCheckServer::handle);
     executor = Executors.newFixedThreadPool(8);
     server.setExecutor(executor);
     server.start();
+    String databaseIdentity = relationalDatabase.testConnection();
     System.out.println("MN - Check " + APP_VERSION + " rodando em http://0.0.0.0:" + PORT
-        + " com persistência " + persistence.description());
+        + " com persistência PostgreSQL " + databaseIdentity);
     Thread.currentThread().join();
   }
 
@@ -78,11 +76,17 @@ public class MmCheckServer {
     } catch (PersistenceException error) {
       error.printStackTrace();
       try {
-        db = Database.load(DB_PATH);
+        db = Database.load();
+        applyRelationalBalanceSnapshot();
       } catch (Exception recoveryError) {
         recoveryError.printStackTrace();
       }
       json(exchange, 503, Map.of("error", "Banco de dados temporariamente indisponível. A alteração não foi confirmada."));
+    } catch (PostgresDatabase.DatabaseException error) {
+      error.printStackTrace();
+      json(exchange, 503, Map.of(
+          "error", "PostgreSQL temporariamente indisponível. Nenhuma alteração foi confirmada."
+      ));
     } catch (Exception error) {
       error.printStackTrace();
       json(exchange, 500, Map.of("error", "Erro interno do servidor."));
@@ -110,7 +114,8 @@ public class MmCheckServer {
           "status", "ok",
           "app", "MN - Check",
           "version", APP_VERSION,
-          "database", persistence.description()
+          "database", persistence.description(),
+          "connection", relationalDatabase.testConnection()
       ));
       return;
     }
@@ -129,6 +134,7 @@ public class MmCheckServer {
 
     if ("GET".equals(method) && "/api/saldos".equals(path)) {
       requireRole(user, "admin", "stock");
+      applyRelationalBalanceSnapshot();
       json(exchange, 200, countData());
       return;
     }
@@ -160,7 +166,7 @@ public class MmCheckServer {
       User created = new User(UUID.randomUUID().toString(), username, name, role, User.label(role), hash(password));
       db.users.add(created);
       db.recordHistory(user, "create_user", "Usuário " + username + " cadastrado");
-      db.save(DB_PATH);
+      db.save();
       json(exchange, 201, Map.of("user", created.publicMap()));
       return;
     }
@@ -176,7 +182,7 @@ public class MmCheckServer {
       db.users.remove(target);
       SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
       db.recordHistory(user, "delete_user", "Usuário " + target.username + " removido");
-      db.save(DB_PATH);
+      db.save();
       json(exchange, 200, visibleData(user));
       return;
     }
@@ -208,7 +214,7 @@ public class MmCheckServer {
       SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
       db.recordHistory(user, ownPassword ? "change_password" : "reset_password",
           ownPassword ? "Senha própria alterada" : "Senha de " + target.username + " redefinida");
-      db.save(DB_PATH);
+      db.save();
       json(exchange, 200, Map.of("message", ownPassword ? "Senha alterada." : "Senha redefinida."));
       return;
     }
@@ -249,7 +255,7 @@ public class MmCheckServer {
       map.attachmentPath = "data/uploads/" + storedName;
       db.maps.add(0, map);
       db.recordHistory(user, "upload_map", "Mapa " + next + " criado por upload: " + fileName);
-      db.save(DB_PATH);
+      db.save();
       json(exchange, 201, visibleData(user));
       return;
     }
@@ -282,14 +288,28 @@ public class MmCheckServer {
 
       String storedName = "contagem-" + System.currentTimeMillis() + "-" + safeFileName(fileName);
       persistence.saveFile(storedName, contentType, pdfBytes);
+      PostgresDatabase.ImportSummary importSummary = relationalDatabase.saveBalanceImport(
+          fileName,
+          imported.stream()
+              .map(item -> new PostgresDatabase.BalanceRow(item.sku(), item.system()))
+              .toList(),
+          metrics.pagesProcessed(),
+          metrics.ignoredLines(),
+          metrics.duplicateSkus(),
+          metrics.conflictsFound()
+      );
       db.counts = imported;
-      db.countsUpdatedAt = Instant.now().toString();
-      db.countsSourceName = fileName;
+      db.countsUpdatedAt = importSummary.updatedAt().toString();
+      db.countsSourceName = importSummary.fileName();
       db.countsImportWarnings = importResult.warnings();
       db.countsImportMetrics = metrics;
       db.recordHistory(user, "count_upload", "Saldo atualizado pelo PDF " + fileName
           + " com " + imported.size() + " SKUs em " + metrics.pagesProcessed() + " folhas");
-      db.save(DB_PATH);
+      db.save();
+      System.out.println("SALDO_POSTGRES importacao_id=" + importSummary.id()
+          + " arquivo=\"" + safeFileName(fileName) + "\""
+          + " skus=" + importSummary.skuCount()
+          + " atualizado_em=" + importSummary.updatedAt());
       json(exchange, 200, visibleData(user));
       return;
     }
@@ -300,12 +320,19 @@ public class MmCheckServer {
       Map<String, Object> body = readJson(exchange);
       List<Object> rows = list(body.get("counts"));
       if (rows.isEmpty()) throw new ApiException(400, "Não há contagens para atualizar.");
+      PostgresDatabase.BalanceSnapshot currentSnapshot = relationalDatabase.loadLatestBalances();
+      Map<String, Integer> currentBalances = new LinkedHashMap<>();
+      currentSnapshot.rows().forEach(item -> currentBalances.put(item.sku(), item.systemBalance()));
+      if (currentBalances.isEmpty()) {
+        throw new ApiException(409, "Importe um PDF de saldo antes de registrar a contagem.");
+      }
       Map<String, CountItem> updatedBySku = new LinkedHashMap<>();
       for (Object row : rows) {
         Map<String, Object> item = castMap(row);
         String sku = string(item.get("sku")).trim();
         if (!sku.matches("[A-Za-z0-9.-]{1,64}")) throw new ApiException(400, "SKU inválido na contagem.");
-        int system = integerField(item, "system");
+        Integer system = currentBalances.get(sku);
+        if (system == null) throw new ApiException(400, "SKU não pertence ao saldo atual: " + sku + ".");
         int counted = integerField(item, "counted");
         if (system < 0 || counted < 0) throw new ApiException(400, "As quantidades não podem ser negativas.");
         if (updatedBySku.putIfAbsent(sku, new CountItem(sku, system, counted)) != null) {
@@ -314,9 +341,16 @@ public class MmCheckServer {
       }
       List<CountItem> updated = new ArrayList<>(updatedBySku.values());
       if (updated.isEmpty()) throw new ApiException(400, "Nenhuma contagem válida foi informada.");
+      long countId = relationalDatabase.saveCount(
+          user.name,
+          updated.stream()
+              .map(item -> new PostgresDatabase.CountRow(item.sku(), item.system(), item.counted()))
+              .toList()
+      );
       db.counts = updated;
-      db.recordHistory(user, "update_counts", "Contagem física atualizada em " + updated.size() + " SKUs");
-      db.save(DB_PATH);
+      db.recordHistory(user, "update_counts", "Contagem " + countId
+          + " atualizada em " + updated.size() + " SKUs");
+      db.save();
       json(exchange, 200, visibleData(user));
       return;
     }
@@ -337,7 +371,7 @@ public class MmCheckServer {
           .findFirst()
           .orElseThrow(() -> new ApiException(404, "Notificação não encontrada."));
       if (!notification.readBy.contains(user.id)) notification.readBy.add(user.id);
-      db.save(DB_PATH);
+      db.save();
       json(exchange, 200, Map.of(
           "notifications", db.notifications.stream().map(item -> item.toMap(user.id)).toList()
       ));
@@ -358,7 +392,7 @@ public class MmCheckServer {
       deleteUpload(map.attachmentPath);
       db.maps.remove(map);
       db.recordHistory(user, "delete_map", "Mapa " + map.id + " apagado durante a separação");
-      db.save(DB_PATH);
+      db.save();
       json(exchange, 200, visibleData(user));
       return;
     }
@@ -377,7 +411,7 @@ public class MmCheckServer {
             .orElseThrow(() -> new ApiException(404, "Item não encontrado."));
         item.ok = Boolean.TRUE.equals(body.get("ok"));
         db.recordHistory(user, "update_item", "Mapa " + map.id + ": " + item.sku);
-        db.save(DB_PATH);
+        db.save();
         json(exchange, 200, visibleData(user));
         return;
       }
@@ -399,7 +433,7 @@ public class MmCheckServer {
           if (item.checkedQuantity >= item.quantity) throw new ApiException(409, "A quantidade deste produto já foi conferida.");
           item.checkedQuantity++;
           db.recordHistory(user, "scan_item", "Mapa " + map.id + ": código " + code + " conferido");
-          db.save(DB_PATH);
+          db.save();
           json(exchange, 200, Map.of(
               "item", item.toMap(),
               "allChecked", map.items.stream().allMatch(entry -> entry.checkedQuantity >= entry.quantity)
@@ -462,7 +496,7 @@ public class MmCheckServer {
         } else {
           throw new ApiException(404, "Rota não encontrada.");
         }
-        db.save(DB_PATH);
+        db.save();
         json(exchange, 200, visibleData(user));
         return;
       }
@@ -525,10 +559,46 @@ public class MmCheckServer {
     List<CargoMap> maps = db.maps.stream()
         .filter(map -> !"separacao".equals(map.status))
         .toList();
+    List<Map<String, Object>> events = new ArrayList<>(db.historyEvents.stream()
+        .filter(event -> !List.of("count_upload", "update_counts").contains(event.action()))
+        .map(HistoryRecord::toMap)
+        .toList());
+    events.addAll(relationalDatabase.loadHistory().stream().map(entry -> Map.<String, Object>of(
+        "at", entry.at().toString(),
+        "userName", entry.operator(),
+        "action", entry.action(),
+        "description", entry.description()
+    )).toList());
+    events.sort((left, right) -> string(right.get("at")).compareTo(string(left.get("at"))));
     return Map.of(
         "maps", maps.stream().map(CargoMap::toMap).toList(),
         "errors", db.errors.stream().map(ErrorRecord::toMap).toList(),
-        "events", db.historyEvents.stream().map(HistoryRecord::toMap).toList()
+        "events", events
+    );
+  }
+
+  private static void applyRelationalBalanceSnapshot() {
+    PostgresDatabase.BalanceSnapshot snapshot = relationalDatabase.loadLatestBalances();
+    if (snapshot.importSummary() == null) {
+      db.counts = new ArrayList<>();
+      db.countsUpdatedAt = "";
+      db.countsSourceName = "";
+      db.countsImportMetrics = BalancePdfParser.Metrics.empty();
+      return;
+    }
+    db.counts = snapshot.rows().stream()
+        .map(row -> new CountItem(row.sku(), row.systemBalance(), row.countedQuantity()))
+        .toList();
+    PostgresDatabase.ImportSummary summary = snapshot.importSummary();
+    db.countsUpdatedAt = summary.updatedAt().toString();
+    db.countsSourceName = summary.fileName();
+    db.countsImportMetrics = new BalancePdfParser.Metrics(
+        summary.pagesProcessed(),
+        summary.skuCount(),
+        summary.ignoredLines(),
+        summary.duplicateSkus(),
+        summary.conflictsFound(),
+        0
     );
   }
 
@@ -808,12 +878,18 @@ public class MmCheckServer {
     return value == null ? "" : String.valueOf(value);
   }
 
-  private static PersistenceStore createPersistenceStore() {
+  private static String requireDatabaseUrl() {
     String databaseUrl = System.getenv("DATABASE_URL");
     if (databaseUrl == null || databaseUrl.isBlank()) {
-      return new FilePersistenceStore(DB_PATH);
+      throw new PersistenceException(
+          "DATABASE_URL é obrigatória. Configure a conexão PostgreSQL do Neon antes de iniciar."
+      );
     }
-    return new PostgresPersistenceStore(databaseUrl);
+    return databaseUrl;
+  }
+
+  private static PersistenceStore createPersistenceStore() {
+    return new PostgresPersistenceStore(requireDatabaseUrl());
   }
 
   private interface PersistenceStore {
@@ -822,54 +898,6 @@ public class MmCheckServer {
     void saveFile(String name, String contentType, byte[] content);
     void deleteFile(String name);
     String description();
-  }
-
-  private static class FilePersistenceStore implements PersistenceStore {
-    private final Path file;
-
-    FilePersistenceStore(Path file) {
-      this.file = file;
-    }
-
-    public Optional<String> load() {
-      try {
-        return Files.exists(file)
-            ? Optional.of(Files.readString(file, StandardCharsets.UTF_8))
-            : Optional.empty();
-      } catch (IOException error) {
-        throw new PersistenceException("Não foi possível ler o banco JSON local.", error);
-      }
-    }
-
-    public synchronized void save(String payload) {
-      try {
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, payload, StandardCharsets.UTF_8);
-      } catch (IOException error) {
-        throw new PersistenceException("Não foi possível salvar o banco JSON local.", error);
-      }
-    }
-
-    public void saveFile(String name, String contentType, byte[] content) {
-      try {
-        Files.createDirectories(UPLOAD_DIR);
-        Files.write(UPLOAD_DIR.resolve(name), content);
-      } catch (IOException error) {
-        throw new PersistenceException("Não foi possível salvar o arquivo local.", error);
-      }
-    }
-
-    public void deleteFile(String name) {
-      try {
-        Files.deleteIfExists(UPLOAD_DIR.resolve(name));
-      } catch (IOException error) {
-        throw new PersistenceException("Não foi possível remover o arquivo local.", error);
-      }
-    }
-
-    public String description() {
-      return "JSON local";
-    }
   }
 
   private static class PostgresPersistenceStore implements PersistenceStore {
@@ -1316,16 +1344,11 @@ public class MmCheckServer {
     List<HistoryRecord> historyEvents = new ArrayList<>();
     List<AdminNotification> notifications = new ArrayList<>();
 
-    static Database load(Path file) throws IOException {
+    static Database load() throws IOException {
       Optional<String> stored = persistence.load();
-      boolean migratedFromLocalFile = false;
-      if (stored.isEmpty() && persistence instanceof PostgresPersistenceStore && Files.exists(file)) {
-        stored = Optional.of(Files.readString(file, StandardCharsets.UTF_8));
-        migratedFromLocalFile = true;
-      }
       if (stored.isEmpty()) {
         Database created = seed();
-        created.save(file);
+        created.save();
         return created;
       }
       Map<String, Object> map = castMap(Json.parse(stored.get()));
@@ -1382,7 +1405,7 @@ public class MmCheckServer {
           .map(item -> AdminNotification.fromMap(castMap(item))).toList());
       boolean removedExamples = db.maps.removeIf(Database::isLegacyExampleMap);
       removedExamples |= db.errors.removeIf(error -> "15727".equals(error.order));
-      if (removedExamples || migrated || migratedFromLocalFile) db.save(file);
+      if (removedExamples || migrated) db.save();
       return db;
     }
 
@@ -1410,7 +1433,7 @@ public class MmCheckServer {
       historyEvents.add(new HistoryRecord(Instant.now().toString(), user.name, action, description));
     }
 
-    void save(Path file) throws IOException {
+    void save() throws IOException {
       Map<String, Object> map = new LinkedHashMap<>();
       map.put("users", users.stream().map(User::toMap).toList());
       map.put("maps", maps.stream().map(CargoMap::toMap).toList());

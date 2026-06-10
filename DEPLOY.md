@@ -1,54 +1,40 @@
-# Deploy do MN - Check
+# Deploy com Neon e Render
 
-## Render com PostgreSQL
+## 1. Neon
 
-O `render.yaml` define o serviço web e o PostgreSQL. Para criar uma nova instalação:
+Crie o projeto em [neon.tech](https://neon.tech/), abra **Connection Details**, escolha a conexão agrupada e copie a URL PostgreSQL com `sslmode=require`.
 
-1. Conecte o repositório ao Render usando **New Blueprint Instance**.
-2. Confirme a criação de `mm-check` e `mn-check-db`.
-3. Configure `MMCHECK_ADMIN_PASSWORD`.
-4. Configure `GEMINI_API_KEY` somente se quiser usar IA na leitura de mapas de carga.
-5. Aguarde o health check em `/api/health`.
+## 2. Render
 
-O Render fornece `DATABASE_URL` automaticamente por `fromDatabase`.
-
-O plano `free` do PostgreSQL do Render expira após 30 dias. Para operação contínua, altere o plano no `render.yaml` ou configure no serviço uma `DATABASE_URL` de um PostgreSQL externo permanente.
-
-## Atualizações
-
-Cada push na branch conectada inicia um novo deploy. A versão pública pode ser conferida em:
+No serviço `mm-check`, abra **Environment** e configure:
 
 ```text
-https://SEU-SERVICO.onrender.com/api/version
+DATABASE_URL=postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+MMCHECK_ADMIN_PASSWORD=uma-senha-segura
+GEMINI_API_KEY=opcional-apenas-para-mapas
 ```
 
-Resposta esperada:
+Remova `MMCHECK_DB_PATH` e `MMCHECK_UPLOAD_DIR` caso ainda existam. O sistema não usa armazenamento local.
+
+## 3. Deploy
+
+Execute:
+
+```text
+Manual Deploy > Deploy latest commit
+```
+
+Depois valide:
+
+```text
+https://mm-check.onrender.com/api/version
+https://mm-check.onrender.com/api/health
+```
+
+Versão esperada:
 
 ```json
-{"app":"MN - Check","version":"1.5.2"}
+{"app":"MN - Check","version":"1.5.0"}
 ```
 
-## Banco já existente
-
-Se o serviço web já existe sem banco:
-
-1. Crie um PostgreSQL no Render.
-2. Copie a **Internal Database URL**.
-3. Adicione a variável `DATABASE_URL` ao serviço web.
-4. Faça um novo deploy.
-
-As tabelas são criadas automaticamente. Quando um arquivo JSON local ainda estiver disponível e o PostgreSQL estiver vazio, o backend tenta migrá-lo na inicialização.
-
-## Importação de saldo
-
-O saldo é lido localmente pelo Apache PDFBox e não precisa de chave de IA. O build baixa `pdfbox-app-3.0.7.jar` do site oficial do Apache. Depois do deploy, importe o relatório e confira no log do Render uma linha iniciada por:
-
-```text
-SALDO_PDF arquivo=...
-```
-
-Ela informa folhas, SKUs, linhas ignoradas, duplicidades, conflitos e duração.
-
-## Observação sobre arquivos
-
-Mapas, usuários, saldos, contagens, notificações, histórico, PDFs e evidências ficam no PostgreSQL. O diretório local de uploads é usado somente quando `DATABASE_URL` não está configurada.
+O primeiro boot cria automaticamente todas as tabelas. Uma falha de conexão impede a inicialização, evitando perda silenciosa de dados.
