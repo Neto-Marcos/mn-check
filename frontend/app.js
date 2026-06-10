@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.6.2";
+const APP_VERSION = "1.6.3";
 const MAP_FILE_TYPES = new Set([
   "application/pdf",
   "image/png",
@@ -503,7 +503,8 @@ function App() {
         warnings: data.countsImportWarnings,
         importMetrics: data.countsImportMetrics,
         onUpload: countUpload,
-        onUpdate: updateCounts
+        onUpdate: updateCounts,
+        onDecodePhoto: decodeBarcodePhoto
       }),
       view === "history" && h(History, { data }),
       view === "users" && h(Users, {
@@ -825,11 +826,16 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onDecodeP
   );
 }
 
-function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics = {}, onUpload, onUpdate }) {
+function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics = {}, onUpload, onUpdate, onDecodePhoto }) {
   const [draft, setDraft] = React.useState(counts);
   const [importing, setImporting] = React.useState(false);
+  const [searchCode, setSearchCode] = React.useState("");
+  const [searchMessage, setSearchMessage] = React.useState("");
+  const [photoSearching, setPhotoSearching] = React.useState(false);
   const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
   const fileInputRef = React.useRef(null);
+  const labelPhotoInputRef = React.useRef(null);
+  const countInputRefs = React.useRef({});
 
   React.useEffect(() => setDraft(counts), [counts]);
 
@@ -861,6 +867,48 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics 
     setDraft((current) => current.map((item) => item.sku === sku ? { ...item, counted } : item));
   }
 
+  function findBalanceCode(value, focus = true) {
+    const digits = String(value || "").replace(/\D/g, "");
+    setSearchCode(value);
+    if (!digits) {
+      setSearchMessage("");
+      return null;
+    }
+    const match = draft.find((item) => String(item.sku).replace(/\D/g, "") === digits);
+    if (!match) {
+      setSearchMessage(`Código ${value} não encontrado na lista de saldo.`);
+      playFeedback(false);
+      return null;
+    }
+    setSearchCode(match.sku);
+    setSearchMessage(`Encontrado: ${match.sku} - saldo do sistema ${match.system}.`);
+    playFeedback(true);
+    if (focus) {
+      window.setTimeout(() => {
+        countInputRefs.current[match.sku]?.focus();
+        countInputRefs.current[match.sku]?.select();
+      }, 80);
+    }
+    return match;
+  }
+
+  async function searchLabelPhoto(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (!file) return;
+    setPhotoSearching(true);
+    setSearchMessage("Processando fotografia da etiqueta...");
+    try {
+      const decoded = await onDecodePhoto(file);
+      findBalanceCode(decoded.normalized || decoded.raw);
+    } catch (error) {
+      setSearchMessage(error.message);
+      playFeedback(false);
+    } finally {
+      setPhotoSearching(false);
+    }
+  }
+
   function printCountReport() {
     setPrintGeneratedAt(new Date());
     window.setTimeout(() => window.print(), 50);
@@ -869,6 +917,10 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics 
   const totalSystem = draft.reduce((sum, item) => sum + item.system, 0);
   const totalCounted = draft.reduce((sum, item) => sum + item.counted, 0);
   const divergentItems = draft.filter((item) => item.counted !== item.system).length;
+  const searchDigits = searchCode.replace(/\D/g, "");
+  const visibleDraft = searchDigits
+    ? draft.filter((item) => String(item.sku).replace(/\D/g, "").includes(searchDigits))
+    : draft;
 
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
@@ -922,10 +974,67 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics 
           onClick: printCountReport
         }, "Imprimir contagem")
       ),
-      draft.length ? h("div", { className: "table-wrap" },
+      draft.length && h("section", { className: "balance-search" },
+        h("div", { className: "balance-search-head" },
+          h("div", null,
+            h("strong", null, "Localizar produto no saldo"),
+            h("span", null, "Digite, use o scanner físico ou fotografe a etiqueta")
+          ),
+          h("b", null, `${visibleDraft.length}/${draft.length} SKUs`)
+        ),
+        h("div", { className: "balance-search-controls" },
+          h("input", {
+            inputMode: "numeric",
+            autoComplete: "off",
+            placeholder: "Código da etiqueta ou SKU",
+            value: searchCode,
+            onChange: (event) => {
+              setSearchCode(event.target.value);
+              setSearchMessage("");
+            },
+            onKeyDown: (event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              findBalanceCode(searchCode);
+            }
+          }),
+          h("button", {
+            className: "primary-action compact",
+            disabled: !searchDigits,
+            onClick: () => findBalanceCode(searchCode)
+          }, "Pesquisar"),
+          h("button", {
+            className: "secondary-action compact",
+            disabled: photoSearching,
+            onClick: () => labelPhotoInputRef.current?.click()
+          }, photoSearching ? "Lendo foto..." : "Fotografar etiqueta"),
+          searchCode && h("button", {
+            className: "ghost-action compact",
+            onClick: () => {
+              setSearchCode("");
+              setSearchMessage("");
+            }
+          }, "Limpar")
+        ),
+        h("input", {
+          ref: labelPhotoInputRef,
+          className: "visually-hidden",
+          type: "file",
+          accept: "image/*",
+          capture: "environment",
+          onChange: searchLabelPhoto
+        }),
+        searchMessage && h("div", {
+          className: `balance-search-message ${searchMessage.startsWith("Encontrado") ? "success" : ""}`
+        }, searchMessage)
+      ),
+      visibleDraft.length ? h("div", { className: "table-wrap count-table-wrap" },
         h("table", null,
           h("thead", null, h("tr", null, h("th", null, "SKU"), h("th", null, "Sistema"), h("th", null, "Contado"), h("th", null, "Diferença"))),
-          h("tbody", null, draft.map((item) => h("tr", { key: item.sku },
+          h("tbody", null, visibleDraft.map((item) => h("tr", {
+            key: item.sku,
+            className: searchDigits && String(item.sku).replace(/\D/g, "") === searchDigits ? "count-row-found" : ""
+          },
             h("td", null, item.sku),
             h("td", null, item.system),
             h("td", null, h("input", {
@@ -933,12 +1042,17 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics 
               type: "number",
               min: "0",
               value: item.counted,
+              ref: (element) => {
+                if (element) countInputRefs.current[item.sku] = element;
+              },
               onChange: (event) => changeCount(item.sku, event.target.value)
             })),
             h("td", null, item.counted - item.system)
           )))
         )
-      ) : empty("Selecione um PDF para carregar os saldos.")
+      ) : draft.length
+        ? empty("Nenhum SKU corresponde à pesquisa.")
+        : empty("Selecione um PDF para carregar os saldos.")
     ),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Divergências"), h("span", null, "por SKU")),

@@ -2,7 +2,7 @@
 
 Controle de separação, conferência e estoque.
 
-Versão atual: **1.6.2**
+Versão atual: **1.6.3**
 
 ## Leitor CODE 128
 
@@ -28,6 +28,14 @@ Ao criar um mapa pela câmera, o operador informa manualmente:
 - todos os números de pedido existentes no mapa.
 
 Os pedidos podem ser separados por vírgula, espaço ou quebra de linha. Esses identificadores têm prioridade sobre qualquer texto interpretado na fotografia, e o sistema impede o cadastro de um número de mapa já existente.
+
+Na tela de contagem, a lista de saldo pode ser pesquisada por:
+
+- SKU digitado;
+- scanner USB ou Bluetooth seguido de Enter;
+- fotografia da etiqueta CODE 128.
+
+A comparação ignora pontos e hífens, destaca o SKU encontrado e posiciona o cursor no campo de quantidade contada.
 
 Padrão do produto:
 
@@ -192,7 +200,7 @@ $env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/n
 $env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
 mvn test
 mvn package
-java -jar target/mn-check-1.6.2.jar
+java -jar target/mn-check-1.6.3.jar
 ```
 
 Abra:
