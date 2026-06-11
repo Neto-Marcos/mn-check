@@ -941,6 +941,64 @@ select {
   white-space: nowrap;
 }
 
+.connection-status {
+  min-height: 34px;
+  padding: 7px 11px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.connection-status.online {
+  background: #e7f7ef;
+  color: #12623e;
+}
+
+.connection-status.offline {
+  background: #fff0d8;
+  color: #7a4b00;
+}
+
+.offline-banner {
+  margin-bottom: 16px;
+  padding: 13px 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e6c36a;
+  border-radius: 8px;
+  background: #fff6db;
+  color: #6d5010;
+  animation: panelIn 220ms ease both;
+}
+
+.offline-banner strong {
+  flex: 0 0 auto;
+}
+
+.offline-banner span {
+  min-width: 0;
+  font-weight: 700;
+}
+
+.offline-count-pending {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid #e6c36a;
+  border-radius: 8px;
+  background: #fff6db;
+  color: #6d5010;
+}
+
+.offline-count-pending span {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .metric-grid,
 .content-grid,
 .section-grid,
@@ -1938,6 +1996,13 @@ th + th {
 [data-theme="dark"] .count-row-found td {
   background: #163d2d;
   color: #b8f2d5;
+}
+
+[data-theme="dark"] .offline-banner,
+[data-theme="dark"] .offline-count-pending {
+  border-color: #68582c;
+  background: #342d1b;
+  color: #f2d98d;
 }
 
 [data-theme="dark"] .metric-card,

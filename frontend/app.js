@@ -1,5 +1,8 @@
 const h = React.createElement;
-const APP_VERSION = "1.6.3";
+const APP_VERSION = "1.6.5";
+const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
+const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
+const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
 const MAP_FILE_TYPES = new Set([
   "application/pdf",
   "image/png",
@@ -34,6 +37,7 @@ function App() {
     return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
   const [appVersion, setAppVersion] = React.useState(APP_VERSION);
+  const [online, setOnline] = React.useState(navigator.onLine);
   const [user, setUser] = React.useState(null);
   const [data, setData] = React.useState(emptyData());
   const [view, setView] = React.useState("overview");
@@ -56,6 +60,26 @@ function App() {
   }, []);
 
   React.useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js?v=165").catch(() => {});
+    }
+    const updateConnection = () => {
+      const connected = navigator.onLine;
+      setOnline(connected);
+      notify(connected
+        ? "Conexão restabelecida. Sincronizando dados off-line..."
+        : "Você está off-line. O sistema continuará funcionando normalmente."
+      );
+    };
+    window.addEventListener("online", updateConnection);
+    window.addEventListener("offline", updateConnection);
+    return () => {
+      window.removeEventListener("online", updateConnection);
+      window.removeEventListener("offline", updateConnection);
+    };
+  }, []);
+
+  React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("mnCheckTheme", theme);
   }, [theme]);
@@ -63,6 +87,14 @@ function App() {
   React.useEffect(() => {
     if (!token) return;
     loadBootstrap(token).catch(() => {
+      const cached = readStoredJson(OFFLINE_BOOTSTRAP, null);
+      if (!navigator.onLine && cached?.user) {
+        setUser(cached.user);
+        setData(cached);
+        setAppVersion(cached.version || APP_VERSION);
+        setView(cached.user.allowedViews?.[0] || "overview");
+        return;
+      }
       localStorage.removeItem("mnCheckToken");
       localStorage.removeItem("mmJavaToken");
       setToken("");
@@ -95,6 +127,23 @@ function App() {
     };
   }, [token, user?.role]);
 
+  React.useEffect(() => {
+    if (!token || !user) return;
+    const sync = () => syncOfflineData();
+    window.addEventListener("online", sync);
+    if (navigator.onLine) sync();
+    const interval = window.setInterval(() => {
+      if (navigator.onLine && (
+        readOfflineScanQueue().length
+        || readStoredJson(OFFLINE_COUNT_DRAFT, null)?.counts?.length
+      )) sync();
+    }, 15000);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.clearInterval(interval);
+    };
+  }, [token, user?.id]);
+
   async function request(path, options = {}) {
     const response = await fetch(path, {
       method: options.method || "GET",
@@ -112,6 +161,7 @@ function App() {
 
   async function loadBootstrap(activeToken = token, preferredView = view) {
     const body = await request("/api/bootstrap", { token: activeToken });
+    localStorage.setItem(OFFLINE_BOOTSTRAP, JSON.stringify(body));
     setUser(body.user);
     setData(body);
     setAppVersion(body.version || APP_VERSION);
@@ -314,12 +364,53 @@ function App() {
       if (result.approved) await refresh(null, "conference");
       return result;
     } catch (error) {
+      if (!navigator.onLine || error instanceof TypeError || error.message === "Failed to fetch") {
+        setOnline(false);
+        const local = validateBarcodeLocally(expectedCode, code);
+        const queue = readOfflineScanQueue();
+        queue.push({
+          mapId,
+          expectedCode,
+          scannedCode: code,
+          operator: user?.name || user?.username || "Operador",
+          source,
+          approved: local.approved,
+          at: new Date().toISOString()
+        });
+        localStorage.setItem(OFFLINE_SCAN_QUEUE, JSON.stringify(queue.slice(-200)));
+        return {
+          ...local,
+          offline: true,
+          item: { name: "Produto validado no aparelho", checkedQuantity: 0, quantity: 0 },
+          allChecked: false,
+          at: new Date().toISOString()
+        };
+      }
       notify(error.message);
       throw error;
     }
   }
 
   async function decodeBarcodePhoto(file) {
+    let localError = null;
+    if (window.Html5Qrcode) {
+      const localReader = new Html5Qrcode("offline-file-reader", {
+        formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128],
+        verbose: false
+      });
+      try {
+        const raw = await localReader.scanFile(file, true);
+        return { raw, normalized: normalizeProductCode(raw), offline: !navigator.onLine };
+      } catch (error) {
+        localError = error;
+      } finally {
+        try { localReader.clear(); } catch (_) {}
+      }
+    }
+    if (!navigator.onLine) {
+      throw new Error("CODE 128 não encontrado na foto. Aproxime a câmera, evite reflexos e mantenha todas as barras visíveis.");
+    }
+
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch("/api/scanner/decode", {
@@ -328,8 +419,88 @@ function App() {
       body: formData,
     });
     const body = await response.json();
-    if (!response.ok) throw new Error(body.error || "Não foi possível ler a etiqueta.");
+    if (!response.ok) {
+      throw new Error(body.error || localError?.message || "Não foi possível ler a etiqueta.");
+    }
     return body;
+  }
+
+  async function syncOfflineScans() {
+    const queue = readOfflineScanQueue();
+    if (!queue.length || !navigator.onLine) return;
+    const remaining = [];
+    let synced = 0;
+    let networkFailed = false;
+    for (let index = 0; index < queue.length; index += 1) {
+      const item = queue[index];
+      try {
+        const response = await fetch("/api/scanner/validate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(item)
+        });
+        if (!response.ok) {
+          if (response.status === 401) {
+            remaining.push(...queue.slice(index));
+            break;
+          }
+          continue;
+        }
+        synced += 1;
+      } catch (_) {
+        remaining.push(...queue.slice(index));
+        networkFailed = true;
+        break;
+      }
+    }
+    localStorage.setItem(OFFLINE_SCAN_QUEUE, JSON.stringify(remaining));
+    if (synced) {
+      notify(`${synced} leitura${synced === 1 ? "" : "s"} offline sincronizada${synced === 1 ? "" : "s"}.`);
+      await refresh(null, view);
+      window.dispatchEvent(new CustomEvent("mncheck-offline-synced"));
+    }
+    if (networkFailed) {
+      throw new TypeError("A conexão ainda não está disponível para sincronizar as leituras.");
+    }
+  }
+
+  async function syncOfflineCount() {
+    const pending = readStoredJson(OFFLINE_COUNT_DRAFT, null);
+    if (!pending?.counts?.length || !navigator.onLine) return 0;
+    const response = await fetch("/api/contagem", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ counts: pending.counts })
+    });
+    if (!response.ok) {
+      if (response.status === 401) return 0;
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || "A contagem off-line ainda não pôde ser sincronizada.");
+    }
+    localStorage.removeItem(OFFLINE_COUNT_DRAFT);
+    window.dispatchEvent(new CustomEvent("mncheck-count-synced"));
+    return 1;
+  }
+
+  async function syncOfflineData() {
+    if (!navigator.onLine || !token || !user) return;
+    try {
+      await syncOfflineScans();
+      const countSynced = await syncOfflineCount();
+      setOnline(true);
+      if (countSynced) {
+        await refresh("Contagem off-line sincronizada com o PostgreSQL.", "counting");
+      }
+    } catch (error) {
+      if (isNetworkFailure(error)) setOnline(false);
+      notify(error.message);
+    }
   }
 
   async function mapAction(mapId, action, message) {
@@ -362,11 +533,33 @@ function App() {
   async function updateCounts(counts) {
     try {
       await request("/api/contagem", { method: "POST", body: { counts } });
+      localStorage.removeItem(OFFLINE_COUNT_DRAFT);
       await refresh("Contagem física atualizada.", "counting");
     } catch (error) {
+      if (isNetworkFailure(error)) {
+        setOnline(false);
+        saveOfflineCountDraft(counts, user);
+        setData((current) => {
+          const next = { ...current, counts };
+          localStorage.setItem(OFFLINE_BOOTSTRAP, JSON.stringify(next));
+          return next;
+        });
+        notify("Você está off-line. A contagem foi salva no aparelho e será sincronizada automaticamente.");
+        return { offline: true };
+      }
       notify(error.message);
       throw error;
     }
+  }
+
+  function saveCountDraftOffline(counts) {
+    if (online && navigator.onLine) return;
+    saveOfflineCountDraft(counts, user);
+    setData((current) => {
+      const next = { ...current, counts };
+      localStorage.setItem(OFFLINE_BOOTSTRAP, JSON.stringify(next));
+      return next;
+    });
   }
 
   function logout() {
@@ -456,9 +649,16 @@ function App() {
       h("button", { className: "ghost-action", onClick: logout }, "Sair")
     ),
     h("section", { className: "workspace" },
+      !online && h("div", { className: "offline-banner", role: "status" },
+        h("strong", null, "Você está off-line"),
+        h("span", null, "Continue trabalhando normalmente. As alterações serão enviadas quando a conexão voltar.")
+      ),
       h("header", { className: "topbar" },
         h("div", null, h("p", { className: "eyebrow" }, eyebrow), h("h2", null, title)),
         h("div", { className: "topbar-actions" },
+          h("span", { className: `connection-status ${online ? "online" : "offline"}` },
+            online ? "Online" : "Modo offline"
+          ),
           ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
             className: "hidden",
             ref: mapFileInputRef,
@@ -504,7 +704,9 @@ function App() {
         importMetrics: data.countsImportMetrics,
         onUpload: countUpload,
         onUpdate: updateCounts,
-        onDecodePhoto: decodeBarcodePhoto
+        onDecodePhoto: decodeBarcodePhoto,
+        onOfflineDraft: saveCountDraftOffline,
+        online
       }),
       view === "history" && h(History, { data }),
       view === "users" && h(Users, {
@@ -826,9 +1028,23 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onDecodeP
   );
 }
 
-function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics = {}, onUpload, onUpdate, onDecodePhoto }) {
-  const [draft, setDraft] = React.useState(counts);
+function Counting({
+  counts,
+  updatedAt,
+  sourceName,
+  warnings = [],
+  importMetrics = {},
+  onUpload,
+  onUpdate,
+  onDecodePhoto,
+  onOfflineDraft,
+  online
+}) {
+  const initialOfflineDraft = readStoredJson(OFFLINE_COUNT_DRAFT, null);
+  const [draft, setDraft] = React.useState(initialOfflineDraft?.counts || counts);
   const [importing, setImporting] = React.useState(false);
+  const [savingCount, setSavingCount] = React.useState(false);
+  const [offlinePending, setOfflinePending] = React.useState(Boolean(initialOfflineDraft?.counts?.length));
   const [searchCode, setSearchCode] = React.useState("");
   const [searchMessage, setSearchMessage] = React.useState("");
   const [photoSearching, setPhotoSearching] = React.useState(false);
@@ -837,7 +1053,17 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics 
   const labelPhotoInputRef = React.useRef(null);
   const countInputRefs = React.useRef({});
 
-  React.useEffect(() => setDraft(counts), [counts]);
+  React.useEffect(() => {
+    const pending = readStoredJson(OFFLINE_COUNT_DRAFT, null);
+    setDraft(pending?.counts || counts);
+    setOfflinePending(Boolean(pending?.counts?.length));
+  }, [counts]);
+
+  React.useEffect(() => {
+    const clearPending = () => setOfflinePending(false);
+    window.addEventListener("mncheck-count-synced", clearPending);
+    return () => window.removeEventListener("mncheck-count-synced", clearPending);
+  }, []);
 
   async function handlePdf(event) {
     const file = event.target.files && event.target.files[0];
@@ -864,7 +1090,26 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics 
 
   function changeCount(sku, value) {
     const counted = Math.max(0, Number.parseInt(value || "0", 10) || 0);
-    setDraft((current) => current.map((item) => item.sku === sku ? { ...item, counted } : item));
+    setDraft((current) => {
+      const next = current.map((item) => item.sku === sku ? { ...item, counted } : item);
+      if (!online || !navigator.onLine) {
+        onOfflineDraft(next);
+        setOfflinePending(true);
+      }
+      return next;
+    });
+  }
+
+  async function submitCount() {
+    setSavingCount(true);
+    try {
+      const result = await onUpdate(draft);
+      setOfflinePending(Boolean(result?.offline));
+    } catch (_) {
+      // The parent already presents validation and server errors.
+    } finally {
+      setSavingCount(false);
+    }
   }
 
   function findBalanceCode(value, focus = true) {
@@ -950,6 +1195,12 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics 
         h("strong", null, "Avisos da importação"),
         h("ul", null, warnings.map((warning) => h("li", { key: warning }, warning)))
       ),
+      offlinePending && h("div", { className: "offline-count-pending" },
+        h("strong", null, "Contagem salva no aparelho"),
+        h("span", null, online
+          ? "Aguardando confirmação do servidor."
+          : "Será enviada automaticamente quando a internet voltar.")
+      ),
       h("input", {
         className: "hidden",
         ref: fileInputRef,
@@ -965,9 +1216,11 @@ function Counting({ counts, updatedAt, sourceName, warnings = [], importMetrics 
         }, importing ? "Lendo todas as folhas..." : "Selecionar PDF de saldo"),
         h("button", {
           className: "primary-action compact",
-          disabled: !draft.length,
-          onClick: () => onUpdate(draft)
-        }, "Atualizar contagem"),
+          disabled: !draft.length || savingCount,
+          onClick: submitCount
+        }, savingCount
+          ? "Salvando..."
+          : online ? "Atualizar contagem" : "Salvar contagem off-line"),
         h("button", {
           className: "secondary-action compact",
           disabled: !draft.length,
@@ -1276,6 +1529,7 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
   const [photoProcessing, setPhotoProcessing] = React.useState(false);
   const [history, setHistory] = React.useState([]);
   const [lastCode, setLastCode] = React.useState("");
+  const [offlineProgress, setOfflineProgress] = React.useState(0);
   const scannerRef = React.useRef(null);
   const photoInputRef = React.useRef(null);
   const lastScanRef = React.useRef({ code: "", at: 0 });
@@ -1285,11 +1539,18 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
   const physicalScannerRef = React.useRef({ value: "", lastKeyAt: 0 });
   const readerId = `barcode-reader-${map.id}`;
   const totalQuantity = map.items.reduce((sum, item) => sum + item.quantity, 0);
-  const checkedQuantity = map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
+  const serverCheckedQuantity = map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
+  const checkedQuantity = Math.min(totalQuantity, serverCheckedQuantity + offlineProgress);
   const remainingQuantity = Math.max(0, totalQuantity - checkedQuantity);
   const allChecked = remainingQuantity === 0;
-  const expectedItem = map.items.find((item) => (item.checkedQuantity || 0) < item.quantity)
-    || map.items[map.items.length - 1];
+  let pendingOfflineUnits = offlineProgress;
+  const expectedItem = map.items.find((item) => {
+    const serverChecked = item.checkedQuantity || 0;
+    const available = Math.max(0, item.quantity - serverChecked);
+    const consumedOffline = Math.min(available, pendingOfflineUnits);
+    pendingOfflineUnits -= consumedOffline;
+    return serverChecked + consumedOffline < item.quantity;
+  }) || map.items[map.items.length - 1];
   expectedItemRef.current = expectedItem;
 
   React.useEffect(() => {
@@ -1329,13 +1590,18 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
     function releaseCamera(event) {
       if (String(event.detail) !== String(map.id)) stopScanner();
     }
+    function resetOfflineProgress() {
+      setOfflineProgress(0);
+    }
     document.addEventListener("keydown", capturePhysicalScanner);
     window.addEventListener("mncheck-camera-request", releaseCamera);
+    window.addEventListener("mncheck-offline-synced", resetOfflineProgress);
     return () => {
       active = false;
       window.clearTimeout(autoStartTimer);
       document.removeEventListener("keydown", capturePhysicalScanner);
       window.removeEventListener("mncheck-camera-request", releaseCamera);
+      window.removeEventListener("mncheck-offline-synced", resetOfflineProgress);
       stopScanner();
     };
   }, [map.id]);
@@ -1360,20 +1626,28 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
     try {
       const response = await onScan(map.id, cleanCode, currentExpected.sku, source);
       const approved = Boolean(response.approved);
+      const completedOffline = response.offline && approved && remainingQuantity <= 1;
+      if (response.offline && approved) setOfflineProgress((current) => current + 1);
       setResult({
         type: approved ? "success" : "error",
         title: approved
-          ? (response.allChecked ? "Conferência concluída" : "APROVADO")
+          ? (response.offline
+              ? (completedOffline ? "Conferência concluída offline" : "APROVADO OFFLINE")
+              : (response.allChecked ? "Conferência concluída" : "APROVADO"))
           : "BLOQUEADO",
         text: approved
-          ? (response.allChecked
+          ? (response.offline
+              ? "Etiqueta validada no aparelho. A leitura será sincronizada quando a internet voltar."
+              : response.allChecked
               ? "Todas as unidades foram lidas. Toque em OK para finalizar."
               : `${response.item.name}: ${response.item.checkedQuantity}/${response.item.quantity} unidades.`)
           : response.reason
       });
       setHistory((current) => [{
         code: response.scanned || cleanCode,
-        name: approved ? response.reason : `${response.reason} - esperado ${response.expected}`,
+        name: response.offline
+          ? `${response.reason} - aguardando sincronização`
+          : approved ? response.reason : `${response.reason} - esperado ${response.expected}`,
         ok: approved,
         source,
         at: response.at || new Date().toISOString(),
@@ -1401,7 +1675,7 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
       setResult({
         type: "error",
         title: "Leitor indisponível",
-        text: "Verifique a conexão com a internet ou use o código manual."
+        text: "O módulo local do leitor não foi carregado. Atualize o aplicativo uma vez com internet."
       });
       return;
     }
@@ -1595,9 +1869,11 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
       h("div", { className: "conference-final-actions" },
         actionable && h("button", {
           className: "primary-action finish-conference",
-          disabled: !allChecked,
+          disabled: !allChecked || offlineProgress > 0,
           onClick: () => onApprove(map.id)
-        }, allChecked ? "OK - Finalizar conferência" : `Faltam ${remainingQuantity} unidades`),
+        }, offlineProgress > 0
+          ? "Aguardando internet para finalizar"
+          : allChecked ? "OK - Finalizar conferência" : `Faltam ${remainingQuantity} unidades`),
         actionable && h("button", {
           className: "danger-action",
           onClick: () => onProblem(map.id)
@@ -1653,6 +1929,67 @@ function normalizeProductCode(value) {
   const digits = String(value || "").replace(/\D/g, "");
   if (digits.length !== 7) return value || "---";
   return `${digits.slice(0, 5)}.${digits[5]}.${digits[6]}`;
+}
+
+function validateBarcodeLocally(expectedValue, scannedValue) {
+  const expected = String(expectedValue || "").replace(/\D/g, "");
+  const scanned = String(scannedValue || "").replace(/\D/g, "");
+  if (expected.length !== 7 || scanned.length !== 7) {
+    return {
+      approved: false,
+      status: "BLOQUEADO",
+      reason: "O código deve conter SKU de 5 dígitos, cor e voltagem.",
+      expected: normalizeProductCode(expectedValue),
+      scanned: normalizeProductCode(scannedValue)
+    };
+  }
+  let reason = "Produto correto";
+  if (expected.slice(0, 5) !== scanned.slice(0, 5)) reason = "SKU incorreto";
+  else if (expected[5] !== scanned[5]) reason = "Cor incorreta";
+  else if (voltageGroup(expected[6]) !== voltageGroup(scanned[6])) reason = "Voltagem incorreta";
+  const approved = reason === "Produto correto";
+  return {
+    approved,
+    status: approved ? "APROVADO" : "BLOQUEADO",
+    reason,
+    expected: normalizeProductCode(expected),
+    scanned: normalizeProductCode(scanned)
+  };
+}
+
+function voltageGroup(code) {
+  if (code === "0" || code === "4") return "bivolt";
+  if (code === "1" || code === "3") return "127";
+  if (code === "2") return "220";
+  return "invalid";
+}
+
+function readStoredJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "null");
+    return value ?? fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function readOfflineScanQueue() {
+  const queue = readStoredJson(OFFLINE_SCAN_QUEUE, []);
+  return Array.isArray(queue) ? queue : [];
+}
+
+function saveOfflineCountDraft(counts, user) {
+  localStorage.setItem(OFFLINE_COUNT_DRAFT, JSON.stringify({
+    counts,
+    operator: user?.name || user?.username || "Operador",
+    savedAt: new Date().toISOString()
+  }));
+}
+
+function isNetworkFailure(error) {
+  return !navigator.onLine
+    || error instanceof TypeError
+    || /failed to fetch|networkerror|network request failed/i.test(String(error?.message || ""));
 }
 
 function scanSourceLabel(source) {

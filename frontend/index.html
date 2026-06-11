@@ -3,24 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
+    <meta name="theme-color" content="#cd1e1a" />
     <title>MN - Check</title>
     <link rel="icon" href="/logo.svg?v=2" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="./styles.css?v=163-balance-search" />
+    <link rel="manifest" href="/manifest.webmanifest?v=165" />
+    <link rel="stylesheet" href="./styles.css?v=165-offline-sync" />
   </head>
   <body>
     <div id="root"></div>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <script src="./app.js?v=163-balance-search"></script>
+    <div id="offline-file-reader" class="visually-hidden" aria-hidden="true"></div>
+    <script src="/vendor/react.production.min.js"></script>
+    <script src="/vendor/react-dom.production.min.js"></script>
+    <script src="/vendor/html5-qrcode.min.js"></script>
+    <script src="./app.js?v=165-offline-sync"></script>
   </body>
 </html>

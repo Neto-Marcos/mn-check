@@ -1,0 +1,17 @@
+{
+  "name": "MN - Check",
+  "short_name": "MN Check",
+  "description": "Controle de separação, conferência e estoque.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#cd1e1a",
+  "icons": [
+    {
+      "src": "/logo.svg?v=3",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

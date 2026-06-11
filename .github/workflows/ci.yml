@@ -35,18 +35,25 @@ jobs:
         with:
           node-version: "24"
       - name: Check frontend syntax
-        run: node --check frontend/app.js
+        run: |
+          node --check frontend/app.js
+          node --check frontend/sw.js
+          test -s frontend/vendor/react.production.min.js
+          test -s frontend/vendor/react-dom.production.min.js
+          test -s frontend/vendor/html5-qrcode.min.js
       - name: Test parser and PostgreSQL persistence
         run: mvn --batch-mode --no-transfer-progress test
       - name: Build backend
         run: mvn --batch-mode --no-transfer-progress -DskipTests package
       - name: Smoke test API
         run: |
-          java -jar target/mn-check-1.6.3.jar > /tmp/mn-check.log 2>&1 &
+          java -jar target/mn-check-1.6.5.jar > /tmp/mn-check.log 2>&1 &
           SERVER_PID=$!
           sleep 6
           curl --fail http://127.0.0.1:4173/api/health
-          curl --fail http://127.0.0.1:4173/api/version | grep '"version":"1.6.3"'
+          curl --fail http://127.0.0.1:4173/api/version | grep '"version":"1.6.5"'
+          curl --fail http://127.0.0.1:4173/sw.js | grep 'mn-check-1.6.5'
+          curl --fail --output /dev/null http://127.0.0.1:4173/vendor/html5-qrcode.min.js
           kill $SERVER_PID
           cat /tmp/mn-check.log
       - name: Build production image

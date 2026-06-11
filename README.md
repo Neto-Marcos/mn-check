@@ -2,7 +2,7 @@
 
 Controle de separação, conferência e estoque.
 
-Versão atual: **1.6.3**
+Versão atual: **1.6.5**
 
 ## Leitor CODE 128
 
@@ -36,6 +36,29 @@ Na tela de contagem, a lista de saldo pode ser pesquisada por:
 - fotografia da etiqueta CODE 128.
 
 A comparação ignora pontos e hífens, destaca o SKU encontrado e posiciona o cursor no campo de quantidade contada.
+
+## Uso offline
+
+As bibliotecas React e `html5-qrcode` são servidas pelo próprio MN Check, sem CDN. Um service worker armazena a interface, o leitor e a última carga operacional no aparelho.
+
+Para preparar um celular:
+
+1. Abra a versão `1.6.5` com internet.
+2. Faça login e entre nas telas que serão usadas.
+3. Aguarde alguns segundos para o cache ser instalado.
+4. A partir daí, leitura ao vivo, fotografia e comparação com os dados já carregados funcionam sem internet.
+
+As leituras feitas sem rede ficam em uma fila local e são enviadas ao PostgreSQL automaticamente quando a conexão retorna.
+
+Na contagem de estoque:
+
+- cada quantidade alterada off-line é salva imediatamente no aparelho;
+- o botão muda para **Salvar contagem off-line**;
+- uma faixa informa que existe uma contagem aguardando sincronização;
+- quando a conexão volta, o snapshot mais recente é enviado para `/api/contagem`;
+- a pendência só é apagada depois da confirmação positiva do servidor.
+
+Login inicial, novos mapas, novos saldos e dados ainda não carregados continuam exigindo acesso ao servidor.
 
 Padrão do produto:
 
@@ -200,7 +223,7 @@ $env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/n
 $env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
 mvn test
 mvn package
-java -jar target/mn-check-1.6.3.jar
+java -jar target/mn-check-1.6.5.jar
 ```
 
 Abra:

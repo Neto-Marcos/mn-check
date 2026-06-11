@@ -35,7 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.6.3";
+  private static final String APP_VERSION = "1.6.5";
   private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
   private static final int PORT = Integer.parseInt(
       System.getProperty("mmcheck.legacy.port", System.getenv().getOrDefault("PORT", "4173"))
@@ -656,6 +656,7 @@ public class MmCheckServer {
       case ".css" -> "text/css; charset=utf-8";
       case ".js" -> "text/javascript; charset=utf-8";
       case ".svg" -> "image/svg+xml";
+      case ".webmanifest" -> "application/manifest+json; charset=utf-8";
       default -> "application/octet-stream";
     };
     byte[] bytes = Files.readAllBytes(file);
