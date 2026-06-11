@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.6.6";
+const APP_VERSION = "1.7.0";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -27,15 +27,57 @@ const TITLES = {
   conference: ["validação", "Conferência"],
   history: ["admin", "Histórico"],
   users: ["admin", "Usuários"],
+  settings: ["conta", "Configurações"],
 };
+
+const ICON_PATHS = {
+  overview: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
+  separation: ["M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"],
+  conference: ["M20 6 9 17l-5-5"],
+  counting: ["M3 3v18h18", "M7 16h2", "M11 12h2", "M15 8h2", "M19 5h2"],
+  history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
+  users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
+  settings: ["M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.5 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.64 1 1.25 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.13.4-1.51 1Z"],
+  notifications: ["M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9", "M13.73 21a2 2 0 0 1-3.46 0"],
+  menu: ["M4 6h16", "M4 12h16", "M4 18h16"],
+  collapse: ["m15 18-6-6 6-6"],
+  expand: ["m9 18 6-6-6-6"],
+  logout: ["M10 17l5-5-5-5", "M15 12H3", "M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"],
+  key: ["M21 2l-2 2", "M7.61 11.39a5.5 5.5 0 1 0 7.78 7.78 5.5 5.5 0 0 0-7.78-7.78Z", "m15.5 8.5 1 1L22 4l-2-2-5.5 5.5 1 1Z"],
+  sun: ["M12 3V1", "M12 23v-2", "m4.22 4.22-1.42-1.42", "m21.2 21.2-1.42-1.42", "M3 12H1", "M23 12h-2", "m4.22 19.78-1.42 1.42", "m21.2 2.8-1.42 1.42", "M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z"],
+  moon: ["M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"],
+  user: ["M20 21a8 8 0 0 0-16 0", "M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"],
+};
+
+function Icon({ name, size = 20 }) {
+  return h("svg", {
+    className: "ui-icon",
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true"
+  }, (ICON_PATHS[name] || ICON_PATHS.overview).map((path, index) =>
+    h("path", { key: `${name}-${index}`, d: path })
+  ));
+}
 
 function App() {
   const [token, setToken] = React.useState(localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "");
   const [theme, setTheme] = React.useState(() => {
     const saved = localStorage.getItem("mnCheckTheme");
     if (saved === "dark" || saved === "light") return saved;
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return "dark";
   });
+  const [density, setDensity] = React.useState(() => localStorage.getItem("mnCheckDensity") || "comfortable");
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() => localStorage.getItem("mnCheckSidebar") === "collapsed");
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+  const [authenticating, setAuthenticating] = React.useState(false);
+  const [viewLoading, setViewLoading] = React.useState(false);
   const [appVersion, setAppVersion] = React.useState(APP_VERSION);
   const [online, setOnline] = React.useState(navigator.onLine);
   const [user, setUser] = React.useState(null);
@@ -61,7 +103,7 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=165").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=170").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -83,6 +125,15 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("mnCheckTheme", theme);
   }, [theme]);
+
+  React.useEffect(() => {
+    document.documentElement.dataset.density = density;
+    localStorage.setItem("mnCheckDensity", density);
+  }, [density]);
+
+  React.useEffect(() => {
+    localStorage.setItem("mnCheckSidebar", sidebarCollapsed ? "collapsed" : "expanded");
+  }, [sidebarCollapsed]);
 
   React.useEffect(() => {
     if (!token) return;
@@ -165,11 +216,17 @@ function App() {
     setUser(body.user);
     setData(body);
     setAppVersion(body.version || APP_VERSION);
-    setView(body.user.allowedViews.includes(preferredView) ? preferredView : body.user.allowedViews[0]);
+    setView(preferredView === "settings" || body.user.allowedViews.includes(preferredView)
+      ? preferredView
+      : body.user.allowedViews[0]);
   }
 
   async function selectView(nextView) {
     setView(nextView);
+    setMobileNavOpen(false);
+    if (nextView === "settings") return;
+    const loadsRemoteData = nextView === "history" || nextView === "counting";
+    setViewLoading(loadsRemoteData);
     try {
       if (nextView === "history") {
         const history = await request("/api/historico");
@@ -193,6 +250,8 @@ function App() {
       }
     } catch (error) {
       notify(error.message);
+    } finally {
+      setViewLoading(false);
     }
   }
 
@@ -204,6 +263,7 @@ function App() {
 
   async function handleLogin(event) {
     event.preventDefault();
+    setAuthenticating(true);
     try {
       const body = await request("/api/login", { method: "POST", body: login });
       localStorage.setItem("mnCheckToken", body.token);
@@ -216,6 +276,8 @@ function App() {
       notify(`Login realizado para ${body.user.name}.`);
     } catch (error) {
       notify(error.message);
+    } finally {
+      setAuthenticating(false);
     }
   }
 
@@ -570,60 +632,109 @@ function App() {
             autoComplete: "current-password"
           })
         ),
-        h("button", { className: "primary-action", type: "submit" }, "Entrar")
+        h("button", {
+          className: "primary-action",
+          type: "submit",
+          disabled: authenticating
+        }, authenticating ? "Entrando..." : "Entrar")
       ),
       toast && h("div", { className: "toast" }, toast)
     );
   }
 
   const allowedViews = user.allowedViews || [];
+  const navigationViews = [...allowedViews, "settings"];
   const [eyebrow, title] = TITLES[view] || TITLES[allowedViews[0]];
   const notifications = data.notifications || [];
   const unreadNotifications = notifications.filter((item) => !item.read).length;
 
-  return h("main", { className: "dashboard-view" },
-    h("aside", { className: "sidebar" },
+  return h("main", {
+    className: `dashboard-view ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`
+  },
+    h("button", {
+      className: "mobile-nav-backdrop",
+      "aria-label": "Fechar menu",
+      onClick: () => setMobileNavOpen(false)
+    }),
+    h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
         h("img", { className: "app-logo small", src: "/logo.svg?v=3", alt: "MN - Check" }),
-        h("div", null,
+        h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
-          h("span", null, `${user.name} - ${user.label}`),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
-        )
+        ),
+        h("button", {
+          className: "sidebar-collapse-action",
+          title: sidebarCollapsed ? "Expandir menu" : "Minimizar menu",
+          "aria-label": sidebarCollapsed ? "Expandir menu" : "Minimizar menu",
+          onClick: () => setSidebarCollapsed((current) => !current)
+        }, h(Icon, { name: sidebarCollapsed ? "expand" : "collapse", size: 18 }))
       ),
-      h("div", { className: "branch-context" }, h("strong", null, "Filial 281"), h("span", null, "Setor único de expedição")),
       user.role === "admin" && h("button", {
         className: `notification-action ${unreadNotifications ? "has-unread" : ""}`,
+        title: "Notificações",
         onClick: () => setNotificationsOpen(!notificationsOpen)
       },
-        h("span", null, "Notificações"),
+        h(Icon, { name: "notifications" }),
+        h("span", { className: "nav-label" }, "Notificações"),
         h("strong", null, unreadNotifications)
       ),
       h("nav", { className: "nav-list" },
-        allowedViews.map((item) => h("button", {
+        navigationViews.map((item) => h("button", {
           key: item,
           className: `nav-item ${view === item ? "active" : ""}`,
+          title: TITLES[item][1],
+          "aria-current": view === item ? "page" : undefined,
           onClick: () => selectView(item)
-        }, TITLES[item][1]))
+        },
+          h(Icon, { name: item }),
+          h("span", { className: "nav-label" }, TITLES[item][1])
+        ))
       ),
-      h(ThemeToggle, {
-        theme,
-        className: "sidebar-theme-toggle",
-        onToggle: () => setTheme((current) => current === "dark" ? "light" : "dark")
-      }),
-      h("button", { className: "ghost-action account-action", onClick: () => setPasswordTarget(user) }, "Alterar minha senha"),
-      h("button", { className: "ghost-action", onClick: logout }, "Sair")
+      h("button", {
+        className: "sidebar-user",
+        title: `${user.name} - ${user.label}`,
+        onClick: () => selectView("settings")
+      },
+        h("span", { className: "user-avatar" }, initials(user.name)),
+        h("span", { className: "sidebar-user-copy" },
+          h("strong", null, user.name),
+          h("small", null, user.label)
+        )
+      )
     ),
     h("section", { className: "workspace" },
+      viewLoading && h("div", { className: "workspace-loading", role: "status", "aria-label": "Carregando dados" },
+        h("span", null)
+      ),
       !online && h("div", { className: "offline-banner", role: "status" },
         h("strong", null, "Você está off-line"),
         h("span", null, "Continue trabalhando normalmente. As alterações serão enviadas quando a conexão voltar.")
       ),
       h("header", { className: "topbar" },
-        h("div", null, h("p", { className: "eyebrow" }, eyebrow), h("h2", null, title)),
+        h("div", { className: "topbar-heading" },
+          h("button", {
+            className: "mobile-menu-action",
+            "aria-label": "Abrir menu",
+            onClick: () => setMobileNavOpen(true)
+          }, h(Icon, { name: "menu", size: 22 })),
+          h("div", null,
+            h("p", { className: "eyebrow" }, eyebrow),
+            h("h2", null, title)
+          )
+        ),
         h("div", { className: "topbar-actions" },
           h("span", { className: `connection-status ${online ? "online" : "offline"}` },
             online ? "Online" : "Modo offline"
+          ),
+          user.role === "admin" && h("button", {
+            className: `topbar-icon-action ${unreadNotifications ? "has-unread" : ""}`,
+            title: "Notificações",
+            "aria-label": "Abrir notificações",
+            onClick: () => setNotificationsOpen(true)
+          },
+            h(Icon, { name: "notifications", size: 19 }),
+            unreadNotifications > 0 && h("span", null, unreadNotifications)
           ),
           ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
             className: "hidden",
@@ -681,6 +792,19 @@ function App() {
         removeUser,
         changeUserPassword: setPasswordTarget
       }),
+      view === "settings" && h(Settings, {
+        user,
+        appVersion,
+        theme,
+        density,
+        sidebarCollapsed,
+        online,
+        onThemeChange: setTheme,
+        onDensityChange: setDensity,
+        onSidebarPreference: setSidebarCollapsed,
+        onPassword: () => setPasswordTarget(user),
+        onLogout: logout
+      })
     ),
     notificationsOpen && user.role === "admin" && h(NotificationPanel, {
       notifications,
@@ -904,6 +1028,113 @@ function ThemeToggle({ theme, onToggle, className = "" }) {
       h("span", { className: "theme-toggle-thumb" })
     ),
     h("span", { className: "theme-toggle-label" }, dark ? "Tema escuro" : "Tema claro")
+  );
+}
+
+function Settings({
+  user,
+  appVersion,
+  theme,
+  density,
+  sidebarCollapsed,
+  online,
+  onThemeChange,
+  onDensityChange,
+  onSidebarPreference,
+  onPassword,
+  onLogout
+}) {
+  return h("div", { className: "settings-layout" },
+    h("article", { className: "panel settings-profile" },
+      h("div", { className: "settings-profile-head" },
+        h("span", { className: "settings-avatar" }, initials(user.name)),
+        h("div", null,
+          h("p", { className: "eyebrow" }, "perfil de acesso"),
+          h("h3", null, user.name),
+          h("span", null, user.label)
+        )
+      ),
+      h("dl", { className: "account-details" },
+        h("div", null, h("dt", null, "Usuário"), h("dd", null, user.username)),
+        h("div", null, h("dt", null, "Permissão"), h("dd", null, user.label)),
+        h("div", null, h("dt", null, "Conexão"), h("dd", { className: online ? "text-success" : "text-warning" }, online ? "Online" : "Modo offline")),
+        h("div", null, h("dt", null, "Versão"), h("dd", null, appVersion))
+      ),
+      h("button", { className: "secondary-action settings-password-action", onClick: onPassword },
+        h(Icon, { name: "key", size: 18 }),
+        h("span", null, "Alterar minha senha")
+      )
+    ),
+    h("article", { className: "panel settings-preferences" },
+      h("div", { className: "panel-header" },
+        h("div", null, h("p", { className: "eyebrow" }, "preferências"), h("h3", null, "Aparência e navegação")),
+        h("span", null, "salvo neste aparelho")
+      ),
+      h("div", { className: "preference-list" },
+        h(PreferenceRow, {
+          title: "Tema da interface",
+          description: "Escolha o contraste mais confortável para o ambiente de trabalho."
+        },
+          h("div", { className: "segmented-control", role: "group", "aria-label": "Tema da interface" },
+            h("button", {
+              className: theme === "dark" ? "active" : "",
+              onClick: () => onThemeChange("dark")
+            }, h(Icon, { name: "moon", size: 17 }), h("span", null, "Escuro")),
+            h("button", {
+              className: theme === "light" ? "active" : "",
+              onClick: () => onThemeChange("light")
+            }, h(Icon, { name: "sun", size: 17 }), h("span", null, "Claro"))
+          )
+        ),
+        h(PreferenceRow, {
+          title: "Densidade das telas",
+          description: "Ajusta o espaçamento sem alterar nenhuma informação."
+        },
+          h("div", { className: "segmented-control", role: "group", "aria-label": "Densidade das telas" },
+            h("button", {
+              className: density === "comfortable" ? "active" : "",
+              onClick: () => onDensityChange("comfortable")
+            }, "Confortável"),
+            h("button", {
+              className: density === "compact" ? "active" : "",
+              onClick: () => onDensityChange("compact")
+            }, "Compacta")
+          )
+        ),
+        h(PreferenceRow, {
+          title: "Menu lateral",
+          description: "Define como a navegação deve iniciar no desktop."
+        },
+          h("label", { className: "setting-switch" },
+            h("input", {
+              type: "checkbox",
+              checked: sidebarCollapsed,
+              onChange: (event) => onSidebarPreference(event.target.checked)
+            }),
+            h("span", { "aria-hidden": "true" }),
+            h("b", null, sidebarCollapsed ? "Minimizado" : "Expandido")
+          )
+        )
+      )
+    ),
+    h("article", { className: "panel settings-session" },
+      h("div", null,
+        h("p", { className: "eyebrow" }, "sessão"),
+        h("h3", null, "Encerrar acesso"),
+        h("p", null, "Use esta opção ao terminar o trabalho neste aparelho.")
+      ),
+      h("button", { className: "logout-action", onClick: onLogout },
+        h(Icon, { name: "logout", size: 18 }),
+        h("span", null, "Sair do sistema")
+      )
+    )
+  );
+}
+
+function PreferenceRow({ title, description, children }) {
+  return h("div", { className: "preference-row" },
+    h("div", null, h("strong", null, title), h("span", null, description)),
+    children
   );
 }
 
@@ -1790,6 +2021,15 @@ function scanSourceLabel(source) {
     scanner: "coletor/bipador",
     manual: "digitação manual"
   }[source] || "leitura";
+}
+
+function initials(name) {
+  return String(name || "MN")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("") || "MN";
 }
 
 async function authorizedJson(path) {

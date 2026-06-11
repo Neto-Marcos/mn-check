@@ -2,7 +2,19 @@
 
 Controle de separação, conferência e estoque.
 
-Versão atual: **1.6.6**
+Versão atual: **1.7.0**
+
+## Interface
+
+A versão 1.7 inclui uma interface corporativa responsiva:
+
+- tema escuro profissional como padrão, com tema claro opcional;
+- sidebar retrátil no desktop e menu lateral no celular;
+- navegação por ícones e nomes;
+- seção de Configurações com perfil, senha, tema, densidade e logout;
+- preferências visuais persistidas no navegador;
+- feedback de carregamento e estados de conexão;
+- todos os fluxos operacionais e permissões preservados.
 
 ## Leitor CODE 128
 
@@ -37,7 +49,7 @@ As bibliotecas React são servidas pelo próprio MN Check, sem CDN. Um service w
 
 Para preparar um celular:
 
-1. Abra a versão `1.6.6` com internet.
+1. Abra a versão `1.7.0` com internet.
 2. Faça login e entre nas telas que serão usadas.
 3. Aguarde alguns segundos para o cache ser instalado.
 4. A partir daí, a leitura pelo coletor e a comparação com os dados já carregados funcionam sem internet.
@@ -205,7 +217,7 @@ $env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/n
 $env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
 mvn test
 mvn package
-java -jar target/mn-check-1.6.6.jar
+java -jar target/mn-check-1.7.0.jar
 ```
 
 Abra:
