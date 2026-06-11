@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.6.5";
+const APP_VERSION = "1.6.6";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -391,40 +391,6 @@ function App() {
     }
   }
 
-  async function decodeBarcodePhoto(file) {
-    let localError = null;
-    if (window.Html5Qrcode) {
-      const localReader = new Html5Qrcode("offline-file-reader", {
-        formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128],
-        verbose: false
-      });
-      try {
-        const raw = await localReader.scanFile(file, true);
-        return { raw, normalized: normalizeProductCode(raw), offline: !navigator.onLine };
-      } catch (error) {
-        localError = error;
-      } finally {
-        try { localReader.clear(); } catch (_) {}
-      }
-    }
-    if (!navigator.onLine) {
-      throw new Error("CODE 128 não encontrado na foto. Aproxime a câmera, evite reflexos e mantenha todas as barras visíveis.");
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-    const response = await fetch("/api/scanner/decode", {
-      method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: formData,
-    });
-    const body = await response.json();
-    if (!response.ok) {
-      throw new Error(body.error || localError?.message || "Não foi possível ler a etiqueta.");
-    }
-    return body;
-  }
-
   async function syncOfflineScans() {
     const queue = readOfflineScanQueue();
     if (!queue.length || !navigator.onLine) return;
@@ -693,8 +659,7 @@ function App() {
         onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
         onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
         onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
-        onScan: scanBarcode,
-        onDecodePhoto: decodeBarcodePhoto
+        onScan: scanBarcode
       }),
       view === "counting" && h(Counting, {
         counts: data.counts,
@@ -704,7 +669,6 @@ function App() {
         importMetrics: data.countsImportMetrics,
         onUpload: countUpload,
         onUpdate: updateCounts,
-        onDecodePhoto: decodeBarcodePhoto,
         onOfflineDraft: saveCountDraftOffline,
         online
       }),
@@ -1006,7 +970,7 @@ function Separation({ maps, onToggle, onSend, onDelete }) {
   );
 }
 
-function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onDecodePhoto }) {
+function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
   const conferenceMaps = maps.filter((map) =>
     ["aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status)
   );
@@ -1019,9 +983,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onDecodeP
         onApprove,
         onProblem,
         onCorrected,
-        onScan,
-        onDecodePhoto,
-        autoStart: index === 0
+        onScan
       })) : empty("Nenhum mapa aguardando conferência."))
     ),
     h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
@@ -1036,7 +998,6 @@ function Counting({
   importMetrics = {},
   onUpload,
   onUpdate,
-  onDecodePhoto,
   onOfflineDraft,
   online
 }) {
@@ -1047,10 +1008,8 @@ function Counting({
   const [offlinePending, setOfflinePending] = React.useState(Boolean(initialOfflineDraft?.counts?.length));
   const [searchCode, setSearchCode] = React.useState("");
   const [searchMessage, setSearchMessage] = React.useState("");
-  const [photoSearching, setPhotoSearching] = React.useState(false);
   const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
   const fileInputRef = React.useRef(null);
-  const labelPhotoInputRef = React.useRef(null);
   const countInputRefs = React.useRef({});
 
   React.useEffect(() => {
@@ -1137,23 +1096,6 @@ function Counting({
     return match;
   }
 
-  async function searchLabelPhoto(event) {
-    const file = event.target.files && event.target.files[0];
-    event.target.value = "";
-    if (!file) return;
-    setPhotoSearching(true);
-    setSearchMessage("Processando fotografia da etiqueta...");
-    try {
-      const decoded = await onDecodePhoto(file);
-      findBalanceCode(decoded.normalized || decoded.raw);
-    } catch (error) {
-      setSearchMessage(error.message);
-      playFeedback(false);
-    } finally {
-      setPhotoSearching(false);
-    }
-  }
-
   function printCountReport() {
     setPrintGeneratedAt(new Date());
     window.setTimeout(() => window.print(), 50);
@@ -1231,13 +1173,14 @@ function Counting({
         h("div", { className: "balance-search-head" },
           h("div", null,
             h("strong", null, "Localizar produto no saldo"),
-            h("span", null, "Digite, use o scanner físico ou fotografe a etiqueta")
+            h("span", null, "Use o coletor/bipador ou digite o código")
           ),
           h("b", null, `${visibleDraft.length}/${draft.length} SKUs`)
         ),
         h("div", { className: "balance-search-controls" },
           h("input", {
             inputMode: "numeric",
+            autoFocus: true,
             autoComplete: "off",
             placeholder: "Código da etiqueta ou SKU",
             value: searchCode,
@@ -1256,11 +1199,6 @@ function Counting({
             disabled: !searchDigits,
             onClick: () => findBalanceCode(searchCode)
           }, "Pesquisar"),
-          h("button", {
-            className: "secondary-action compact",
-            disabled: photoSearching,
-            onClick: () => labelPhotoInputRef.current?.click()
-          }, photoSearching ? "Lendo foto..." : "Fotografar etiqueta"),
           searchCode && h("button", {
             className: "ghost-action compact",
             onClick: () => {
@@ -1269,14 +1207,6 @@ function Counting({
             }
           }, "Limpar")
         ),
-        h("input", {
-          ref: labelPhotoInputRef,
-          className: "visually-hidden",
-          type: "file",
-          accept: "image/*",
-          capture: "environment",
-          onChange: searchLabelPhoto
-        }),
         searchMessage && h("div", {
           className: `balance-search-message ${searchMessage.startsWith("Encontrado") ? "success" : ""}`
         }, searchMessage)
@@ -1490,7 +1420,7 @@ function MapCard({ map, onToggle, onSend, onDelete }) {
   );
 }
 
-function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, onDecodePhoto, autoStart }) {
+function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
   const actionable = ["aguardando conferencia", "conferencia"].includes(map.status);
   const needsCorrection = map.status === "corrigir problema";
   return h("article", { className: "order-card conference-card" },
@@ -1513,31 +1443,25 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, onDeco
       onApprove,
       onProblem,
       onCorrected,
-      onDecodePhoto,
       actionable,
-      needsCorrection,
-      autoStart
+      needsCorrection
     })
   );
 }
 
-function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCorrected, actionable, needsCorrection, autoStart }) {
+function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, actionable, needsCorrection }) {
   const [manualCode, setManualCode] = React.useState("");
   const [result, setResult] = React.useState(null);
-  const [scanning, setScanning] = React.useState(false);
   const [validating, setValidating] = React.useState(false);
-  const [photoProcessing, setPhotoProcessing] = React.useState(false);
   const [history, setHistory] = React.useState([]);
   const [lastCode, setLastCode] = React.useState("");
   const [offlineProgress, setOfflineProgress] = React.useState(0);
-  const scannerRef = React.useRef(null);
-  const photoInputRef = React.useRef(null);
+  const codeInputRef = React.useRef(null);
   const lastScanRef = React.useRef({ code: "", at: 0 });
   const manualStartedAtRef = React.useRef(0);
   const expectedItemRef = React.useRef(null);
   const validatingRef = React.useRef(false);
   const physicalScannerRef = React.useRef({ value: "", lastKeyAt: 0 });
-  const readerId = `barcode-reader-${map.id}`;
   const totalQuantity = map.items.reduce((sum, item) => sum + item.quantity, 0);
   const serverCheckedQuantity = map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
   const checkedQuantity = Math.min(totalQuantity, serverCheckedQuantity + offlineProgress);
@@ -1568,14 +1492,12 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
       })
       .catch(() => {});
 
-    const autoStartTimer = window.setTimeout(() => {
-      if (active && actionable && !needsCorrection && autoStart) startScanner();
-    }, 350);
+    const focusTimer = window.setTimeout(() => codeInputRef.current?.focus(), 250);
     function capturePhysicalScanner(event) {
       if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName)) return;
       const current = physicalScannerRef.current;
       const now = Date.now();
-      if (now - current.lastKeyAt > 120) current.value = "";
+      if (now - current.lastKeyAt > 250) current.value = "";
       current.lastKeyAt = now;
       if (event.key === "Enter") {
         if (current.value.replace(/\D/g, "").length === 7) {
@@ -1587,22 +1509,16 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
       }
       if (/^[\d .-]$/.test(event.key)) current.value += event.key;
     }
-    function releaseCamera(event) {
-      if (String(event.detail) !== String(map.id)) stopScanner();
-    }
     function resetOfflineProgress() {
       setOfflineProgress(0);
     }
     document.addEventListener("keydown", capturePhysicalScanner);
-    window.addEventListener("mncheck-camera-request", releaseCamera);
     window.addEventListener("mncheck-offline-synced", resetOfflineProgress);
     return () => {
       active = false;
-      window.clearTimeout(autoStartTimer);
+      window.clearTimeout(focusTimer);
       document.removeEventListener("keydown", capturePhysicalScanner);
-      window.removeEventListener("mncheck-camera-request", releaseCamera);
       window.removeEventListener("mncheck-offline-synced", resetOfflineProgress);
-      stopScanner();
     };
   }, [map.id]);
 
@@ -1654,6 +1570,7 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
       }, ...current].slice(0, 30));
       setManualCode("");
       playFeedback(approved);
+      window.setTimeout(() => codeInputRef.current?.focus(), 80);
     } catch (error) {
       setResult({ type: "error", title: "Código não confere", text: error.message });
       setHistory((current) => [{
@@ -1670,109 +1587,6 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
     }
   }
 
-  async function startScanner() {
-    if (!window.Html5Qrcode) {
-      setResult({
-        type: "error",
-        title: "Leitor indisponível",
-        text: "O módulo local do leitor não foi carregado. Atualize o aplicativo uma vez com internet."
-      });
-      return;
-    }
-    if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
-      setResult({
-        type: "error",
-        title: "A câmera precisa de HTTPS",
-        text: "Use o campo manual ou acesse o endereço seguro."
-      });
-      return;
-    }
-
-    try {
-      window.dispatchEvent(new CustomEvent("mncheck-camera-request", { detail: map.id }));
-      await new Promise((resolve) => window.setTimeout(resolve, 120));
-      setScanning(true);
-      setResult(null);
-      if (scannerRef.current) return;
-      scannerRef.current = new Html5Qrcode(readerId, {
-        formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128],
-        verbose: false
-      });
-      await scannerRef.current.start(
-        { facingMode: "environment" },
-        {
-          fps: 20,
-          aspectRatio: 1.777778,
-          disableFlip: false,
-          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-          qrbox: (width, height) => ({
-            width: Math.min(Math.floor(width * 0.9), 420),
-            height: Math.min(Math.floor(height * 0.32), 150)
-          })
-        },
-        (decodedText) => validate(decodedText, "camera"),
-        () => {}
-      );
-    } catch (error) {
-      setScanning(false);
-      setResult({
-        type: "error",
-        title: "Câmera não disponível",
-        text: "Não foi possível abrir a câmera traseira. Confira a permissão do navegador."
-      });
-    }
-  }
-
-  async function stopScanner() {
-    const scanner = scannerRef.current;
-    scannerRef.current = null;
-    setScanning(false);
-    if (!scanner) return;
-    try {
-      if (scanner.isScanning) await scanner.stop();
-      scanner.clear();
-    } catch (_) {}
-  }
-
-  async function processLabelPhoto(event) {
-    const file = event.target.files && event.target.files[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setResult({
-        type: "error",
-        title: "Arquivo inválido",
-        text: "Tire uma foto ou selecione uma imagem da etiqueta."
-      });
-      return;
-    }
-    if (file.size > 12 * 1024 * 1024) {
-      setResult({
-        type: "error",
-        title: "Foto muito grande",
-        text: "Use uma imagem de até 12 MB."
-      });
-      return;
-    }
-
-    await stopScanner();
-    setPhotoProcessing(true);
-    setResult({
-      type: "waiting",
-      title: "Processando fotografia",
-      text: "Ajustando a imagem e procurando o código CODE 128..."
-    });
-    try {
-      const decoded = await onDecodePhoto(file);
-      await validate(decoded.normalized || decoded.raw, "photo");
-    } catch (error) {
-      setResult({ type: "error", title: "Código não identificado", text: error.message });
-      playFeedback(false);
-    } finally {
-      setPhotoProcessing(false);
-    }
-  }
-
   const resultTitle = allChecked
     ? "Conferência concluída"
     : result?.title || "Aguardando leitura";
@@ -1784,39 +1598,18 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
         h("span", null, "1"),
         h("div", null,
           h("strong", null, "Leitura da etiqueta"),
-          h("small", null, "Use a câmera ou digite o código impresso")
+          h("small", null, "Use o coletor/bipador ou digite o código")
         )
-      ),
-      h("div", { className: "capture-actions" },
-        h("button", {
-          className: `camera-action ${scanning ? "active" : ""}`,
-          disabled: validating || photoProcessing || needsCorrection,
-          onClick: scanning ? stopScanner : startScanner
-        }, scanning ? "Fechar câmera" : "Leitura ao vivo"),
-        h("button", {
-          className: "camera-action photo-action",
-          disabled: validating || photoProcessing || needsCorrection,
-          onClick: () => photoInputRef.current?.click()
-        }, photoProcessing ? "Lendo fotografia..." : "Fotografar etiqueta"),
-        h("input", {
-          ref: photoInputRef,
-          className: "visually-hidden",
-          type: "file",
-          accept: "image/*",
-          capture: "environment",
-          onChange: processLabelPhoto
-        })
-      ),
-      h("div", { className: `barcode-reader-shell ${scanning ? "active" : ""}` },
-        h("div", { id: readerId, className: `barcode-reader ${scanning ? "active" : ""}` }),
-        h("div", { className: "scanner-target-line", "aria-hidden": "true" })
       ),
       h("div", { className: "manual-validation" },
         h("input", {
+          ref: codeInputRef,
           inputMode: "numeric",
           autoFocus: true,
           autoComplete: "off",
-          placeholder: "Digite ou use o scanner USB/Bluetooth",
+          enterKeyHint: "done",
+          spellCheck: false,
+          placeholder: "Bipe com o coletor ou digite o código",
           value: manualCode,
           disabled: needsCorrection,
           onChange: (event) => {
@@ -1827,7 +1620,7 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
             if (event.key !== "Enter") return;
             event.preventDefault();
             const elapsed = Date.now() - manualStartedAtRef.current;
-            validate(manualCode, elapsed < 700 ? "scanner" : "manual");
+            validate(manualCode, elapsed < 1800 ? "scanner" : "manual");
           }
         }),
         h("button", {
@@ -1837,7 +1630,7 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
         }, validating ? "Validando..." : "Validar")
       ),
       h("p", { className: "scanner-help" },
-        "Use a leitura ao vivo ou fotografe a etiqueta de perto. Scanners USB e Bluetooth funcionam diretamente no campo acima."
+        "O coletor USB ou Bluetooth funciona como teclado: bipar a etiqueta preenche o código e envia com Enter."
       )
     ),
     h("section", { className: "conference-step result-step" },
@@ -1850,7 +1643,7 @@ function BarcodeScanner({ map, onScan, onDecodePhoto, onApprove, onProblem, onCo
       ),
       h("div", { className: `conference-result ${resultType}` },
         h("strong", null, resultTitle),
-        h("span", null, allChecked ? "Tudo pronto para finalizar" : result?.text || "Aproxime a etiqueta da câmera ou digite o código.")
+        h("span", null, allChecked ? "Tudo pronto para finalizar" : result?.text || "Bipe a etiqueta com o coletor ou digite o código.")
       ),
       h("div", { className: "conference-progress" },
         h("div", { style: { width: `${totalQuantity ? Math.round((checkedQuantity / totalQuantity) * 100) : 0}%` } })
@@ -1994,9 +1787,7 @@ function isNetworkFailure(error) {
 
 function scanSourceLabel(source) {
   return {
-    camera: "câmera",
-    photo: "fotografia",
-    scanner: "scanner físico",
+    scanner: "coletor/bipador",
     manual: "digitação manual"
   }[source] || "leitura";
 }

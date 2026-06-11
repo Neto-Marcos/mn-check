@@ -15,7 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,15 +23,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/scanner")
 public class ScannerController {
   private final BarcodeValidationService validationService;
-  private final BarcodeDecoder decoder;
   private final PostgresDatabase database;
   private final ObjectMapper objectMapper;
   private final HttpClient httpClient = HttpClient.newBuilder()
@@ -41,11 +37,9 @@ public class ScannerController {
 
   public ScannerController(
       BarcodeValidationService validationService,
-      BarcodeDecoder decoder,
       ObjectMapper objectMapper
   ) {
     this.validationService = validationService;
-    this.decoder = decoder;
     this.objectMapper = objectMapper;
     this.database = new PostgresDatabase(System.getenv("DATABASE_URL"));
   }
@@ -111,17 +105,6 @@ public class ScannerController {
     response.put("at", saved.createdAt().toString());
     response.putAll(legacyResult);
     return ResponseEntity.ok(response);
-  }
-
-  @PostMapping(path = "/decode", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-  public Map<String, Object> decode(
-      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-      @RequestPart("file") MultipartFile file
-  ) throws Exception {
-    loadBootstrap(authorization);
-    String rawCode = decoder.decodeCode128(file);
-    BarcodeParser.ProductCode parsed = BarcodeParser.parse(rawCode);
-    return Map.of("raw", rawCode, "normalized", parsed.normalized());
   }
 
   @GetMapping("/history")
@@ -240,17 +223,12 @@ public class ScannerController {
 
   private String normalizeSource(String source) {
     return switch (source == null ? "" : source.toLowerCase()) {
-      case "camera" -> "camera";
-      case "photo" -> "photo";
       case "scanner" -> "scanner";
       default -> "manual";
     };
   }
 
-  @ExceptionHandler({
-      BarcodeParser.InvalidBarcodeException.class,
-      BarcodeDecoder.BarcodeDecodeException.class
-  })
+  @ExceptionHandler(BarcodeParser.InvalidBarcodeException.class)
   ResponseEntity<Map<String, Object>> invalidCode(RuntimeException error) {
     return ResponseEntity.badRequest().body(Map.of("error", error.getMessage()));
   }

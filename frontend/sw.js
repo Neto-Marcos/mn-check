@@ -1,14 +1,13 @@
-const CACHE_NAME = "mn-check-1.6.5";
+const CACHE_NAME = "mn-check-1.6.6";
 const APP_ASSETS = [
   "/",
   "/index.html",
-  "/styles.css?v=165-offline-sync",
-  "/app.js?v=165-offline-sync",
+  "/styles.css?v=166-collector",
+  "/app.js?v=166-collector",
   "/logo.svg?v=3",
-  "/manifest.webmanifest?v=165",
+  "/manifest.webmanifest?v=166",
   "/vendor/react.production.min.js",
-  "/vendor/react-dom.production.min.js",
-  "/vendor/html5-qrcode.min.js"
+  "/vendor/react-dom.production.min.js"
 ];
 
 self.addEventListener("install", (event) => {

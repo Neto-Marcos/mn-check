@@ -2,25 +2,20 @@
 
 Controle de separação, conferência e estoque.
 
-Versão atual: **1.6.5**
+Versão atual: **1.6.6**
 
 ## Leitor CODE 128
 
-A tela de **Conferência** possui um leitor industrial mobile-first:
+A tela de **Conferência** foi preparada para coletores industriais USB ou Bluetooth:
 
-- câmera traseira iniciada automaticamente;
-- leitura contínua de CODE 128 com `html5-qrcode`;
-- botão para fotografar a etiqueta e processar a imagem no servidor;
-- preferência pela API nativa `BarcodeDetector` quando disponível;
-- linha verde para posicionamento da etiqueta;
+- leitura de CODE 128 pelo coletor, que funciona como teclado;
+- envio automático quando o coletor acrescenta `Enter`;
 - confirmação por som e vibração;
 - cooldown de 1 segundo contra leituras duplicadas;
-- entrada manual;
-- scanners USB e Bluetooth que funcionam como teclado;
+- entrada manual como alternativa;
+- foco automático no campo após cada conferência;
 - validação no backend Spring Boot;
 - histórico persistente no PostgreSQL.
-
-Na leitura por fotografia, o backend testa rotações e diferentes recortes da imagem. Para melhores resultados, mantenha todas as barras visíveis, aproxime a câmera e evite reflexos.
 
 Ao criar um mapa pela câmera, o operador informa manualmente:
 
@@ -32,21 +27,20 @@ Os pedidos podem ser separados por vírgula, espaço ou quebra de linha. Esses i
 Na tela de contagem, a lista de saldo pode ser pesquisada por:
 
 - SKU digitado;
-- scanner USB ou Bluetooth seguido de Enter;
-- fotografia da etiqueta CODE 128.
+- coletor USB ou Bluetooth seguido de Enter.
 
 A comparação ignora pontos e hífens, destaca o SKU encontrado e posiciona o cursor no campo de quantidade contada.
 
 ## Uso offline
 
-As bibliotecas React e `html5-qrcode` são servidas pelo próprio MN Check, sem CDN. Um service worker armazena a interface, o leitor e a última carga operacional no aparelho.
+As bibliotecas React são servidas pelo próprio MN Check, sem CDN. Um service worker armazena a interface e a última carga operacional no aparelho.
 
 Para preparar um celular:
 
-1. Abra a versão `1.6.5` com internet.
+1. Abra a versão `1.6.6` com internet.
 2. Faça login e entre nas telas que serão usadas.
 3. Aguarde alguns segundos para o cache ser instalado.
-4. A partir daí, leitura ao vivo, fotografia e comparação com os dados já carregados funcionam sem internet.
+4. A partir daí, a leitura pelo coletor e a comparação com os dados já carregados funcionam sem internet.
 
 As leituras feitas sem rede ficam em uma fila local e são enviadas ao PostgreSQL automaticamente quando a conexão retorna.
 
@@ -99,19 +93,12 @@ Motivo:   Voltagem incorreta
 
 Leituras bloqueadas ficam no histórico, mas não incrementam a quantidade conferida.
 
-### Celular
+### Coletor USB ou Bluetooth
 
-- Use o endereço HTTPS do Render.
-- No Android, abra no Chrome e autorize a câmera.
-- No iPhone, abra no Safari e autorize a câmera.
-- Posicione o código de barras horizontalmente sobre a linha verde.
-
-### Scanner USB ou Bluetooth
-
-1. Conecte ou pareie o scanner.
-2. Configure o scanner para enviar `Enter` após a leitura, comportamento padrão da maioria dos modelos.
+1. Conecte ou pareie o coletor.
+2. Configure o coletor para enviar `Enter` após a leitura, comportamento padrão da maioria dos modelos.
 3. Abra a conferência.
-4. Leia a etiqueta. O campo reconhece automaticamente a digitação rápida como scanner físico.
+4. Bipe a etiqueta. O campo reconhece automaticamente a entrada rápida do coletor.
 
 ### API do scanner
 
@@ -126,7 +113,7 @@ Content-Type: application/json
   "mapId": "15740",
   "scannedCode": "7426613",
   "operator": "Marcos",
-  "source": "camera"
+  "source": "scanner"
 }
 ```
 
@@ -148,9 +135,6 @@ Outras rotas:
 |---|---|---|
 | `POST` | `/api/scanner/validate` | Validar e registrar uma leitura |
 | `GET` | `/api/scanner/history?mapId=15740` | Histórico persistente do mapa |
-| `POST` | `/api/scanner/decode` | Decodificar imagem CODE 128 com ZXing Java |
-
-`POST /api/scanner/decode` usa `multipart/form-data` com o campo `file`.
 
 ## Arquitetura
 
@@ -159,8 +143,6 @@ O processo principal é Spring Boot. O módulo novo de scanner é nativo em Spri
 Bibliotecas principais:
 
 - Spring Boot 3.5;
-- ZXing 3.5 para decodificação Java;
-- html5-qrcode 2.3.8 no navegador;
 - PostgreSQL JDBC;
 - Apache PDFBox.
 
@@ -223,7 +205,7 @@ $env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/n
 $env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
 mvn test
 mvn package
-java -jar target/mn-check-1.6.5.jar
+java -jar target/mn-check-1.6.6.jar
 ```
 
 Abra:
@@ -301,7 +283,6 @@ O relatório mantém PDF de origem, datas, SKU, saldo, contado, diferença, stat
 | `GET` | `/api/historico` | Histórico persistente |
 | `POST` | `/api/scanner/validate` | Validar CODE 128 |
 | `GET` | `/api/scanner/history` | Histórico de leituras |
-| `POST` | `/api/scanner/decode` | Ler CODE 128 de uma imagem |
 
 ## Testes
 
@@ -324,6 +305,5 @@ docker build -t mn-check-ci .
 - persistência ao criar uma nova conexão, simulando reinício.
 - parser do padrão SKU.COR.VOLTAGEM;
 - bloqueio específico por SKU, cor ou voltagem;
-- decodificação de imagem CODE 128 com ZXing.
 
 Para uma validação no Neon, execute `mvn test` com a `DATABASE_URL` real configurada.

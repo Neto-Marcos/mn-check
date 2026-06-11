@@ -35,7 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.6.5";
+  private static final String APP_VERSION = "1.6.6";
   private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
   private static final int PORT = Integer.parseInt(
       System.getProperty("mmcheck.legacy.port", System.getenv().getOrDefault("PORT", "4173"))
@@ -463,29 +463,6 @@ public class MmCheckServer {
               "allChecked", map.items.stream().allMatch(entry -> entry.checkedQuantity >= entry.quantity)
           ));
           return;
-        } else if ("evidence".equals(action)) {
-          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
-          if (!List.of("aguardando conferencia", "conferencia", "corrigir problema").contains(map.status)) {
-            throw new ApiException(403, "A foto só pode ser registrada durante a conferência.");
-          }
-          Map<String, Object> body = readJson(exchange);
-          String fileName = string(body.get("fileName")).trim();
-          String contentType = string(body.get("contentType")).trim();
-          String dataUrl = string(body.get("dataUrl")).trim();
-          if (fileName.isBlank() || dataUrl.isBlank()) throw new ApiException(400, "Nenhuma foto foi selecionada.");
-          if (!List.of("image/png", "image/jpeg", "image/webp").contains(contentType)) {
-            throw new ApiException(400, "Formato de imagem não permitido.");
-          }
-          byte[] image = decodeDataUrl(dataUrl);
-          if (image.length > 10 * 1024 * 1024) throw new ApiException(400, "A foto deve ter no máximo 10 MB.");
-
-          String storedName = "evidence-" + map.id + "-" + System.currentTimeMillis() + "-" + safeFileName(fileName);
-          persistence.saveFile(storedName, contentType, image);
-          map.evidenceName = fileName;
-          map.evidencePath = "data/uploads/" + storedName;
-          map.evidenceAt = Instant.now().toString();
-          map.evidenceBy = user.name;
-          db.recordHistory(user, "camera_evidence", "Foto de conferência registrada no mapa " + map.id);
         } else if ("send-conference".equals(action)) {
           if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
           if (!map.items.stream().allMatch(item -> item.ok)) throw new ApiException(400, "Todos os itens precisam estar ok.");
@@ -1148,10 +1125,6 @@ public class MmCheckServer {
     String attachmentName = "";
     String attachmentType = "";
     String attachmentPath = "";
-    String evidenceName = "";
-    String evidencePath = "";
-    String evidenceAt = "";
-    String evidenceBy = "";
     List<MapItem> items = new ArrayList<>();
     List<String> orderNumbers = new ArrayList<>();
 
@@ -1190,10 +1163,6 @@ public class MmCheckServer {
       map.put("attachmentName", attachmentName == null ? "" : attachmentName);
       map.put("attachmentType", attachmentType == null ? "" : attachmentType);
       map.put("attachmentPath", attachmentPath == null ? "" : attachmentPath);
-      map.put("evidenceName", evidenceName == null ? "" : evidenceName);
-      map.put("evidencePath", evidencePath == null ? "" : evidencePath);
-      map.put("evidenceAt", evidenceAt == null ? "" : evidenceAt);
-      map.put("evidenceBy", evidenceBy == null ? "" : evidenceBy);
       map.put("items", items.stream().map(MapItem::toMap).toList());
       return map;
     }
@@ -1215,10 +1184,6 @@ public class MmCheckServer {
       cargo.attachmentName = string(map.get("attachmentName"));
       cargo.attachmentType = string(map.get("attachmentType"));
       cargo.attachmentPath = string(map.get("attachmentPath"));
-      cargo.evidenceName = string(map.get("evidenceName"));
-      cargo.evidencePath = string(map.get("evidencePath"));
-      cargo.evidenceAt = string(map.get("evidenceAt"));
-      cargo.evidenceBy = string(map.get("evidenceBy"));
       cargo.items = list(map.get("items")).stream().map(item -> MapItem.fromMap(castMap(item))).toList();
       return cargo;
     }
