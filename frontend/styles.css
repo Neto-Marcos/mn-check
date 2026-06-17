@@ -551,10 +551,63 @@ select {
   min-height: 88px;
 }
 
+.order-entry-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.order-entry-row button {
+  min-width: 120px;
+}
+
 .map-manual-fields small {
   color: var(--muted);
   font-weight: 600;
   line-height: 1.4;
+}
+
+.map-review-dialog {
+  width: min(920px, 100%);
+}
+
+.map-review-meta {
+  margin: 18px 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.map-review-meta label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.map-review-meta input,
+.map-review-item input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--input-bg, var(--panel));
+  color: var(--text);
+  padding: 0 12px;
+}
+
+.map-review-list {
+  max-height: min(45vh, 420px);
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.map-review-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.4fr) 90px auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .order-numbers-line {
@@ -4389,6 +4442,12 @@ th + th {
   }
 
   .form-grid.two {
+    grid-template-columns: 1fr;
+  }
+
+  .map-review-meta,
+  .map-review-item,
+  .order-entry-row {
     grid-template-columns: 1fr;
   }
 

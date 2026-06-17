@@ -281,6 +281,72 @@ public class MmCheckServer {
       return;
     }
 
+    if ("POST".equals(method) && "/api/maps/analyze".equals(path)) {
+      if (!List.of("admin", "separation").contains(user.role)) {
+        throw new ApiException(403, "AÃ§Ã£o permitida apenas para administradores e conferentes de separaÃ§Ã£o.");
+      }
+      Map<String, Object> body = readJson(exchange);
+      String mapNumber = string(body.get("mapNumber")).replaceAll("\\D", "");
+      List<String> orderNumbers = list(body.get("orderNumbers")).stream()
+          .map(MmCheckServer::string)
+          .map(value -> value.replaceAll("\\D", ""))
+          .filter(value -> !value.isBlank())
+          .distinct()
+          .toList();
+      List<MapUploadFile> files = parseMapUploadFiles(body);
+      if (mapNumber.isBlank()) throw new ApiException(400, "Informe manualmente o nÃºmero do mapa.");
+      if (orderNumbers.isEmpty()) throw new ApiException(400, "Informe pelo menos um nÃºmero de pedido.");
+      if (db.maps.stream().anyMatch(item -> item.id.equals(mapNumber))) {
+        throw new ApiException(409, "O mapa " + mapNumber + " jÃ¡ estÃ¡ cadastrado.");
+      }
+      CargoMap draft = null;
+      for (MapUploadFile file : files) {
+        CargoMap page = analyzeMapWithGemini(mapNumber, user.id, file.contentType(), file.dataUrl());
+        draft = draft == null ? page : mergeMapDrafts(draft, page);
+      }
+      draft.id = mapNumber;
+      draft.orderNumbers = new ArrayList<>(orderNumbers);
+      draft.attachmentName = files.stream().map(MapUploadFile::fileName).toList().toString();
+      draft.attachmentType = files.size() == 1 ? files.get(0).contentType() : "multiple";
+      json(exchange, 200, Map.of("draft", draft.toMap()));
+      return;
+    }
+
+    if ("POST".equals(method) && "/api/maps/confirm".equals(path)) {
+      if (!List.of("admin", "separation").contains(user.role)) {
+        throw new ApiException(403, "AÃ§Ã£o permitida apenas para administradores e conferentes de separaÃ§Ã£o.");
+      }
+      Map<String, Object> body = readJson(exchange);
+      CargoMap map = CargoMap.fromMap(castMap(body.get("draft")));
+      if (map.id.isBlank()) throw new ApiException(400, "Informe o nÃºmero do mapa.");
+      if (db.maps.stream().anyMatch(item -> item.id.equals(map.id))) {
+        throw new ApiException(409, "O mapa " + map.id + " jÃ¡ estÃ¡ cadastrado.");
+      }
+      if (map.orderNumbers == null || map.orderNumbers.isEmpty()) throw new ApiException(400, "Informe pelo menos um pedido.");
+      map.items = map.items.stream()
+          .filter(item -> !item.sku.isBlank() && !item.name.isBlank() && item.quantity > 0)
+          .toList();
+      if (map.items.isEmpty()) throw new ApiException(400, "Confirme pelo menos um item vÃ¡lido.");
+      map.status = "separacao";
+      map.createdBy = user.id;
+      List<MapUploadFile> files = parseMapUploadFiles(body);
+      List<String> storedPaths = new ArrayList<>();
+      for (int index = 0; index < files.size(); index++) {
+        MapUploadFile file = files.get(index);
+        String storedName = map.id + "-" + (index + 1) + "-" + safeFileName(file.fileName());
+        persistence.saveFile(storedName, file.contentType(), decodeDataUrl(file.dataUrl()));
+        storedPaths.add("data/uploads/" + storedName);
+      }
+      map.attachmentName = files.stream().map(MapUploadFile::fileName).toList().toString();
+      map.attachmentType = files.size() == 1 ? files.get(0).contentType() : "multiple";
+      map.attachmentPath = String.join(",", storedPaths);
+      db.maps.add(0, map);
+      db.recordHistory(user, "upload_map", "Mapa " + map.id + " criado com " + files.size() + " arquivo(s)");
+      db.save();
+      json(exchange, 201, visibleData(user));
+      return;
+    }
+
     if ("POST".equals(method) && "/api/maps/upload".equals(path)) {
       if (!List.of("admin", "separation").contains(user.role)) {
         throw new ApiException(403, "Ação permitida apenas para administradores e conferentes de separação.");
@@ -1026,6 +1092,55 @@ public class MmCheckServer {
     return map;
   }
 
+  private static List<MapUploadFile> parseMapUploadFiles(Map<String, Object> body) {
+    List<Object> rawFiles = list(body.get("files"));
+    if (rawFiles.isEmpty() && !string(body.get("dataUrl")).isBlank()) rawFiles = List.of(body);
+    if (rawFiles.isEmpty()) throw new ApiException(400, "Selecione pelo menos uma imagem ou PDF.");
+    if (rawFiles.size() > 8) throw new ApiException(400, "Envie no mÃ¡ximo 8 imagens ou arquivos por mapa.");
+    List<MapUploadFile> files = new ArrayList<>();
+    long totalBytes = 0;
+    for (Object rawFile : rawFiles) {
+      Map<String, Object> file = castMap(rawFile);
+      String fileName = string(file.get("fileName")).trim();
+      String contentType = string(file.get("contentType")).trim();
+      String dataUrl = string(file.get("dataUrl")).trim();
+      if (fileName.isBlank() || dataUrl.isBlank()) throw new ApiException(400, "Arquivo invÃ¡lido no upload.");
+      if (contentType.isBlank()) contentType = "application/octet-stream";
+      if (!List.of("application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif").contains(contentType)) {
+        throw new ApiException(400, "Formato nÃ£o permitido. Use PDF, PNG, JPG, WebP, HEIC ou HEIF.");
+      }
+      byte[] bytes = decodeDataUrl(dataUrl);
+      if (bytes.length == 0 || bytes.length > 10 * 1024 * 1024) {
+        throw new ApiException(400, "Cada arquivo deve ter entre 1 byte e 10 MB.");
+      }
+      totalBytes += bytes.length;
+      if (totalBytes > 35L * 1024L * 1024L) throw new ApiException(400, "O total de arquivos deve ter no mÃ¡ximo 35 MB.");
+      files.add(new MapUploadFile(fileName, contentType, dataUrl));
+    }
+    return files;
+  }
+
+  private static CargoMap mergeMapDrafts(CargoMap base, CargoMap page) {
+    if (base.client.isBlank() && !page.client.isBlank()) base.client = page.client;
+    if (base.route.isBlank() && !page.route.isBlank()) base.route = page.route;
+    if (base.carrier.isBlank() && !page.carrier.isBlank()) base.carrier = page.carrier;
+    if (base.branch.isBlank() && !page.branch.isBlank()) base.branch = page.branch;
+    if (base.date.isBlank() && !page.date.isBlank()) base.date = page.date;
+    Map<String, MapItem> byKey = new LinkedHashMap<>();
+    for (MapItem item : base.items) byKey.put(item.sku + "|" + item.name, item);
+    for (MapItem item : page.items) {
+      String key = item.sku + "|" + item.name;
+      MapItem existing = byKey.get(key);
+      if (existing == null) {
+        byKey.put(key, item);
+      } else {
+        existing.quantity += item.quantity;
+      }
+    }
+    base.items = new ArrayList<>(byKey.values());
+    return base;
+  }
+
   private static String extension(Path file) {
     String name = file.getFileName().toString();
     int dot = name.lastIndexOf(".");
@@ -1391,7 +1506,9 @@ public class MmCheckServer {
     }
 
     static MapItem fromMap(Map<String, Object> map) {
-      MapItem item = new MapItem(string(map.get("sku")), string(map.get("name")), number(map.get("quantity")), Boolean.TRUE.equals(map.get("ok")));
+      String quantityText = string(map.get("quantity"));
+      int quantity = quantityText.isBlank() ? 0 : number(map.get("quantity"));
+      MapItem item = new MapItem(string(map.get("sku")), string(map.get("name")), quantity, Boolean.TRUE.equals(map.get("ok")));
       String storedBarcode = string(map.get("barcode"));
       if (!storedBarcode.isBlank()) item.barcode = storedBarcode;
       String checked = string(map.get("checkedQuantity"));
@@ -1420,6 +1537,8 @@ public class MmCheckServer {
       List<BalancePdfParser.IgnoredLine> ignored,
       String debugReport
   ) {}
+
+  private record MapUploadFile(String fileName, String contentType, String dataUrl) {}
 
   private record ErrorRecord(String order, String issue, String owner) {
     Map<String, Object> toMap() {

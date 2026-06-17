@@ -1,11 +1,11 @@
-const CACHE_NAME = "mn-check-1.8.2";
+const CACHE_NAME = "mn-check-1.8.3";
 const APP_ASSETS = [
   "/",
   "/index.html",
-  "/styles.css?v=182",
-  "/app.js?v=182",
+  "/styles.css?v=183",
+  "/app.js?v=183",
   "/logo.svg?v=3",
-  "/manifest.webmanifest?v=182",
+  "/manifest.webmanifest?v=183",
   "/vendor/react.production.min.js",
   "/vendor/react-dom.production.min.js"
 ];
