@@ -100,7 +100,7 @@ MM check/
 
 ```bash
 mvn clean package
-java -jar target/mn-check-1.8.0.jar
+java -jar target/mn-check-1.8.1.jar
 ```
 
 Abra:

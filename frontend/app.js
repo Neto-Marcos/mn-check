@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.8.1";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -70,9 +70,19 @@ function Icon({ name, size = 20 }) {
   ));
 }
 
+function SystemClock() {
+  const [now, setNow] = React.useState(new Date());
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return h("time", { className: "system-clock", dateTime: now.toISOString() },
+    now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  );
+}
+
 function App() {
   const [token, setToken] = React.useState(localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "");
-  const [currentTime, setCurrentTime] = React.useState(new Date());
   const [theme, setTheme] = React.useState(() => {
     const saved = localStorage.getItem("mnCheckTheme");
     if (saved === "dark" || saved === "light") return saved;
@@ -107,13 +117,8 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=180").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=181").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -778,9 +783,7 @@ function App() {
           )
         ),
         h("div", { className: "topbar-actions" },
-          h("time", { className: "system-clock", dateTime: currentTime.toISOString() },
-            currentTime.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-          ),
+          h(SystemClock),
           h("span", { className: `connection-status ${online ? "online" : "offline"}` },
             online ? "Online" : "Modo offline"
           ),
@@ -1442,6 +1445,7 @@ function Counting({
   const [manualOpen, setManualOpen] = React.useState(false);
   const [manualProduct, setManualProduct] = React.useState({ sku: "", system: "", counted: "" });
   const [savingManual, setSavingManual] = React.useState(false);
+  const [printMode, setPrintMode] = React.useState(false);
   const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
   const fileInputRef = React.useRef(null);
   const countInputRefs = React.useRef({});
@@ -1456,6 +1460,12 @@ function Counting({
     const clearPending = () => setOfflinePending(false);
     window.addEventListener("mncheck-count-synced", clearPending);
     return () => window.removeEventListener("mncheck-count-synced", clearPending);
+  }, []);
+
+  React.useEffect(() => {
+    const finishPrint = () => setPrintMode(false);
+    window.addEventListener("afterprint", finishPrint);
+    return () => window.removeEventListener("afterprint", finishPrint);
   }, []);
 
   async function handlePdf(event) {
@@ -1557,7 +1567,9 @@ function Counting({
 
   function printCountReport() {
     setPrintGeneratedAt(new Date());
-    window.setTimeout(() => window.print(), 50);
+    setPrintMode(true);
+    window.setTimeout(() => window.print(), 80);
+    window.setTimeout(() => setPrintMode(false), 2_000);
   }
 
   const totalSystem = draft.reduce((sum, item) => sum + item.system, 0);
@@ -1799,7 +1811,7 @@ function Counting({
         )
         : empty("Nenhuma divergência informada."))
     ),
-    h("section", { className: "count-print-sheet", "aria-hidden": "true" },
+    printMode && h("section", { className: "count-print-sheet", "aria-hidden": "true" },
       h("header", { className: "count-print-header" },
         h("div", null,
           h("span", null, "MN - Check"),
