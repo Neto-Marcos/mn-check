@@ -39,14 +39,30 @@ final class BalancePdfParser {
     Map<String, Row> unique = new LinkedHashMap<>();
     List<String> warnings = new ArrayList<>();
     List<String> conflicts = new ArrayList<>();
+    List<IgnoredLine> ignored = new ArrayList<>();
+    List<String> processingLog = new ArrayList<>();
+    StringBuilder rawText = new StringBuilder();
+    int totalLinesRead = 0;
     int ignoredLines = 0;
     int duplicateSkus = 0;
 
     for (PageGlyphs page : pages) {
       List<TextLine> lines = groupLines(page.glyphs);
+      rawText.append("--- FOLHA ").append(page.number).append(" ---\n");
+      for (TextLine line : lines) {
+        if (!line.text().isBlank()) rawText.append(line.text()).append('\n');
+      }
+      rawText.append('\n');
+
       ColumnLayout layout = findLayout(lines);
       if (layout == null) {
-        ignoredLines += lines.stream().filter(line -> !line.text().isBlank()).count();
+        for (TextLine line : lines) {
+          String text = line.text().trim();
+          if (text.isBlank()) continue;
+          totalLinesRead++;
+          ignoredLines++;
+          addIgnored(ignored, processingLog, page.number, text, "", "Cabeçalho da tabela não localizado.");
+        }
         warnings.add("Folha " + page.number + " ignorada: cabeçalho da tabela não foi localizado.");
         continue;
       }
@@ -54,48 +70,80 @@ final class BalancePdfParser {
         System.err.println("SALDO_PDF_LAYOUT folha=" + page.number + " " + layout);
       }
 
-      for (TextLine line : lines) {
+      for (int lineIndex = 0; lineIndex < lines.size(); lineIndex++) {
+        TextLine line = lines.get(lineIndex);
         String text = line.text().trim();
-        if ("true".equalsIgnoreCase(System.getenv("MMCHECK_PDF_DEBUG")) && text.contains("73578")) {
+        if (text.isBlank()) continue;
+        totalLinesRead++;
+        String debugSku = System.getenv().getOrDefault("MMCHECK_PDF_DEBUG_SKU", "73578");
+        if ("true".equalsIgnoreCase(System.getenv("MMCHECK_PDF_DEBUG")) && text.contains(debugSku)) {
           System.err.println("SALDO_PDF_POSICOES " + line.positions());
         }
-        if (text.isBlank() || line == layout.headerLine || isKnownNonDataLine(text)) {
-          if (!text.isBlank()) ignoredLines++;
+        if (line == layout.headerLine) {
+          ignoredLines++;
+          addIgnored(ignored, processingLog, page.number, text, "", "Cabeçalho da tabela.");
+          continue;
+        }
+        if (isKnownNonDataLine(text)) {
+          ignoredLines++;
+          addIgnored(ignored, processingLog, page.number, text, "", nonDataReason(text));
           continue;
         }
 
         ParsedColumns columns = layout.read(line);
-        if (!columns.looksLikeDataRow()) {
-          debugIgnored(page.number, text, columns);
-          ignoredLines++;
-          continue;
+        BalanceResolution balanceResolution = resolveBalance(line, layout, columns);
+        if ((!columns.looksLikeDataRow() || balanceResolution.value() == null)
+            && lineIndex + 1 < lines.size()) {
+          TextLine nextLine = lines.get(lineIndex + 1);
+          String nextText = nextLine.text().trim();
+          if (!nextText.isBlank() && !isKnownNonDataLine(nextText) && nextLine != layout.headerLine) {
+            TextLine merged = line.merge(nextLine);
+            ParsedColumns mergedColumns = layout.read(merged);
+            BalanceResolution mergedBalance = resolveBalance(merged, layout, mergedColumns);
+            if (mergedColumns.looksLikeDataRow() && mergedBalance.value() != null) {
+              columns = mergedColumns;
+              balanceResolution = mergedBalance;
+              text = text + " | " + nextText;
+              totalLinesRead++;
+              lineIndex++;
+              processingLog.add("[RECONSTRUÍDA] folha=" + page.number + " linha=\"" + text + "\"");
+            }
+          }
         }
 
         String product = onlyDigits(columns.productCode);
         String gradeX = onlyDigits(columns.gradeX);
         String gradeY = onlyDigits(columns.gradeY);
-        Integer balance = resolveBalance(columns);
-        if (!isValidProduct(product, 10)
-            || "9999999".equals(product)
-            || !isValidGrade(gradeX, 10)
-            || !isValidGrade(gradeY, 3)
-            || balance == null) {
+        Integer balance = balanceResolution.value();
+        String rejectionReason = validationError(product, gradeX, gradeY, balance, columns);
+        if (rejectionReason != null) {
           debugIgnored(page.number, text, columns);
           ignoredLines++;
+          addIgnored(ignored, processingLog, page.number, text, product, rejectionReason);
           continue;
         }
 
-        String sku = product + "-" + gradeX + "." + gradeY;
+        String sku = product + "." + gradeX + "." + gradeY;
         Row row = new Row(sku, balance, page.number, text);
         Row previous = unique.get(sku);
         if (previous == null) {
           unique.put(sku, row);
-        } else if (previous.balance != balance) {
-          conflicts.add("SKU " + sku + ": saldo " + previous.balance + " na folha "
-              + previous.page + " e saldo " + balance + " na folha " + page.number + ".");
+          processingLog.add("[LIDA] folha=" + page.number + " produto=" + sku
+              + " saldo=" + balance + " linha=\"" + text + "\"");
         } else {
           duplicateSkus++;
-          warnings.add("SKU duplicado consolidado: " + sku + ".");
+          int consolidatedBalance = previous.balance + balance;
+          unique.put(sku, new Row(
+              sku,
+              consolidatedBalance,
+              previous.page,
+              previous.sourceLine + " | " + text
+          ));
+          processingLog.add("[DUPLICADA] folha=" + page.number + " produto=" + sku
+              + " saldo_anterior=" + previous.balance + " saldo_adicionado=" + balance
+              + " saldo_final=" + consolidatedBalance);
+          warnings.add("SKU duplicado somado: " + sku + " (" + previous.balance
+              + " + " + balance + " = " + consolidatedBalance + ").");
         }
       }
     }
@@ -103,6 +151,7 @@ final class BalancePdfParser {
     long elapsedMs = Duration.between(startedAt, Instant.now()).toMillis();
     Metrics metrics = new Metrics(
         pages.size(),
+        totalLinesRead,
         unique.size(),
         ignoredLines,
         duplicateSkus,
@@ -113,7 +162,9 @@ final class BalancePdfParser {
         new ArrayList<>(unique.values()),
         warnings.stream().distinct().toList(),
         conflicts,
-        metrics
+        metrics,
+        ignored,
+        buildDebugReport(rawText, processingLog, unique, metrics)
     );
   }
 
@@ -195,6 +246,71 @@ final class BalancePdfParser {
         || normalized.matches("\\d{2}/\\d{2}/\\d{4}.*");
   }
 
+  private static String nonDataReason(String text) {
+    String normalized = normalize(text);
+    if (normalized.startsWith("total")) return "Total ou rodapé.";
+    if (normalized.contains("produto") || normalized.contains("grade") || normalized.contains("saldo")) {
+      return "Cabeçalho ou filtro do relatório.";
+    }
+    return "Linha informativa do relatório.";
+  }
+
+  private static void addIgnored(
+      List<IgnoredLine> ignored,
+      List<String> processingLog,
+      int page,
+      String line,
+      String product,
+      String reason
+  ) {
+    IgnoredLine ignoredLine = new IgnoredLine(page, line, product, reason);
+    ignored.add(ignoredLine);
+    processingLog.add("[IGNORADA] folha=" + page
+        + " produto=\"" + product + "\" motivo=\"" + reason + "\" linha=\"" + line + "\"");
+  }
+
+  private static String validationError(
+      String product,
+      String gradeX,
+      String gradeY,
+      Integer balance,
+      ParsedColumns columns
+  ) {
+    if (!columns.looksLikeDataRow()) return "Linha sem todas as colunas de Produto, Grade X e Grade Y.";
+    if (!isValidProduct(product, 10)) return "Código de produto ausente ou inválido.";
+    if ("9999999".equals(product)) return "Código 9999999 bloqueado como cabeçalho/lixo.";
+    if (!isValidGrade(gradeX, 10)) return "Grade X ausente ou inválida.";
+    if (!isValidVoltageGrade(gradeY)) return "Grade Y ausente ou fora do intervalo aceito (0 a 4).";
+    if (balance == null) return "Saldo numérico não pôde ser identificado.";
+    if (balance < 0) return "Saldo negativo não permitido.";
+    return null;
+  }
+
+  private static String buildDebugReport(
+      StringBuilder rawText,
+      List<String> processingLog,
+      Map<String, Row> rows,
+      Metrics metrics
+  ) {
+    StringBuilder report = new StringBuilder();
+    report.append("MN - Check | Debug da importação de saldo\n");
+    report.append("Páginas processadas: ").append(metrics.pagesProcessed()).append('\n');
+    report.append("Linhas lidas: ").append(metrics.totalLinesRead()).append('\n');
+    report.append("Produtos importados: ").append(metrics.skusRead()).append('\n');
+    report.append("Linhas ignoradas: ").append(metrics.ignoredLines()).append('\n');
+    report.append("Duplicados somados: ").append(metrics.duplicateSkus()).append("\n\n");
+    report.append("=== TEXTO BRUTO EXTRAÍDO ===\n");
+    report.append(rawText);
+    report.append("=== PROCESSAMENTO ===\n");
+    processingLog.forEach(entry -> report.append(entry).append('\n'));
+    report.append("\n=== RESULTADO FINAL ===\n");
+    rows.values().forEach(row -> report.append(row.sku)
+        .append(" = ").append(row.balance)
+        .append(" | folha ").append(row.page)
+        .append('\n'));
+    return report.toString();
+  }
+
   private static String onlyDigits(String value) {
     return value == null ? "" : value.replaceAll("\\D", "");
   }
@@ -209,10 +325,15 @@ final class BalancePdfParser {
     return !value.isBlank() && value.length() <= maxLength;
   }
 
+  private static boolean isValidVoltageGrade(String value) {
+    return value != null && value.matches("[0-4]");
+  }
+
   private static Integer parseInteger(String value) {
     if (value == null) return null;
-    String normalized = value.replace(" ", "").replace(".", "");
-    if (!normalized.matches("-?\\d+")) return null;
+    String normalized = value.trim();
+    if (!normalized.matches("\\d+|\\d{1,3}(?:\\.\\d{3})+")) return null;
+    normalized = normalized.replace(".", "");
     try {
       return Integer.parseInt(normalized);
     } catch (NumberFormatException error) {
@@ -220,14 +341,37 @@ final class BalancePdfParser {
     }
   }
 
-  private static Integer resolveBalance(ParsedColumns columns) {
+  private static BalanceResolution resolveBalance(
+      TextLine line,
+      ColumnLayout layout,
+      ParsedColumns columns
+  ) {
+    Integer positioned = parseInteger(line.integerClusterClosestTo(
+        layout.balance,
+        midpoint(layout.balance, layout.cost),
+        layout.balance + Math.min(24f, (layout.cost - layout.balance) * 0.35f)
+    ));
     Integer direct = parseInteger(columns.balance);
     BigDecimal cost = parseDecimal(columns.cost);
     BigDecimal total = parseDecimal(columns.total);
     Integer calculated = calculateBalance(cost, total);
-    if (direct != null) return direct;
-    if (calculated != null) return calculated;
-    return null;
+    if (calculated != null && (positioned == null || !calculated.equals(positioned))) {
+      return new BalanceResolution(calculated, "posição validada por Total ÷ Custo Médio");
+    }
+    if (positioned != null) {
+      return new BalanceResolution(positioned, "posição da coluna Saldo");
+    }
+    if (direct != null) {
+      return new BalanceResolution(direct, "texto da coluna Saldo");
+    }
+    if (calculated != null) {
+      return new BalanceResolution(calculated, "Total ÷ Custo Médio (fallback)");
+    }
+    return new BalanceResolution(null, "saldo não identificado");
+  }
+
+  private static float midpoint(float left, float right) {
+    return left + (right - left) / 2f;
   }
 
   private static BigDecimal parseDecimal(String value) {
@@ -279,6 +423,7 @@ final class BalancePdfParser {
 
   record Metrics(
       int pagesProcessed,
+      int totalLinesRead,
       int skusRead,
       int ignoredLines,
       int duplicateSkus,
@@ -288,6 +433,7 @@ final class BalancePdfParser {
     Map<String, Object> toMap() {
       return Map.of(
           "pagesProcessed", pagesProcessed,
+          "totalLinesRead", totalLinesRead,
           "skusRead", skusRead,
           "ignoredLines", ignoredLines,
           "duplicateSkus", duplicateSkus,
@@ -297,12 +443,13 @@ final class BalancePdfParser {
     }
 
     static Metrics empty() {
-      return new Metrics(0, 0, 0, 0, 0, 0);
+      return new Metrics(0, 0, 0, 0, 0, 0, 0);
     }
 
     static Metrics fromMap(Map<String, Object> map) {
       return new Metrics(
           intValue(map.get("pagesProcessed")),
+          intValue(map.get("totalLinesRead")),
           intValue(map.get("skusRead")),
           intValue(map.get("ignoredLines")),
           intValue(map.get("duplicateSkus")),
@@ -312,7 +459,27 @@ final class BalancePdfParser {
     }
   }
 
-  record Result(List<Row> rows, List<String> warnings, List<String> conflicts, Metrics metrics) {}
+  record IgnoredLine(int page, String line, String product, String reason) {
+    Map<String, Object> toMap() {
+      return Map.of(
+          "page", page,
+          "line", line,
+          "product", product,
+          "reason", reason
+      );
+    }
+  }
+
+  record Result(
+      List<Row> rows,
+      List<String> warnings,
+      List<String> conflicts,
+      Metrics metrics,
+      List<IgnoredLine> ignored,
+      String debugReport
+  ) {}
+
+  private record BalanceResolution(Integer value, String source) {}
 
   private record Glyph(String text, float x, float y, float width, float fontSize, int chunk) {}
 
@@ -381,6 +548,49 @@ final class BalancePdfParser {
           .map(glyph -> glyph.text + "@" + Math.round(glyph.x) + "#" + glyph.chunk)
           .reduce((left, right) -> left + " " + right)
           .orElse("");
+    }
+
+    TextLine merge(TextLine other) {
+      List<Glyph> merged = new ArrayList<>(glyphs);
+      merged.addAll(other.glyphs);
+      merged.sort(Comparator.comparingDouble(Glyph::x));
+      return new TextLine(merged);
+    }
+
+    String integerClusterClosestTo(float startX, float endX, float preferredEndX) {
+      List<Glyph> digits = glyphs.stream()
+          .filter(glyph -> glyph.text.matches("\\d"))
+          .filter(glyph -> {
+            float center = glyph.x + glyph.width / 2f;
+            return center >= startX && center < endX;
+          })
+          .sorted(Comparator.comparingDouble(Glyph::x))
+          .toList();
+      if (digits.isEmpty()) return "";
+
+      List<List<Glyph>> clusters = new ArrayList<>();
+      for (Glyph glyph : digits) {
+        if (clusters.isEmpty()) {
+          clusters.add(new ArrayList<>(List.of(glyph)));
+          continue;
+        }
+        List<Glyph> current = clusters.get(clusters.size() - 1);
+        Glyph previous = current.get(current.size() - 1);
+        if (glyph.x - previous.x <= 8.5f) {
+          if (Math.abs(glyph.x - previous.x) > 0.3f || !glyph.text.equals(previous.text)) {
+            current.add(glyph);
+          }
+        } else {
+          clusters.add(new ArrayList<>(List.of(glyph)));
+        }
+      }
+      List<Glyph> selected = clusters.stream()
+          .min(Comparator.comparingDouble(cluster ->
+              Math.abs(cluster.get(cluster.size() - 1).x - preferredEndX)))
+          .orElse(clusters.get(clusters.size() - 1));
+      return selected.stream()
+          .map(Glyph::text)
+          .reduce("", String::concat);
     }
 
     List<String> chunkTexts() {

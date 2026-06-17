@@ -16,7 +16,8 @@ import org.junit.jupiter.api.Test;
 public class MmCheckServerTest {
   public static void main(String[] args) throws Exception {
     shouldReadAllPagesAndApplyBalanceRules();
-    shouldDetectConflictingBalances();
+    shouldSumDuplicateBalances();
+    shouldRebuildBrokenRows();
     if (args.length > 0) shouldReadRealBalancePdf(Path.of(args[0]));
     System.out.println("MmCheckServerTest: OK");
   }
@@ -27,8 +28,13 @@ public class MmCheckServerTest {
   }
 
   @Test
-  void parserDetectsConflictingBalances() throws Exception {
-    shouldDetectConflictingBalances();
+  void parserSumsDuplicateBalances() throws Exception {
+    shouldSumDuplicateBalances();
+  }
+
+  @Test
+  void parserRebuildsRowsBrokenAcrossLines() throws Exception {
+    shouldRebuildBrokenRows();
   }
 
   private static void shouldReadAllPagesAndApplyBalanceRules() throws Exception {
@@ -39,28 +45,43 @@ public class MmCheckServerTest {
             row("281", "73578", "1", "2", "LAVADORA MIDEA 13KG", "406")
         ),
         List.of(
-            row("281", "75480", "1", "2", "REFRIGERADOR MIDEA 394L", "108")
+            row("281", "75480", "1", "2", "REFRIGERADOR MIDEA 394L", "108"),
+            row("281", "73001", "1", "2", "REFRIGERADOR ESMALTEC 276L RCD34", "1"),
+            row("281", "76331", "3", "4", "CAIXA DE SOM PHILIPS PARTY SPEAKER1 B1T2 1500W TAX40", "112")
         )
     ));
 
     BalancePdfParser.Result result = BalancePdfParser.parse(pdf);
     require(result.metrics().pagesProcessed() == 2, "deve ler todas as folhas");
-    require(result.rows().size() == 2, "deve ignorar código falso e consolidar duplicidade");
+    require(result.rows().size() == 4, "deve ignorar código falso e consolidar duplicidade");
     require(result.metrics().duplicateSkus() == 1, "deve contar SKU duplicado");
-    require(result.metrics().conflictsFound() == 0, "não deve criar conflito para saldo idêntico");
-    require(balanceOf(result, "73578-1.2") == 406, "deve montar SKU e saldo da primeira folha");
-    require(balanceOf(result, "75480-1.2") == 108, "deve separar descrição numérica do saldo");
+    require(result.metrics().conflictsFound() == 0, "duplicidade deve ser somada, não bloqueada");
+    require(result.metrics().totalLinesRead() > 0, "deve registrar o total de linhas lidas");
+    require(balanceOf(result, "73578.1.2") == 812, "deve somar saldos do SKU duplicado");
+    require(balanceOf(result, "75480.1.2") == 108, "deve separar descrição numérica do saldo");
+    require(balanceOf(result, "73001.1.2") == 1, "deve corrigir saldo contaminado por dígitos da descrição");
+    int targetBalance = balanceOf(result, "76331.3.4");
+    require(targetBalance == 112, "deve importar 76331.3.4 com descrição sobreposta; saldo=" + targetBalance);
+    require(result.debugReport().contains("76331.3.4 = 112"), "debug deve conter o produto processado");
+    require(!result.ignored().isEmpty(), "deve detalhar linhas ignoradas");
   }
 
-  private static void shouldDetectConflictingBalances() throws Exception {
+  private static void shouldSumDuplicateBalances() throws Exception {
     byte[] pdf = balancePdf(List.of(List.of(
         row("281", "74683", "1", "2", "REFRIGERADOR CONSUL 377L", "222"),
         row("281", "74683", "1", "2", "REFRIGERADOR CONSUL 377L", "221")
     )));
 
     BalancePdfParser.Result result = BalancePdfParser.parse(pdf);
-    require(result.metrics().conflictsFound() == 1, "deve detectar saldo conflitante");
-    require(result.conflicts().get(0).contains("74683-1.2"), "deve identificar o SKU conflitante");
+    require(result.metrics().duplicateSkus() == 1, "deve detectar SKU duplicado");
+    require(balanceOf(result, "74683.1.2") == 443, "deve somar os saldos duplicados");
+    require(result.conflicts().isEmpty(), "duplicidade não deve impedir a importação");
+  }
+
+  private static void shouldRebuildBrokenRows() throws Exception {
+    BalancePdfParser.Result result = BalancePdfParser.parse(brokenRowPdf());
+    require(balanceOf(result, "76331.3.4") == 112, "deve reconstruir produto quebrado em duas linhas");
+    require(result.debugReport().contains("[RECONSTRUÍDA]"), "debug deve registrar a reconstrução da linha");
   }
 
   private static void shouldReadRealBalancePdf(Path pdf) throws Exception {
@@ -76,9 +97,10 @@ public class MmCheckServerTest {
     require(result.metrics().pagesProcessed() == 5, "PDF real deve ter cinco folhas");
     require(result.rows().size() > 230, "PDF real deve conter mais de 230 SKUs");
     require(result.conflicts().isEmpty(), "PDF real não deve conter conflitos");
-    require(balanceOf(result, "73578-1.2") == 406, "saldo real de 73578-1.2 incorreto");
-    require(balanceOf(result, "74683-1.2") == 222, "saldo real de 74683-1.2 incorreto");
-    require(balanceOf(result, "75480-1.2") == 108, "saldo real de 75480-1.2 incorreto");
+    require(balanceOf(result, "73578.1.2") == 406, "saldo real de 73578.1.2 incorreto");
+    require(balanceOf(result, "74683.1.2") == 222, "saldo real de 74683.1.2 incorreto");
+    require(balanceOf(result, "75480.1.2") == 108, "saldo real de 75480.1.2 incorreto");
+    require(balanceOf(result, "76331.3.4") == 112, "saldo real de 76331.3.4 incorreto");
   }
 
   private static int balanceOf(BalancePdfParser.Result result, String sku) {
@@ -126,7 +148,7 @@ public class MmCheckServerTest {
             text(content, font, 285, y, row.description);
             text(content, font, 445, y, row.balance);
             text(content, font, 490, y, "100,00");
-            text(content, font, 565, y, "100,00");
+            text(content, font, 565, y, totalFor(row.balance));
             y -= 18;
           }
           text(content, font, 36, y - 8, "Total Geral 999999");
@@ -136,6 +158,42 @@ public class MmCheckServerTest {
       document.save(output);
       return output.toByteArray();
     }
+  }
+
+  private static byte[] brokenRowPdf() throws Exception {
+    try (PDDocument document = new PDDocument()) {
+      PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+      PDPage page = new PDPage();
+      document.addPage(page);
+      try (PDPageContentStream content = new PDPageContentStream(document, page)) {
+        text(content, font, 36, 760, "Folha : 1");
+        text(content, font, 36, 735, "Cod Filial");
+        text(content, font, 95, 735, "Cod Produto");
+        text(content, font, 175, 735, "Grade 'X'");
+        text(content, font, 230, 735, "Grade 'Y'");
+        text(content, font, 285, 735, "Produto");
+        text(content, font, 445, 735, "Saldo");
+        text(content, font, 490, 735, "Custo Medio");
+        text(content, font, 565, 735, "Total");
+        text(content, font, 36, 710, "281");
+        text(content, font, 95, 710, "76331");
+        text(content, font, 175, 700, "3");
+        text(content, font, 230, 700, "4");
+        text(content, font, 285, 700, "CAIXA DE SOM PHILIPS");
+        text(content, font, 445, 700, "112");
+        text(content, font, 490, 700, "480,88");
+        text(content, font, 565, 700, "53858,56");
+      }
+      ByteArrayOutputStream output = new ByteArrayOutputStream();
+      document.save(output);
+      return output.toByteArray();
+    }
+  }
+
+  private static String totalFor(String balance) {
+    String[] groups = balance.trim().split("\\s+");
+    int value = Integer.parseInt(groups[groups.length - 1]);
+    return (value * 100) + ",00";
   }
 
   private static void text(

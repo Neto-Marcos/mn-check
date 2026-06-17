@@ -35,7 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.7.0";
+  private static final String APP_VERSION = "1.8.0";
   private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
   private static final int PORT = Integer.parseInt(
       System.getProperty("mmcheck.legacy.port", System.getenv().getOrDefault("PORT", "4173"))
@@ -68,14 +68,20 @@ public class MmCheckServer {
   }
 
   private static void handle(HttpExchange exchange) throws IOException {
+    String requestId = UUID.randomUUID().toString().substring(0, 8);
+    long startedAt = System.nanoTime();
+    String method = exchange.getRequestMethod();
+    String requestPath = exchange.getRequestURI().getPath();
     try {
-      String path = exchange.getRequestURI().getPath();
+      String path = requestPath;
       if (path.startsWith("/api/")) {
         handleApi(exchange, path);
       } else {
         serveStatic(exchange, path);
       }
     } catch (ApiException error) {
+      System.err.println("API_REQUEST id=" + requestId + " method=" + method
+          + " path=" + requestPath + " status=" + error.status + " erro=\"" + error.getMessage() + "\"");
       json(exchange, error.status, Map.of("error", error.getMessage()));
     } catch (PersistenceException error) {
       error.printStackTrace();
@@ -94,6 +100,10 @@ public class MmCheckServer {
     } catch (Exception error) {
       error.printStackTrace();
       json(exchange, 500, Map.of("error", "Erro interno do servidor."));
+    } finally {
+      long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
+      System.out.println("API_REQUEST id=" + requestId + " method=" + method
+          + " path=" + requestPath + " duracao_ms=" + elapsedMs);
     }
   }
 
@@ -131,6 +141,14 @@ public class MmCheckServer {
 
     User user = requireUser(exchange);
 
+    if ("GET".equals(method) && "/api/importar/debug".equals(path)) {
+      requireRole(user, "admin", "stock");
+      StoredFile debugFile = persistence.loadFile("debug-importacao-saldo.txt")
+          .orElseThrow(() -> new ApiException(404, "Nenhum diagnóstico de importação foi gerado."));
+      file(exchange, debugFile, "debug-importacao-saldo.txt");
+      return;
+    }
+
     if ("GET".equals(method) && "/api/bootstrap".equals(path)) {
       json(exchange, 200, visibleData(user));
       return;
@@ -140,6 +158,46 @@ public class MmCheckServer {
       requireRole(user, "admin", "stock");
       applyRelationalBalanceSnapshot();
       json(exchange, 200, countData());
+      return;
+    }
+
+    if ("GET".equals(method) && "/api/saldos/historico".equals(path)) {
+      requireRole(user, "admin", "stock");
+      json(exchange, 200, Map.of(
+          "imports", relationalDatabase.loadBalanceHistory(30),
+          "inventory", relationalDatabase.loadInventoryMetrics()
+      ));
+      return;
+    }
+
+    if ("POST".equals(method) && "/api/saldos/produto".equals(path)) {
+      requireRole(user, "admin", "stock");
+      Map<String, Object> body = readJson(exchange);
+      String sku = normalizeSku(string(body.get("sku")));
+      int systemBalance = integerField(body, "system");
+      int countedQuantity = integerField(body, "counted");
+      if (!sku.matches("\\d{4,8}\\.\\d{1,3}\\.\\d{1,3}")) {
+        throw new ApiException(400, "Informe o SKU no formato produto.gradeX.gradeY. Exemplo: 76331.3.4.");
+      }
+      if (systemBalance < 0 || countedQuantity < 0) {
+        throw new ApiException(400, "As quantidades não podem ser negativas.");
+      }
+      PostgresDatabase.ImportSummary summary = relationalDatabase.saveManualBalanceProduct(
+          sku,
+          systemBalance,
+          countedQuantity,
+          user.name
+      );
+      applyRelationalBalanceSnapshot();
+      db.recordHistory(user, "manual_balance_product", "Produto " + sku
+          + " adicionado manualmente ao saldo atual");
+      db.save();
+      System.out.println("SALDO_MANUAL importacao_id=" + summary.id()
+          + " sku=" + sku
+          + " saldo_sistema=" + systemBalance
+          + " saldo_contado=" + countedQuantity
+          + " operador=\"" + user.name + "\"");
+      json(exchange, 201, visibleData(user));
       return;
     }
 
@@ -304,6 +362,7 @@ public class MmCheckServer {
       System.out.println("SALDO_PDF"
           + " arquivo=\"" + safeFileName(fileName) + "\""
           + " paginas=" + metrics.pagesProcessed()
+          + " linhas_lidas=" + metrics.totalLinesRead()
           + " skus=" + metrics.skusRead()
           + " linhas_ignoradas=" + metrics.ignoredLines()
           + " duplicados=" + metrics.duplicateSkus()
@@ -312,12 +371,19 @@ public class MmCheckServer {
 
       String storedName = "contagem-" + System.currentTimeMillis() + "-" + safeFileName(fileName);
       persistence.saveFile(storedName, contentType, pdfBytes);
+      persistence.saveFile(
+          "debug-importacao-saldo.txt",
+          "text/plain; charset=utf-8",
+          importResult.debugReport().getBytes(StandardCharsets.UTF_8)
+      );
       PostgresDatabase.ImportSummary importSummary = relationalDatabase.saveBalanceImport(
           fileName,
+          user.name,
           imported.stream()
               .map(item -> new PostgresDatabase.BalanceRow(item.sku(), item.system()))
               .toList(),
           metrics.pagesProcessed(),
+          metrics.totalLinesRead(),
           metrics.ignoredLines(),
           metrics.duplicateSkus(),
           metrics.conflictsFound()
@@ -327,12 +393,17 @@ public class MmCheckServer {
       db.countsSourceName = importSummary.fileName();
       db.countsImportWarnings = importResult.warnings();
       db.countsImportMetrics = metrics;
+      db.countsImportIgnored = importResult.ignored().stream()
+          .map(BalancePdfParser.IgnoredLine::toMap)
+          .toList();
       db.recordHistory(user, "count_upload", "Saldo atualizado pelo PDF " + fileName
           + " com " + imported.size() + " SKUs em " + metrics.pagesProcessed() + " folhas");
       db.save();
       System.out.println("SALDO_POSTGRES importacao_id=" + importSummary.id()
           + " arquivo=\"" + safeFileName(fileName) + "\""
           + " skus=" + importSummary.skuCount()
+          + " alterados=" + importSummary.changedItems()
+          + " removidos=" + importSummary.removedItems()
           + " atualizado_em=" + importSummary.updatedAt());
       json(exchange, 200, visibleData(user));
       return;
@@ -456,24 +527,56 @@ public class MmCheckServer {
               .orElseThrow(() -> new ApiException(422, "Produto não pertence a este mapa."));
           if (item.checkedQuantity >= item.quantity) throw new ApiException(409, "A quantidade deste produto já foi conferida.");
           item.checkedQuantity++;
+          map.status = "conferencia";
+          PostgresDatabase.ConferenceSession conferenceSession = relationalDatabase.saveConferenceProgress(
+              map.id,
+              user.name,
+              item.sku,
+              item.checkedQuantity,
+              item.quantity
+          );
           db.recordHistory(user, "scan_item", "Mapa " + map.id + ": código " + code + " conferido");
           db.save();
           json(exchange, 200, Map.of(
               "item", item.toMap(),
-              "allChecked", map.items.stream().allMatch(entry -> entry.checkedQuantity >= entry.quantity)
+              "allChecked", map.items.stream().allMatch(entry -> entry.checkedQuantity >= entry.quantity),
+              "conferenceSession", conferenceSession.toMap()
           ));
           return;
         } else if ("send-conference".equals(action)) {
           if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
           if (!map.items.stream().allMatch(item -> item.ok)) throw new ApiException(400, "Todos os itens precisam estar ok.");
           map.status = "aguardando conferencia";
+          map.items.forEach(item -> item.checkedQuantity = 0);
           db.recordHistory(user, "send_conference", "Mapa " + map.id + " enviado para conferência");
+        } else if ("pause-conference".equals(action)) {
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!List.of("aguardando conferencia", "conferencia").contains(map.status)) {
+            throw new ApiException(409, "Esta conferência não pode ser pausada.");
+          }
+          map.status = "conferencia";
+          relationalDatabase.changeConferenceStatus(map.id, user.name, "PAUSADA");
+          db.recordHistory(user, "pause_conference", "Conferência do mapa " + map.id + " pausada");
+        } else if ("resume-conference".equals(action)) {
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          PostgresDatabase.ConferenceSession session =
+              relationalDatabase.changeConferenceStatus(map.id, user.name, "EM_ANDAMENTO");
+          restoreConferenceProgress(map, session);
+          map.status = "conferencia";
+          db.recordHistory(user, "resume_conference", "Conferência do mapa " + map.id + " retomada");
+        } else if ("cancel-conference".equals(action)) {
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          map.items.forEach(item -> item.checkedQuantity = 0);
+          map.status = "aguardando conferencia";
+          relationalDatabase.cancelConferenceAndClear(map.id, user.name);
+          db.recordHistory(user, "cancel_conference", "Conferência do mapa " + map.id + " cancelada e zerada");
         } else if ("approve".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
           if (!map.items.stream().allMatch(item -> item.checkedQuantity >= item.quantity)) {
             throw new ApiException(400, "Confira todas as unidades antes de finalizar o mapa.");
           }
           map.status = "conferido";
+          relationalDatabase.changeConferenceStatus(map.id, user.name, "FINALIZADA");
           db.recordHistory(user, "approve_map", "Mapa " + map.id + " conferido sem divergência");
         } else if ("problem".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
@@ -493,6 +596,7 @@ public class MmCheckServer {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
           if (!"corrigir problema".equals(map.status)) throw new ApiException(403, "Mapa fora da etapa de correção.");
           map.status = "conferido";
+          relationalDatabase.changeConferenceStatus(map.id, user.name, "FINALIZADA");
           db.recordHistory(user, "corrected_map", "Mapa " + map.id + " corrigido e conferido");
         } else {
           throw new ApiException(404, "Rota não encontrada.");
@@ -507,6 +611,12 @@ public class MmCheckServer {
   }
 
   private static Map<String, Object> visibleData(User user) {
+    Map<String, PostgresDatabase.ConferenceSession> conferenceSessions =
+        relationalDatabase.loadConferenceSessions();
+    db.maps.forEach(map -> {
+      PostgresDatabase.ConferenceSession session = conferenceSessions.get(map.id);
+      if (session != null) restoreConferenceProgress(map, session);
+    });
     List<CargoMap> maps = db.maps.stream().filter(map -> {
       if ("admin".equals(user.role)) return true;
       if ("separation".equals(user.role)) return List.of("separacao", "aguardando conferencia", "conferencia", "perfeito", "conferido", "corrigir problema").contains(map.status);
@@ -523,13 +633,21 @@ public class MmCheckServer {
     result.put("user", user.publicMap());
     result.put("version", APP_VERSION);
     result.put("database", persistence.description());
-    result.put("maps", maps.stream().map(CargoMap::toMap).toList());
+    result.put("maps", maps.stream().map(map -> {
+      Map<String, Object> visibleMap = map.toMap();
+      PostgresDatabase.ConferenceSession session = conferenceSessions.get(map.id);
+      visibleMap.put("conferenceSession", session == null ? Map.of() : session.toMap());
+      return visibleMap;
+    }).toList());
     result.put("users", "admin".equals(user.role) ? db.users.stream().map(User::publicMap).toList() : List.of());
     result.put("counts", canSeeCounts ? db.counts.stream().map(CountItem::toMap).toList() : List.of());
     result.put("countsUpdatedAt", canSeeCounts ? db.countsUpdatedAt : "");
     result.put("countsSourceName", canSeeCounts ? db.countsSourceName : "");
     result.put("countsImportWarnings", canSeeCounts ? db.countsImportWarnings : List.of());
     result.put("countsImportMetrics", canSeeCounts ? db.countsImportMetrics.toMap() : Map.of());
+    result.put("countsImportIgnored", canSeeCounts ? db.countsImportIgnored : List.of());
+    result.put("balanceHistory", canSeeCounts ? relationalDatabase.loadBalanceHistory(8) : List.of());
+    result.put("inventoryMetrics", canSeeCounts ? relationalDatabase.loadInventoryMetrics() : Map.of());
     result.put("errors", "admin".equals(user.role) ? db.errors.stream().map(ErrorRecord::toMap).toList() : List.of());
     result.put("historyEvents", "admin".equals(user.role)
         ? db.historyEvents.stream().map(HistoryRecord::toMap).toList()
@@ -546,13 +664,28 @@ public class MmCheckServer {
     return result;
   }
 
+  private static void restoreConferenceProgress(
+      CargoMap map,
+      PostgresDatabase.ConferenceSession session
+  ) {
+    if (session == null) return;
+    Map<String, Integer> checkedBySku = new LinkedHashMap<>();
+    session.items().forEach(item -> checkedBySku.put(item.sku(), item.checkedQuantity()));
+    map.items.forEach(item -> {
+      if (checkedBySku.containsKey(item.sku)) {
+        item.checkedQuantity = Math.min(item.quantity, checkedBySku.get(item.sku));
+      }
+    });
+  }
+
   private static Map<String, Object> countData() {
     return Map.of(
         "counts", db.counts.stream().map(CountItem::toMap).toList(),
         "updatedAt", db.countsUpdatedAt,
         "sourceName", db.countsSourceName,
         "warnings", db.countsImportWarnings,
-        "importMetrics", db.countsImportMetrics.toMap()
+        "importMetrics", db.countsImportMetrics.toMap(),
+        "ignoredProducts", db.countsImportIgnored
     );
   }
 
@@ -585,6 +718,7 @@ public class MmCheckServer {
       db.countsUpdatedAt = "";
       db.countsSourceName = "";
       db.countsImportMetrics = BalancePdfParser.Metrics.empty();
+      db.countsImportIgnored = new ArrayList<>();
       return;
     }
     db.counts = snapshot.rows().stream()
@@ -595,6 +729,7 @@ public class MmCheckServer {
     db.countsSourceName = summary.fileName();
     db.countsImportMetrics = new BalancePdfParser.Metrics(
         summary.pagesProcessed(),
+        summary.totalLinesRead(),
         summary.skuCount(),
         summary.ignoredLines(),
         summary.duplicateSkus(),
@@ -698,6 +833,19 @@ public class MmCheckServer {
     }
   }
 
+  private static void file(HttpExchange exchange, StoredFile file, String downloadName) throws IOException {
+    exchange.getResponseHeaders().set("Content-Type", file.contentType());
+    exchange.getResponseHeaders().set(
+        "Content-Disposition",
+        "attachment; filename=\"" + safeFileName(downloadName) + "\""
+    );
+    exchange.getResponseHeaders().set("Cache-Control", "no-store");
+    exchange.sendResponseHeaders(200, file.content().length);
+    try (OutputStream out = exchange.getResponseBody()) {
+      out.write(file.content());
+    }
+  }
+
   private static String hash(String value) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -757,7 +905,13 @@ public class MmCheckServer {
     List<CountItem> items = parsed.rows().stream()
         .map(row -> new CountItem(row.sku(), row.balance(), 0))
         .toList();
-    return new CountImportResult(items, parsed.warnings(), metrics);
+    return new CountImportResult(
+        items,
+        parsed.warnings(),
+        metrics,
+        parsed.ignored(),
+        parsed.debugReport()
+    );
   }
 
   private static Map<String, Object> analyzeDocumentWithGemini(
@@ -900,9 +1054,12 @@ public class MmCheckServer {
     Optional<String> load();
     void save(String payload);
     void saveFile(String name, String contentType, byte[] content);
+    Optional<StoredFile> loadFile(String name);
     void deleteFile(String name);
     String description();
   }
+
+  private record StoredFile(String contentType, byte[] content) {}
 
   private static class PostgresPersistenceStore implements PersistenceStore {
     private final String jdbcUrl;
@@ -1036,6 +1193,23 @@ public class MmCheckServer {
       }
     }
 
+    public Optional<StoredFile> loadFile(String name) {
+      String sql = "SELECT content_type, content FROM mn_check_files WHERE name = ?";
+      try (Connection connection = connect();
+           PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, name);
+        try (ResultSet result = statement.executeQuery()) {
+          if (!result.next()) return Optional.empty();
+          return Optional.of(new StoredFile(
+              result.getString("content_type"),
+              result.getBytes("content")
+          ));
+        }
+      } catch (SQLException error) {
+        throw new PersistenceException("Não foi possível carregar o arquivo do PostgreSQL.", error);
+      }
+    }
+
     public void deleteFile(String name) {
       try (Connection connection = connect();
            PreparedStatement statement = connection.prepareStatement("DELETE FROM mn_check_files WHERE name = ?")) {
@@ -1092,7 +1266,7 @@ public class MmCheckServer {
           "role", role,
           "label", label,
           "allowedViews", switch (role) {
-            case "admin" -> List.of("overview", "separation", "counting", "conference", "history", "users");
+            case "admin" -> List.of("overview", "separation", "conference", "counting", "carriers", "history", "reports", "users");
             case "separation" -> List.of("separation");
             case "expedition" -> List.of("conference");
             case "stock" -> List.of("counting");
@@ -1242,7 +1416,9 @@ public class MmCheckServer {
   record CountImportResult(
       List<CountItem> items,
       List<String> warnings,
-      BalancePdfParser.Metrics metrics
+      BalancePdfParser.Metrics metrics,
+      List<BalancePdfParser.IgnoredLine> ignored,
+      String debugReport
   ) {}
 
   private record ErrorRecord(String order, String issue, String owner) {
@@ -1309,6 +1485,7 @@ public class MmCheckServer {
     String countsSourceName = "";
     List<String> countsImportWarnings = new ArrayList<>();
     BalancePdfParser.Metrics countsImportMetrics = BalancePdfParser.Metrics.empty();
+    List<Map<String, Object>> countsImportIgnored = new ArrayList<>();
     List<ErrorRecord> errors = new ArrayList<>();
     List<HistoryRecord> historyEvents = new ArrayList<>();
     List<AdminNotification> notifications = new ArrayList<>();
@@ -1333,6 +1510,9 @@ public class MmCheckServer {
       db.countsImportWarnings = new ArrayList<>(list(map.get("countsImportWarnings")).stream()
           .map(MmCheckServer::string).toList());
       db.countsImportMetrics = BalancePdfParser.Metrics.fromMap(castMap(map.get("countsImportMetrics")));
+      db.countsImportIgnored = new ArrayList<>(list(map.get("countsImportIgnored")).stream()
+          .map(item -> castMap(item))
+          .toList());
       db.errors = new ArrayList<>(list(map.get("errors")).stream().map(item -> {
         Map<String, Object> error = castMap(item);
         return new ErrorRecord(string(error.get("order")), string(error.get("issue")), string(error.get("owner")));
@@ -1411,6 +1591,7 @@ public class MmCheckServer {
       map.put("countsSourceName", countsSourceName);
       map.put("countsImportWarnings", countsImportWarnings);
       map.put("countsImportMetrics", countsImportMetrics.toMap());
+      map.put("countsImportIgnored", countsImportIgnored);
       map.put("errors", errors.stream().map(ErrorRecord::toMap).toList());
       map.put("historyEvents", historyEvents.stream().map(HistoryRecord::toMap).toList());
       map.put("notifications", notifications.stream().map(AdminNotification::toStoredMap).toList());
@@ -1432,6 +1613,20 @@ public class MmCheckServer {
 
   private static List<Object> list(Object value) {
     return value instanceof List<?> list ? new ArrayList<>(list) : new ArrayList<>();
+  }
+
+  private static String normalizeSku(String value) {
+    String cleaned = value.trim().replace(',', '.').replace('-', '.');
+    if (cleaned.matches("\\d{4,8}\\.\\d{1,3}\\.\\d{1,3}")) return cleaned;
+    String digits = cleaned.replaceAll("\\D", "");
+    if (digits.length() >= 7 && digits.length() <= 10) {
+      return digits.substring(0, digits.length() - 2)
+          + "."
+          + digits.charAt(digits.length() - 2)
+          + "."
+          + digits.charAt(digits.length() - 1);
+    }
+    return cleaned;
   }
 
   @SuppressWarnings("unchecked")

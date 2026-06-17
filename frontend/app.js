@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -25,6 +25,8 @@ const TITLES = {
   separation: ["operação", "Separação"],
   counting: ["estoque", "Contagem"],
   conference: ["validação", "Conferência"],
+  carriers: ["cadastros", "Transportadoras"],
+  reports: ["análise", "Relatórios"],
   history: ["admin", "Histórico"],
   users: ["admin", "Usuários"],
   settings: ["conta", "Configurações"],
@@ -36,6 +38,8 @@ const ICON_PATHS = {
   conference: ["M20 6 9 17l-5-5"],
   counting: ["M3 3v18h18", "M7 16h2", "M11 12h2", "M15 8h2", "M19 5h2"],
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
+  carriers: ["M3 7h11v10H3z", "M14 10h4l3 3v4h-7z", "M7 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z", "M17 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"],
+  reports: ["M4 19V9", "M10 19V5", "M16 19v-7", "M22 19H2"],
   users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
   settings: ["M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.5 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.64 1 1.25 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.13.4-1.51 1Z"],
   notifications: ["M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9", "M13.73 21a2 2 0 0 1-3.46 0"],
@@ -68,6 +72,7 @@ function Icon({ name, size = 20 }) {
 
 function App() {
   const [token, setToken] = React.useState(localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "");
+  const [currentTime, setCurrentTime] = React.useState(new Date());
   const [theme, setTheme] = React.useState(() => {
     const saved = localStorage.getItem("mnCheckTheme");
     if (saved === "dark" || saved === "light") return saved;
@@ -102,8 +107,13 @@ function App() {
   }, []);
 
   React.useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=170").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=180").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -196,18 +206,34 @@ function App() {
   }, [token, user?.id]);
 
   async function request(path, options = {}) {
-    const response = await fetch(path, {
-      method: options.method || "GET",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || "Operação não concluída.");
-    return body;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), options.timeout || 30000);
+    try {
+      const response = await fetch(path, {
+        method: options.method || "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal
+      });
+      const text = await response.text();
+      const body = text ? JSON.parse(text) : {};
+      if (!response.ok) throw new Error(body.error || "Operação não concluída.");
+      return body;
+    } catch (error) {
+      if (error.name === "AbortError") {
+        throw new Error("O servidor demorou para responder. Tente novamente.");
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error("O servidor retornou uma resposta inválida.");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
 
   async function loadBootstrap(activeToken = token, preferredView = view) {
@@ -245,7 +271,8 @@ function App() {
           countsUpdatedAt: balances.updatedAt || "",
           countsSourceName: balances.sourceName || "",
           countsImportWarnings: balances.warnings || [],
-          countsImportMetrics: balances.importMetrics || {}
+          countsImportMetrics: balances.importMetrics || {},
+          countsImportIgnored: balances.ignoredProducts || []
         }));
       }
     } catch (error) {
@@ -558,6 +585,29 @@ function App() {
     }
   }
 
+  async function downloadBalanceDebug() {
+    try {
+      const response = await fetch("/api/importar/debug", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Não foi possível baixar o diagnóstico.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "debug-importacao-saldo.txt";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
   async function updateCounts(counts) {
     try {
       await request("/api/contagem", { method: "POST", body: { counts } });
@@ -575,6 +625,19 @@ function App() {
         notify("Você está off-line. A contagem foi salva no aparelho e será sincronizada automaticamente.");
         return { offline: true };
       }
+      notify(error.message);
+      throw error;
+    }
+  }
+
+  async function addManualBalanceProduct(product) {
+    try {
+      await request("/api/saldos/produto", {
+        method: "POST",
+        body: product
+      });
+      await refresh("Produto adicionado ao saldo atual.", "counting");
+    } catch (error) {
       notify(error.message);
       throw error;
     }
@@ -670,15 +733,6 @@ function App() {
           onClick: () => setSidebarCollapsed((current) => !current)
         }, h(Icon, { name: sidebarCollapsed ? "expand" : "collapse", size: 18 }))
       ),
-      user.role === "admin" && h("button", {
-        className: `notification-action ${unreadNotifications ? "has-unread" : ""}`,
-        title: "Notificações",
-        onClick: () => setNotificationsOpen(!notificationsOpen)
-      },
-        h(Icon, { name: "notifications" }),
-        h("span", { className: "nav-label" }, "Notificações"),
-        h("strong", null, unreadNotifications)
-      ),
       h("nav", { className: "nav-list" },
         navigationViews.map((item) => h("button", {
           key: item,
@@ -724,9 +778,18 @@ function App() {
           )
         ),
         h("div", { className: "topbar-actions" },
+          h("time", { className: "system-clock", dateTime: currentTime.toISOString() },
+            currentTime.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+          ),
           h("span", { className: `connection-status ${online ? "online" : "offline"}` },
             online ? "Online" : "Modo offline"
           ),
+          h("button", {
+            className: "topbar-icon-action",
+            title: theme === "dark" ? "Usar tema claro" : "Usar tema escuro",
+            "aria-label": theme === "dark" ? "Usar tema claro" : "Usar tema escuro",
+            onClick: () => setTheme(theme === "dark" ? "light" : "dark")
+          }, h(Icon, { name: theme === "dark" ? "sun" : "moon", size: 18 })),
           user.role === "admin" && h("button", {
             className: `topbar-icon-action ${unreadNotifications ? "has-unread" : ""}`,
             title: "Notificações",
@@ -770,7 +833,10 @@ function App() {
         onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
         onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
         onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
-        onScan: scanBarcode
+        onScan: scanBarcode,
+        onPause: (id) => mapAction(id, "pause-conference", "Conferência pausada com o progresso salvo."),
+        onResume: (id) => mapAction(id, "resume-conference", "Conferência retomada."),
+        onCancel: (id) => mapAction(id, "cancel-conference", "Conferência cancelada e progresso apagado.")
       }),
       view === "counting" && h(Counting, {
         counts: data.counts,
@@ -778,12 +844,17 @@ function App() {
         sourceName: data.countsSourceName,
         warnings: data.countsImportWarnings,
         importMetrics: data.countsImportMetrics,
+        ignoredProducts: data.countsImportIgnored,
         onUpload: countUpload,
+        onDownloadDebug: downloadBalanceDebug,
         onUpdate: updateCounts,
+        onAddProduct: addManualBalanceProduct,
         onOfflineDraft: saveCountDraftOffline,
         online
       }),
       view === "history" && h(History, { data }),
+      view === "carriers" && h(Carriers, { maps: data.maps }),
+      view === "reports" && h(Reports, { data }),
       view === "users" && h(Users, {
         users: data.users,
         newUser,
@@ -898,6 +969,30 @@ function PasswordDialog({ target, ownPassword, onClose, onSave }) {
       h("div", { className: "dialog-actions" },
         h("button", { className: "secondary-action compact", type: "button", disabled: saving, onClick: onClose }, "Cancelar"),
         h("button", { className: "primary-action compact", type: "submit", disabled: saving }, saving ? "Salvando..." : "Salvar nova senha")
+      )
+    )
+  );
+}
+
+function ConferenceCancelDialog({ map, onClose, onContinue, onPause, onCancel }) {
+  return h("div", { className: "modal-backdrop", role: "presentation", onMouseDown: onClose },
+    h("section", {
+      className: "modal-card conference-cancel-dialog",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": `cancel-conference-${map.id}`,
+      onMouseDown: (event) => event.stopPropagation()
+    },
+      h("div", { className: "modal-icon warning" }, "!"),
+      h("div", { className: "modal-copy" },
+        h("p", { className: "eyebrow" }, `Mapa ${map.id}`),
+        h("h3", { id: `cancel-conference-${map.id}` }, "Deseja realmente cancelar esta conferência?"),
+        h("p", null, "Escolha se o progresso deve ser mantido para continuar depois ou apagado definitivamente.")
+      ),
+      h("div", { className: "modal-actions stacked" },
+        h("button", { className: "danger-action", onClick: onCancel }, "Cancelar e apagar tudo"),
+        h("button", { className: "secondary-action", onClick: onPause }, "Salvar progresso e sair"),
+        h("button", { className: "ghost-action", onClick: onContinue }, "Continuar conferência")
       )
     )
   );
@@ -1140,6 +1235,13 @@ function PreferenceRow({ title, description, children }) {
 
 function Overview({ data }) {
   const metrics = data.metrics || {};
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayEvents = (data.historyEvents || []).filter((event) =>
+    String(event.at || "").slice(0, 10) === todayKey);
+  const checkedToday = todayEvents.filter((event) =>
+    ["scan_item", "approve_map", "corrected_map"].includes(event.action)).length;
+  const activeConferences = (data.maps || []).filter((map) =>
+    ["EM_ANDAMENTO", "PAUSADA"].includes(map.conferenceSession?.status)).length;
   const conferenceProgress = (data.maps || [])
     .filter((map) => ["aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status))
     .slice(0, 5)
@@ -1151,8 +1253,8 @@ function Overview({ data }) {
 
   return h(React.Fragment, null,
     h("div", { className: "metric-grid" },
-      metric("Mapas em separação", metrics.separating || 0),
-      metric("Aguardando conferência", metrics.waiting || 0),
+      metric("Conferências ativas", activeConferences),
+      metric("Itens conferidos hoje", checkedToday),
       metric("Divergências", metrics.errorCount || 0),
       metric("Finalizados", metrics.perfect || 0)
     ),
@@ -1188,6 +1290,98 @@ function Overview({ data }) {
   );
 }
 
+function Carriers({ maps }) {
+  const carriers = Object.values((maps || []).reduce((index, map) => {
+    const name = String(map.carrier || "Não informada").trim() || "Não informada";
+    if (!index[name]) index[name] = { name, maps: 0, active: 0, completed: 0 };
+    index[name].maps++;
+    if (["separacao", "aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status)) {
+      index[name].active++;
+    }
+    if (["conferido", "perfeito"].includes(map.status)) index[name].completed++;
+    return index;
+  }, {})).sort((left, right) => right.maps - left.maps);
+
+  return h("div", { className: "workspace-section" },
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" },
+        h("h3", null, "Transportadoras"),
+        h("span", null, "atividade por mapas")
+      ),
+      carriers.length
+        ? h("div", { className: "entity-grid" }, carriers.map((carrier) =>
+            h("div", { className: "entity-card", key: carrier.name },
+              h("div", { className: "entity-card-icon" }, h(Icon, { name: "carriers" })),
+              h("div", null,
+                h("strong", null, carrier.name),
+                h("span", null, `${carrier.maps} mapas registrados`)
+              ),
+              h("dl", null,
+                h("div", null, h("dt", null, "Ativos"), h("dd", null, carrier.active)),
+                h("div", null, h("dt", null, "Concluídos"), h("dd", null, carrier.completed))
+              )
+            )
+          ))
+        : empty("Nenhuma transportadora registrada nos mapas.")
+    )
+  );
+}
+
+function Reports({ data }) {
+  const maps = data.maps || [];
+  const totalUnits = maps.reduce((sum, map) =>
+    sum + map.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0), 0);
+  const checkedUnits = maps.reduce((sum, map) =>
+    sum + map.items.reduce((itemSum, item) => itemSum + Number(item.checkedQuantity || 0), 0), 0);
+  const divergences = (data.errors || []).length;
+  const completion = totalUnits ? Math.round((checkedUnits / totalUnits) * 100) : 0;
+  const inventory = data.inventoryMetrics || {};
+  const balanceHistory = data.balanceHistory || [];
+
+  return h("div", { className: "workspace-section" },
+    h("div", { className: "metric-grid" },
+      metric("Unidades previstas", totalUnits),
+      metric("Unidades conferidas", checkedUnits),
+      metric("Progresso operacional", `${completion}%`),
+      metric("Divergências", divergences),
+      metric("Produtos ativos", inventory.active || 0),
+      metric("Produtos inativos", inventory.inactive || 0)
+    ),
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" },
+        h("h3", null, "Resumo operacional"),
+        h("span", null, "dados persistidos")
+      ),
+      h("div", { className: "report-progress" },
+        h("div", { className: "report-progress-copy" },
+          h("strong", null, `${checkedUnits} de ${totalUnits} unidades`),
+          h("span", null, "Conferência acumulada dos mapas disponíveis")
+        ),
+        h("div", { className: "bar-track" },
+          h("div", { className: "bar-fill", style: { width: `${completion}%` } })
+        )
+      )
+    ),
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" },
+        h("h3", null, "Versões de saldo"),
+        h("span", null, "últimas importações")
+      ),
+      balanceHistory.length
+        ? h("div", { className: "timeline-list" }, balanceHistory.map((item) =>
+            h("div", { className: "list-item", key: item.id },
+              h("div", null,
+                h("strong", null, item.fileName),
+                h("span", null, `${item.importedBy} · ${formatDate(item.updatedAt)}`)
+              ),
+              h("span", null, `${item.skuCount} SKUs · ${item.changedItems} alterados · ${item.removedItems || 0} inativos`)
+            )
+          ))
+        : empty("Nenhuma versão de saldo registrada.")
+    )
+  );
+}
+
 function Separation({ maps, onToggle, onSend, onDelete }) {
   const separationMaps = maps.filter((map) => map.status === "separacao");
   return h("div", { className: "section-grid" },
@@ -1201,7 +1395,7 @@ function Separation({ maps, onToggle, onSend, onDelete }) {
   );
 }
 
-function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
+function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, onResume, onCancel }) {
   const conferenceMaps = maps.filter((map) =>
     ["aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status)
   );
@@ -1214,7 +1408,10 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan }) {
         onApprove,
         onProblem,
         onCorrected,
-        onScan
+        onScan,
+        onPause,
+        onResume,
+        onCancel
       })) : empty("Nenhum mapa aguardando conferência."))
     ),
     h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
@@ -1227,8 +1424,11 @@ function Counting({
   sourceName,
   warnings = [],
   importMetrics = {},
+  ignoredProducts = [],
   onUpload,
+  onDownloadDebug,
   onUpdate,
+  onAddProduct,
   onOfflineDraft,
   online
 }) {
@@ -1239,6 +1439,9 @@ function Counting({
   const [offlinePending, setOfflinePending] = React.useState(Boolean(initialOfflineDraft?.counts?.length));
   const [searchCode, setSearchCode] = React.useState("");
   const [searchMessage, setSearchMessage] = React.useState("");
+  const [manualOpen, setManualOpen] = React.useState(false);
+  const [manualProduct, setManualProduct] = React.useState({ sku: "", system: "", counted: "" });
+  const [savingManual, setSavingManual] = React.useState(false);
   const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
   const fileInputRef = React.useRef(null);
   const countInputRefs = React.useRef({});
@@ -1302,6 +1505,31 @@ function Counting({
     }
   }
 
+  async function submitManualProduct(event) {
+    event.preventDefault();
+    const sku = normalizeInventorySku(manualProduct.sku);
+    const system = Number.parseInt(manualProduct.system || "0", 10);
+    const counted = Number.parseInt(manualProduct.counted || "0", 10);
+    if (!/^\d{4,8}\.\d{1,3}\.\d{1,3}$/.test(sku)) {
+      window.alert("Informe o SKU no formato produto.gradeX.gradeY. Exemplo: 76331.3.4.");
+      return;
+    }
+    if (system < 0 || counted < 0 || Number.isNaN(system) || Number.isNaN(counted)) {
+      window.alert("Informe quantidades válidas.");
+      return;
+    }
+    setSavingManual(true);
+    try {
+      await onAddProduct({ sku, system, counted });
+      setManualProduct({ sku: "", system: "", counted: "" });
+      setManualOpen(false);
+    } catch (error) {
+      window.alert(error.message);
+    } finally {
+      setSavingManual(false);
+    }
+  }
+
   function findBalanceCode(value, focus = true) {
     const digits = String(value || "").replace(/\D/g, "");
     setSearchCode(value);
@@ -1358,6 +1586,7 @@ function Counting({
       ),
       updatedAt && h("div", { className: "count-import-metrics" },
         h("div", null, h("span", null, "Folhas"), h("strong", null, importMetrics.pagesProcessed || 0)),
+        h("div", null, h("span", null, "Linhas lidas"), h("strong", null, importMetrics.totalLinesRead || 0)),
         h("div", null, h("span", null, "SKUs"), h("strong", null, importMetrics.skusRead || counts.length)),
         h("div", null, h("span", null, "Ignoradas"), h("strong", null, importMetrics.ignoredLines || 0)),
         h("div", null, h("span", null, "Duplicados"), h("strong", null, importMetrics.duplicateSkus || 0)),
@@ -1367,6 +1596,33 @@ function Counting({
       warnings.length > 0 && h("div", { className: "count-import-warnings" },
         h("strong", null, "Avisos da importação"),
         h("ul", null, warnings.map((warning) => h("li", { key: warning }, warning)))
+      ),
+      updatedAt && h("div", { className: "count-import-diagnostics" },
+        h("div", { className: "count-import-diagnostics-head" },
+          h("div", null,
+            h("strong", null, "Diagnóstico da importação"),
+            h("span", null, `${ignoredProducts.length} linhas detalhadas`)
+          ),
+          h("button", {
+            className: "secondary-action compact",
+            onClick: onDownloadDebug
+          }, "Baixar debug")
+        ),
+        ignoredProducts.length > 0 && h("details", null,
+          h("summary", null, "Ver linhas ignoradas e motivos"),
+          h("div", { className: "ignored-products-list" },
+            ignoredProducts.map((item, index) => h("div", {
+              className: "ignored-product",
+              key: `${item.page}-${index}-${item.line}`
+            },
+              h("div", null,
+                h("strong", null, item.product ? `Produto ${item.product}` : `Folha ${item.page}`),
+                h("span", null, item.reason)
+              ),
+              h("code", null, item.line)
+            ))
+          )
+        )
       ),
       offlinePending && h("div", { className: "offline-count-pending" },
         h("strong", null, "Contagem salva no aparelho"),
@@ -1387,6 +1643,10 @@ function Counting({
           disabled: importing,
           onClick: () => fileInputRef.current?.click()
         }, importing ? "Lendo todas as folhas..." : "Selecionar PDF de saldo"),
+        h("button", {
+          className: "secondary-action compact",
+          onClick: () => setManualOpen(true)
+        }, "Adicionar produto"),
         h("button", {
           className: "primary-action compact",
           disabled: !draft.length || savingCount,
@@ -1467,6 +1727,66 @@ function Counting({
       ) : draft.length
         ? empty("Nenhum SKU corresponde à pesquisa.")
         : empty("Selecione um PDF para carregar os saldos.")
+    ),
+    manualOpen && h("div", { className: "modal-backdrop", role: "presentation" },
+      h("form", { className: "modal-card manual-product-modal", onSubmit: submitManualProduct },
+        h("div", { className: "modal-head" },
+          h("div", null,
+            h("span", null, "AJUSTE DE SALDO"),
+            h("h3", null, "Adicionar produto")
+          ),
+          h("button", {
+            type: "button",
+            className: "icon-button",
+            onClick: () => setManualOpen(false),
+            "aria-label": "Fechar"
+          }, "×")
+        ),
+        h("p", { className: "modal-text" },
+          "Use esta opção quando o PDF não trouxe um item corretamente. O produto será salvo no PostgreSQL e aparecerá para todos."
+        ),
+        h("label", null,
+          h("span", null, "SKU"),
+          h("input", {
+            value: manualProduct.sku,
+            placeholder: "76331.3.4",
+            inputMode: "numeric",
+            onChange: (event) => setManualProduct((current) => ({ ...current, sku: event.target.value }))
+          })
+        ),
+        h("div", { className: "form-grid two" },
+          h("label", null,
+            h("span", null, "Saldo do sistema"),
+            h("input", {
+              type: "number",
+              min: "0",
+              value: manualProduct.system,
+              onChange: (event) => setManualProduct((current) => ({ ...current, system: event.target.value }))
+            })
+          ),
+          h("label", null,
+            h("span", null, "Quantidade contada"),
+            h("input", {
+              type: "number",
+              min: "0",
+              value: manualProduct.counted,
+              onChange: (event) => setManualProduct((current) => ({ ...current, counted: event.target.value }))
+            })
+          )
+        ),
+        h("div", { className: "modal-actions" },
+          h("button", {
+            type: "button",
+            className: "ghost-action compact",
+            onClick: () => setManualOpen(false)
+          }, "Cancelar"),
+          h("button", {
+            type: "submit",
+            className: "primary-action compact",
+            disabled: savingManual
+          }, savingManual ? "Salvando..." : "Salvar produto")
+        )
+      )
     ),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Divergências"), h("span", null, "por SKU")),
@@ -1651,9 +1971,12 @@ function MapCard({ map, onToggle, onSend, onDelete }) {
   );
 }
 
-function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
+function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, onPause, onResume, onCancel }) {
+  const [cancelOpen, setCancelOpen] = React.useState(false);
   const actionable = ["aguardando conferencia", "conferencia"].includes(map.status);
   const needsCorrection = map.status === "corrigir problema";
+  const session = map.conferenceSession || {};
+  const paused = session.status === "PAUSADA";
   return h("article", { className: "order-card conference-card" },
     h("div", { className: "order-head" },
       h("div", { className: "order-title" },
@@ -1662,6 +1985,13 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
         h("small", null, `Rota ${map.route} - ${plural(map.items.length, "produto", "produtos")}`)
       ),
       h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
+    ),
+    session.status && h("div", { className: `conference-session-banner ${paused ? "paused" : ""}` },
+      h("div", null,
+        h("strong", null, conferenceStatusLabel(session.status)),
+        h("span", null, `${session.operator || "Operador"} · atualizado ${formatDate(session.updatedAt)}`)
+      ),
+      h("b", null, `${session.progress || 0}%`)
     ),
     map.attachmentName && h("div", { className: "attachment-line" }, `Arquivo importado: ${map.attachmentName}`),
     map.orderNumbers?.length && h("div", { className: "order-numbers-line" },
@@ -1675,12 +2005,41 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan }) {
       onProblem,
       onCorrected,
       actionable,
-      needsCorrection
+      needsCorrection,
+      paused,
+      onPause: () => onPause(map.id),
+      onResume: () => onResume(map.id),
+      onCancel: () => setCancelOpen(true)
+    }),
+    cancelOpen && h(ConferenceCancelDialog, {
+      map,
+      onClose: () => setCancelOpen(false),
+      onContinue: () => setCancelOpen(false),
+      onPause: async () => {
+        await onPause(map.id);
+        setCancelOpen(false);
+      },
+      onCancel: async () => {
+        await onCancel(map.id);
+        setCancelOpen(false);
+      }
     })
   );
 }
 
-function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, actionable, needsCorrection }) {
+function BarcodeScanner({
+  map,
+  onScan,
+  onApprove,
+  onProblem,
+  onCorrected,
+  actionable,
+  needsCorrection,
+  paused,
+  onPause,
+  onResume,
+  onCancel
+}) {
   const [manualCode, setManualCode] = React.useState("");
   const [result, setResult] = React.useState(null);
   const [validating, setValidating] = React.useState(false);
@@ -1754,6 +2113,10 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
   }, [map.id]);
 
   async function validate(code, source = "manual") {
+    if (paused) {
+      setResult({ type: "error", title: "Conferência pausada", text: "Retome a conferência antes de bipar novas etiquetas." });
+      return;
+    }
     const cleanCode = String(code || "").replace(/\D/g, "");
     if (!cleanCode || validatingRef.current) {
       if (!cleanCode) {
@@ -1842,7 +2205,7 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
           spellCheck: false,
           placeholder: "Bipe com o coletor ou digite o código",
           value: manualCode,
-          disabled: needsCorrection,
+          disabled: needsCorrection || paused,
           onChange: (event) => {
             if (!manualCode) manualStartedAtRef.current = Date.now();
             setManualCode(event.target.value);
@@ -1856,7 +2219,7 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
         }),
         h("button", {
           className: "primary-action",
-          disabled: needsCorrection || validating || !manualCode.replace(/\D/g, ""),
+          disabled: needsCorrection || paused || validating || !manualCode.replace(/\D/g, ""),
           onClick: () => validate(manualCode, "manual")
         }, validating ? "Validando..." : "Validar")
       ),
@@ -1891,14 +2254,26 @@ function BarcodeScanner({ map, onScan, onApprove, onProblem, onCorrected, action
         detailRow("Produto lido", lastCode ? normalizeProductCode(lastCode) : "---")
       ),
       h("div", { className: "conference-final-actions" },
+        paused && h("button", {
+          className: "primary-action",
+          onClick: onResume
+        }, "Retomar conferência"),
+        actionable && !paused && checkedQuantity > 0 && h("button", {
+          className: "secondary-action",
+          onClick: onPause
+        }, "Salvar progresso e sair"),
+        actionable && h("button", {
+          className: "ghost-action",
+          onClick: onCancel
+        }, "Cancelar conferência"),
         actionable && h("button", {
           className: "primary-action finish-conference",
-          disabled: !allChecked || offlineProgress > 0,
+          disabled: paused || !allChecked || offlineProgress > 0,
           onClick: () => onApprove(map.id)
         }, offlineProgress > 0
           ? "Aguardando internet para finalizar"
           : allChecked ? "OK - Finalizar conferência" : `Faltam ${remainingQuantity} unidades`),
-        actionable && h("button", {
+        actionable && !paused && h("button", {
           className: "danger-action",
           onClick: () => onProblem(map.id)
         }, "Informar divergência"),
@@ -1953,6 +2328,16 @@ function normalizeProductCode(value) {
   const digits = String(value || "").replace(/\D/g, "");
   if (digits.length !== 7) return value || "---";
   return `${digits.slice(0, 5)}.${digits[5]}.${digits[6]}`;
+}
+
+function normalizeInventorySku(value) {
+  const cleaned = String(value || "").trim().replace(/[,/-]/g, ".");
+  if (/^\d{4,8}\.\d{1,3}\.\d{1,3}$/.test(cleaned)) return cleaned;
+  const digits = cleaned.replace(/\D/g, "");
+  if (digits.length >= 7 && digits.length <= 10) {
+    return `${digits.slice(0, -2)}.${digits.slice(-2, -1)}.${digits.slice(-1)}`;
+  }
+  return cleaned;
 }
 
 function validateBarcodeLocally(expectedValue, scannedValue) {
@@ -2134,6 +2519,15 @@ function statusClass(value) {
   }[value] || "";
 }
 
+function conferenceStatusLabel(value) {
+  return {
+    EM_ANDAMENTO: "Conferência em andamento",
+    PAUSADA: "Conferência pausada",
+    FINALIZADA: "Conferência finalizada",
+    CANCELADA: "Conferência cancelada"
+  }[value] || "Conferência";
+}
+
 function plural(value, singular, pluralText) {
   return `${value} ${value === 1 ? singular : pluralText}`;
 }
@@ -2182,6 +2576,9 @@ function emptyData() {
     countsSourceName: "",
     countsImportWarnings: [],
     countsImportMetrics: {},
+    countsImportIgnored: [],
+    balanceHistory: [],
+    inventoryMetrics: {},
     errors: [],
     historyEvents: [],
     notifications: [],
@@ -2189,4 +2586,32 @@ function emptyData() {
   };
 }
 
-ReactDOM.createRoot(document.querySelector("#root")).render(h(App));
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error("MN_CHECK_UI_ERROR", error, info);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return h("main", { className: "fatal-error" },
+      h("img", { className: "app-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
+      h("p", { className: "eyebrow" }, "Falha de interface"),
+      h("h1", null, "Não foi possível concluir esta operação"),
+      h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),
+      h("button", { className: "primary-action", onClick: () => window.location.reload() }, "Recarregar sistema")
+    );
+  }
+}
+
+ReactDOM.createRoot(document.querySelector("#root")).render(
+  h(AppErrorBoundary, null, h(App))
+);

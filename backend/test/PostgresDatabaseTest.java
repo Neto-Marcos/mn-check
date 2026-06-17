@@ -32,11 +32,13 @@ public class PostgresDatabaseTest {
     String secondSku = "TESTE-" + suffix + ".2";
     PostgresDatabase.ImportSummary imported = firstConnection.saveBalanceImport(
         "teste-neon-" + suffix + ".pdf",
+        "Teste automatizado",
         List.of(
             new PostgresDatabase.BalanceRow(firstSku, 406),
             new PostgresDatabase.BalanceRow(secondSku, 108)
         ),
         5,
+        269,
         27,
         0,
         0
@@ -59,6 +61,32 @@ public class PostgresDatabaseTest {
     assertEquals(405, countedOf(snapshot, firstSku));
     assertEquals(108, countedOf(snapshot, secondSku));
 
+    PostgresDatabase.ImportSummary reimported = afterRestart.saveBalanceImport(
+        "teste-neon-atualizado-" + suffix + ".pdf",
+        "Teste automatizado",
+        List.of(new PostgresDatabase.BalanceRow(firstSku, 410)),
+        1,
+        10,
+        1,
+        0,
+        0
+    );
+    PostgresDatabase.BalanceSnapshot afterReimport = afterRestart.loadLatestBalances();
+    assertEquals(1, afterReimport.rows().size(), "produto removido deve ficar inativo");
+    assertEquals(405, countedOf(afterReimport, firstSku), "nova importação deve preservar a contagem");
+    assertEquals(410, afterReimport.rows().get(0).systemBalance(), "saldo base deve ser atualizado");
+
+    String manualSku = "76331.3.4";
+    PostgresDatabase.ImportSummary manual = afterRestart.saveManualBalanceProduct(
+        manualSku,
+        112,
+        111,
+        "Teste automatizado"
+    );
+    PostgresDatabase.BalanceSnapshot afterManual = afterRestart.loadLatestBalances();
+    assertEquals(2, afterManual.rows().size(), "produto manual deve entrar no saldo ativo");
+    assertEquals(111, countedOf(afterManual, manualSku));
+
     List<PostgresDatabase.HistoryEntry> history = afterRestart.loadHistory();
     assertTrue(history.stream().anyMatch(item ->
         item.action().equals("count_upload") && item.description().contains(suffix)));
@@ -80,6 +108,21 @@ public class PostgresDatabaseTest {
     assertEquals(scan.id(), scanHistory.get(0).id());
     assertEquals("Voltagem incorreta", scanHistory.get(0).reason());
 
+    PostgresDatabase.ConferenceSession conference = firstConnection.saveConferenceProgress(
+        "mapa-" + suffix,
+        "Teste automatizado",
+        firstSku,
+        3,
+        5
+    );
+    assertEquals("EM_ANDAMENTO", conference.status());
+    assertEquals(3, conference.items().get(0).checkedQuantity());
+    assertEquals("PAUSADA", afterRestart.changeConferenceStatus(
+        "mapa-" + suffix, "Teste automatizado", "PAUSADA"
+    ).status());
+    assertEquals(3, new PostgresDatabase(databaseUrl)
+        .loadConferenceSession("mapa-" + suffix).items().get(0).checkedQuantity());
+
     System.out.println("NEON_TEST conexão=" + afterRestart.testConnection()
         + " importacao_id=" + imported.id()
         + " skus=" + snapshot.rows().size()
@@ -87,7 +130,7 @@ public class PostgresDatabaseTest {
         + " historico_total=" + history.size()
         + " leituras_scanner=" + scanHistory.size());
 
-    cleanup(firstConnection, imported.id(), countId, "mapa-" + suffix);
+    cleanup(firstConnection, List.of(imported.id(), reimported.id(), manual.id()), countId, "mapa-" + suffix);
   }
 
   private int countedOf(PostgresDatabase.BalanceSnapshot snapshot, String sku) {
@@ -100,7 +143,7 @@ public class PostgresDatabaseTest {
 
   private void cleanup(
       PostgresDatabase database,
-      long importId,
+      List<Long> importIds,
       long countId,
       String mapId
   ) throws Exception {
@@ -111,12 +154,26 @@ public class PostgresDatabaseTest {
         statement.setString(1, mapId);
         statement.executeUpdate();
       }
+      try (PreparedStatement statement = connection.prepareStatement(
+          "DELETE FROM conferencias WHERE mapa_id = ?"
+      )) {
+        statement.setString(1, mapId);
+        statement.executeUpdate();
+      }
       try (PreparedStatement statement = connection.prepareStatement("DELETE FROM contagens WHERE id = ?")) {
         statement.setLong(1, countId);
         statement.executeUpdate();
       }
-      try (PreparedStatement statement = connection.prepareStatement("DELETE FROM importacoes_saldo WHERE id = ?")) {
-        statement.setLong(1, importId);
+      try (PreparedStatement statement = connection.prepareStatement(
+          "DELETE FROM estoque_produtos WHERE importacao_id = ANY (?)"
+      )) {
+        statement.setArray(1, connection.createArrayOf("bigint", importIds.toArray()));
+        statement.executeUpdate();
+      }
+      try (PreparedStatement statement = connection.prepareStatement(
+          "DELETE FROM importacoes_saldo WHERE id = ANY (?)"
+      )) {
+        statement.setArray(1, connection.createArrayOf("bigint", importIds.toArray()));
         statement.executeUpdate();
       }
     }
