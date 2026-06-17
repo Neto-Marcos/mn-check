@@ -5,3 +5,11 @@ java-server.log
 java-server.err
 data/java-db.json
 data/uploads/
+.env
+.env.*
+!.env.example
+*.log
+debug-importacao-saldo.txt
+node_modules/
+.DS_Store
+Thumbs.db

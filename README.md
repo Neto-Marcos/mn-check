@@ -1,321 +1,200 @@
-# MN - Check
+# MM Check — Sistema Inteligente de Conferência e Contagem
 
-Controle de separação, conferência e estoque.
+![Java](https://img.shields.io/badge/Java-21-ef4444?style=for-the-badge)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-Backend-16a34a?style=for-the-badge)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL%2FNeon-Persistence-2563eb?style=for-the-badge)
+![PDFBox](https://img.shields.io/badge/PDFBox-PDF%20Parser-f97316?style=for-the-badge)
+![Render](https://img.shields.io/badge/Render-Deploy-111827?style=for-the-badge)
 
-Versão atual: **1.7.0**
+> Projeto desenvolvido para solucionar problemas reais de expedição, conferência e contagem de estoque em ambiente logístico.
 
-## Interface
+O **MM Check** é um sistema operacional para controle de mapas de carga, separação, reconferência de expedição e contagem de estoque. Ele foi criado a partir de um fluxo real de logística industrial, onde erros de SKU, cor, voltagem e divergência de saldo geram retrabalho, atraso e risco operacional.
 
-A versão 1.7 inclui uma interface corporativa responsiva:
+## Preview
 
-- tema escuro profissional como padrão, com tema claro opcional;
-- sidebar retrátil no desktop e menu lateral no celular;
-- navegação por ícones e nomes;
-- seção de Configurações com perfil, senha, tema, densidade e logout;
-- preferências visuais persistidas no navegador;
-- feedback de carregamento e estados de conexão;
-- todos os fluxos operacionais e permissões preservados.
+As capturas profissionais ficam em [`screenshots/`](screenshots/). Gere novas imagens após rodar o sistema localmente ou em produção.
 
-## Leitor CODE 128
-
-A tela de **Conferência** foi preparada para coletores industriais USB ou Bluetooth:
-
-- leitura de CODE 128 pelo coletor, que funciona como teclado;
-- envio automático quando o coletor acrescenta `Enter`;
-- confirmação por som e vibração;
-- cooldown de 1 segundo contra leituras duplicadas;
-- entrada manual como alternativa;
-- foco automático no campo após cada conferência;
-- validação no backend Spring Boot;
-- histórico persistente no PostgreSQL.
-
-Ao criar um mapa pela câmera, o operador informa manualmente:
-
-- o número do mapa;
-- todos os números de pedido existentes no mapa.
-
-Os pedidos podem ser separados por vírgula, espaço ou quebra de linha. Esses identificadores têm prioridade sobre qualquer texto interpretado na fotografia, e o sistema impede o cadastro de um número de mapa já existente.
-
-Na tela de contagem, a lista de saldo pode ser pesquisada por:
-
-- SKU digitado;
-- coletor USB ou Bluetooth seguido de Enter.
-
-A comparação ignora pontos e hífens, destaca o SKU encontrado e posiciona o cursor no campo de quantidade contada.
-
-## Uso offline
-
-As bibliotecas React são servidas pelo próprio MN Check, sem CDN. Um service worker armazena a interface e a última carga operacional no aparelho.
-
-Para preparar um celular:
-
-1. Abra a versão `1.7.0` com internet.
-2. Faça login e entre nas telas que serão usadas.
-3. Aguarde alguns segundos para o cache ser instalado.
-4. A partir daí, a leitura pelo coletor e a comparação com os dados já carregados funcionam sem internet.
-
-As leituras feitas sem rede ficam em uma fila local e são enviadas ao PostgreSQL automaticamente quando a conexão retorna.
-
-Na contagem de estoque:
-
-- cada quantidade alterada off-line é salva imediatamente no aparelho;
-- o botão muda para **Salvar contagem off-line**;
-- uma faixa informa que existe uma contagem aguardando sincronização;
-- quando a conexão volta, o snapshot mais recente é enviado para `/api/contagem`;
-- a pendência só é apagada depois da confirmação positiva do servidor.
-
-Login inicial, novos mapas, novos saldos e dados ainda não carregados continuam exigindo acesso ao servidor.
-
-Padrão do produto:
-
-```text
-SKU.COR.VOLTAGEM
-```
-
-Os valores `7426613`, `74266 1 3` e `74266.1.3` são normalizados para:
-
-```text
-74266.1.3
-```
-
-Regras:
-
-- SKU: primeiros 5 números;
-- cor: penúltimo número;
-- voltagem: último número.
-
-Tabela de voltagem industrial:
-
-- `0` ou `4`: Bivolt;
-- `1` ou `3`: 127V;
-- `2`: 220V.
-
-Os códigos `1` e `3` são considerados equivalentes entre si, assim como `0` e `4`.
-
-O backend consulta o próximo item pendente do mapa autenticado. O navegador não decide livremente qual produto é esperado.
-
-Exemplo:
-
-```text
-Esperado: 74266.1.3
-Lido:     74266.1.2
-Status:   BLOQUEADO
-Motivo:   Voltagem incorreta
-```
-
-Leituras bloqueadas ficam no histórico, mas não incrementam a quantidade conferida.
-
-### Coletor USB ou Bluetooth
-
-1. Conecte ou pareie o coletor.
-2. Configure o coletor para enviar `Enter` após a leitura, comportamento padrão da maioria dos modelos.
-3. Abra a conferência.
-4. Bipe a etiqueta. O campo reconhece automaticamente a entrada rápida do coletor.
-
-### API do scanner
-
-Validar leitura:
-
-```http
-POST /api/scanner/validate
-Authorization: Bearer TOKEN
-Content-Type: application/json
-
-{
-  "mapId": "15740",
-  "scannedCode": "7426613",
-  "operator": "Marcos",
-  "source": "scanner"
-}
-```
-
-Resposta aprovada:
-
-```json
-{
-  "status": "APROVADO",
-  "approved": true,
-  "expected": "74266.1.3",
-  "scanned": "74266.1.3",
-  "reason": "Produto correto"
-}
-```
-
-Outras rotas:
-
-| Método | Endpoint | Função |
+| Dashboard | Conferência | Contagem |
 |---|---|---|
-| `POST` | `/api/scanner/validate` | Validar e registrar uma leitura |
-| `GET` | `/api/scanner/history?mapId=15740` | Histórico persistente do mapa |
+| `screenshots/dashboard.png` | `screenshots/conferencia.png` | `screenshots/contagem.png` |
+
+## Problema Resolvido
+
+- Conferência manual sujeita a erro humano.
+- Troca de SKU, cor ou voltagem na expedição.
+- Contagem de estoque sem histórico confiável.
+- Importação de saldo por PDF com linhas quebradas e colunas desalinhadas.
+- Perda de dados após reinício do servidor.
+- Falta de rastreabilidade sobre divergências e correções.
+
+## Solução
+
+O MM Check centraliza o fluxo operacional:
+
+- separador registra itens separados;
+- expedição reconfere por coletor/bipador;
+- estoque importa saldo por PDF e registra contagens;
+- administradores acompanham histórico, divergências, usuários e relatórios;
+- dados críticos persistem em PostgreSQL/Neon.
+
+## Funcionalidades
+
+- Conferência inteligente por código de barras CODE 128 via coletor USB/Bluetooth.
+- Validação de SKU, cor e voltagem.
+- Pausar, retomar ou cancelar conferências com confirmação.
+- Salvamento parcial da conferência.
+- Importação de saldo por PDF usando Apache PDFBox.
+- Parser com leitura de todas as páginas, duplicidade somada e debug detalhado.
+- Botão **Adicionar produto** na contagem para corrigir item não lido pelo PDF.
+- Histórico real em PostgreSQL.
+- Versionamento de saldo e preservação de contagens anteriores.
+- Dashboard operacional com indicadores.
+- Modo escuro profissional.
+- Interface responsiva para desktop, tablet e celular.
+- Relatório A4 para imprimir/salvar contagem.
+- Service worker para manter interface e operações recentes disponíveis no aparelho.
+
+## Tecnologias
+
+- **Java 21**
+- **Spring Boot**
+- **JDBC**
+- **PostgreSQL / Neon**
+- **Apache PDFBox**
+- **HTML, CSS e JavaScript**
+- **React via bundle local**
+- **Render**
+- **Docker**
 
 ## Arquitetura
 
-O processo principal é Spring Boot. O módulo novo de scanner é nativo em Spring MVC. Durante a migração, as rotas operacionais anteriores são encaminhadas internamente ao núcleo legado na porta `4174`, preservando login, mapas, estoque e usuários.
-
-Bibliotecas principais:
-
-- Spring Boot 3.5;
-- PostgreSQL JDBC;
-- Apache PDFBox.
-
-## Persistência
-
-O backend exige PostgreSQL e não utiliza banco em memória, SQLite ou arquivos JSON/TXT locais.
-
-Os dados de saldo e contagem usam as tabelas relacionais:
-
-- `importacoes_saldo`;
-- `saldos`;
-- `contagens`;
-- `itens_contagem`.
-- `historico_scanner`.
-
-Usuários, mapas, notificações e anexos também permanecem no PostgreSQL. As tabelas são criadas automaticamente com `CREATE TABLE IF NOT EXISTS`.
-
-## Criar o banco no Neon
-
-1. Acesse [Neon](https://neon.tech/) e crie uma conta.
-2. Clique em **New project**.
-3. Escolha um nome, por exemplo `mn-check`.
-4. Mantenha PostgreSQL e uma região próxima do Render.
-5. Abra **Dashboard > Connection Details**.
-6. Selecione a conexão `Pooled connection`.
-7. Copie a URL completa.
-
-Formato esperado:
-
 ```text
-postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+MM check/
+├── backend/
+│   ├── src/              # servidor, parser PDF, scanner, PostgreSQL e regras de negócio
+│   └── test/             # testes de parser, scanner e persistência
+├── frontend/
+│   ├── app.js            # interface React sem build externo
+│   ├── styles.css        # design system responsivo
+│   └── sw.js             # cache offline
+├── database/
+│   └── postgres-schema.sql
+├── docs/
+│   ├── ARCHITECTURE.md
+│   └── DEPLOYMENT.md
+├── screenshots/
+├── Dockerfile
+├── pom.xml
+└── env.example
 ```
 
-Não publique essa URL no GitHub. Ela contém a senha do banco.
+> Observação técnica: o backend atual preserva um servidor Java legado integrado ao Spring Boot para manter compatibilidade com o deploy existente. A próxima evolução natural é separar controllers, services, repositories, DTOs e models em pacotes Spring dedicados.
 
-## Configurar no Render
+## Como Rodar Localmente
 
-1. Abra o serviço `mm-check` no Render.
-2. Entre em **Environment**.
-3. Crie ou substitua `DATABASE_URL` pela URL copiada do Neon.
-4. Mantenha `MMCHECK_ADMIN_PASSWORD` configurada.
-5. Salve as variáveis.
-6. Execute **Manual Deploy > Deploy latest commit**.
-7. Confira `/api/health`; o campo `database` deve indicar PostgreSQL.
+1. Clone o projeto.
+2. Copie `env.example` para `.env` ou configure as variáveis no terminal.
+3. Configure `DATABASE_URL` com a connection string do Neon/PostgreSQL.
+4. Configure `MMCHECK_ADMIN_PASSWORD`.
+5. Execute:
 
-O arquivo `render.yaml` declara `DATABASE_URL` como variável secreta (`sync: false`).
-
-## Rodar localmente
-
-Requisitos:
-
-- Java 21;
-- Maven 3.9+;
-- um banco PostgreSQL Neon acessível.
-
-PowerShell:
-
-```powershell
-$env:DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require"
-$env:MMCHECK_ADMIN_PASSWORD="senha-inicial-segura"
-mvn test
-mvn package
-java -jar target/mn-check-1.7.0.jar
+```bash
+mvn clean package
+java -jar target/mn-check-1.8.0.jar
 ```
 
 Abra:
 
 ```text
-http://127.0.0.1:4173/
+http://localhost:4173
 ```
 
-Sem `DATABASE_URL`, o servidor interrompe a inicialização. Isso evita executar acidentalmente com dados descartáveis.
-
-## Docker
-
-```bash
-docker build -t mn-check .
-docker run --rm -p 4173:4173 \
-  -e DATABASE_URL="postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require" \
-  -e MMCHECK_ADMIN_PASSWORD="senha-inicial-segura" \
-  mn-check
-```
-
-## Importação de saldo
-
-1. Entre como administrador ou conferente de estoque.
-2. Abra **Contagem**.
-3. Selecione o PDF de saldo.
-4. Aguarde a leitura e confira os indicadores.
-
-O Apache PDFBox percorre todas as páginas. O parser identifica Produto, Grade X, Grade Y e Saldo e monta:
+## Variáveis de Ambiente
 
 ```text
-produto-gradeX.gradeY
+DATABASE_URL=postgresql://usuario:senha@host/neondb?sslmode=require
+MMCHECK_ADMIN_PASSWORD=senha-inicial-do-admin
+PORT=4173
 ```
 
-Exemplo:
+## Deploy no Render
 
-```text
-74683-1.2
-```
+1. Crie um banco PostgreSQL no Neon.
+2. Copie a connection string sem comandos `psql` ou `npx`.
+3. No Render, configure:
+   - `DATABASE_URL`
+   - `MMCHECK_ADMIN_PASSWORD`
+4. Use o Dockerfile do projeto.
+5. Faça push para o GitHub.
 
-Linhas vazias, cabeçalhos, totais, rodapés e `9999999` são ignorados. Duplicidades são contabilizadas e saldos conflitantes bloqueiam a importação. A IA não participa da leitura principal.
+Detalhes em [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-Após a validação, a importação e seus saldos são gravados em uma única transação PostgreSQL.
+## Endpoints Principais
 
-Log esperado:
-
-```text
-SALDO_PDF arquivo="saldo.pdf" paginas=5 skus=242 linhas_ignoradas=27 duplicados=0 conflitos=0 duracao_ms=259
-SALDO_POSTGRES importacao_id=1 arquivo="saldo.pdf" skus=242 atualizado_em=2026-06-10T...
-```
-
-## Histórico
-
-`GET /api/historico` consulta importações e contagens diretamente no PostgreSQL. Os registros continuam disponíveis após reinício ou novo deploy do serviço.
-
-## Impressão A4
-
-1. Abra **Contagem**.
-2. Preencha as quantidades.
-3. Clique em **Atualizar contagem**.
-4. Clique em **Imprimir contagem**.
-
-O relatório mantém PDF de origem, datas, SKU, saldo, contado, diferença, status, totais e assinaturas. O navegador permite imprimir ou salvar como PDF.
-
-## Endpoints
-
-| Método | Endpoint | Função |
+| Método | Rota | Uso |
 |---|---|---|
-| `GET` | `/api/health` | Saúde, versão e banco |
-| `GET` | `/api/version` | Versão pública |
-| `POST` | `/api/login` | Autenticação |
-| `GET` | `/api/bootstrap` | Dados permitidos ao usuário |
-| `GET` | `/api/saldos` | Última importação e saldo real |
-| `POST` | `/api/importar` | Importar PDF e gravar no PostgreSQL |
-| `POST` | `/api/contagem` | Gravar contagem e itens |
-| `GET` | `/api/historico` | Histórico persistente |
-| `POST` | `/api/scanner/validate` | Validar CODE 128 |
-| `GET` | `/api/scanner/history` | Histórico de leituras |
+| `GET` | `/api/health` | status da aplicação e banco |
+| `GET` | `/api/version` | versão atual |
+| `GET` | `/api/bootstrap` | dados iniciais da tela |
+| `POST` | `/api/importar` | importar PDF de saldo |
+| `POST` | `/api/saldos/produto` | adicionar produto manualmente ao saldo |
+| `POST` | `/api/contagem` | salvar contagem física |
+| `GET` | `/api/historico` | histórico operacional |
+| `POST` | `/api/scanner/validate` | validar leitura CODE 128 |
 
 ## Testes
 
-O GitHub Actions inicia PostgreSQL 17 e executa:
-
 ```bash
 mvn test
-mvn package
-node --check frontend/app.js
-docker build -t mn-check-ci .
 ```
 
-`PostgresDatabaseTest` comprova:
+Testes cobrem:
 
-- conexão JDBC;
-- criação automática das tabelas;
-- gravação da importação;
-- gravação da contagem;
-- leitura do histórico;
-- persistência ao criar uma nova conexão, simulando reinício.
-- parser do padrão SKU.COR.VOLTAGEM;
-- bloqueio específico por SKU, cor ou voltagem;
+- leitura de PDF com páginas múltiplas;
+- SKU `76331.3.4`;
+- linhas quebradas e colunas desalinhadas;
+- soma de SKUs duplicados;
+- validação CODE 128;
+- persistência PostgreSQL quando `DATABASE_URL` está disponível.
 
-Para uma validação no Neon, execute `mvn test` com a `DATABASE_URL` real configurada.
+## Diferenciais Para Portfólio
+
+- Resolve um problema real de operação logística.
+- Demonstra pensamento de produto e não apenas CRUD.
+- Usa persistência real com PostgreSQL/Neon.
+- Manipula PDF com parser próprio e logs de auditoria.
+- Possui UX operacional para celular/tablet.
+- Inclui fluxo offline/sincronização.
+- Implementa validação de código de barras industrial.
+
+## Melhorias Futuras
+
+- Separar completamente o backend em controllers, services, repositories, DTOs e models.
+- Criar pipeline CI/CD com screenshots automáticos.
+- Adicionar autenticação JWT formal.
+- Criar painel específico de transportadoras.
+- Adicionar testes end-to-end com Playwright.
+- Integrar OCR opcional apenas como apoio, nunca como parser principal.
+
+## Como Apresentar em Entrevistas
+
+Explique o projeto como um sistema criado para reduzir erro operacional em expedição. Destaque:
+
+- o problema real observado;
+- a decisão de usar PostgreSQL para evitar perda de dados;
+- o parser PDF com logs e tratamento de linhas ruins;
+- a conferência pausável/retomável;
+- a interface responsiva para operação em tablet/celular;
+- o botão de produto manual como fallback operacional pragmático.
+
+## Licença
+
+MIT. Veja [`LICENSE`](LICENSE).
+
+## Autor
+
+**Marcos Neto**
+
+- GitHub: adicione seu link aqui
+- LinkedIn: adicione seu link aqui
+- Portfólio: adicione seu link aqui
