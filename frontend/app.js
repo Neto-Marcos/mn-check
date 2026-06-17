@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.8.1";
+const APP_VERSION = "1.8.2";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -31,6 +31,8 @@ const TITLES = {
   users: ["admin", "Usuários"],
   settings: ["conta", "Configurações"],
 };
+
+const TEMPORARILY_DISABLED_VIEWS = new Set(["carriers", "reports"]);
 
 const ICON_PATHS = {
   overview: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
@@ -118,7 +120,7 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=181").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=182").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -711,7 +713,7 @@ function App() {
   }
 
   const allowedViews = user.allowedViews || [];
-  const navigationViews = [...allowedViews, "settings"];
+  const navigationViews = [...allowedViews.filter((item) => !TEMPORARILY_DISABLED_VIEWS.has(item)), "settings"];
   const [eyebrow, title] = TITLES[view] || TITLES[allowedViews[0]];
   const notifications = data.notifications || [];
   const unreadNotifications = notifications.filter((item) => !item.read).length;
@@ -1442,6 +1444,8 @@ function Counting({
   const [offlinePending, setOfflinePending] = React.useState(Boolean(initialOfflineDraft?.counts?.length));
   const [searchCode, setSearchCode] = React.useState("");
   const [searchMessage, setSearchMessage] = React.useState("");
+  const [countFilter, setCountFilter] = React.useState("all");
+  const [printFilter, setPrintFilter] = React.useState("counted");
   const [manualOpen, setManualOpen] = React.useState(false);
   const [manualProduct, setManualProduct] = React.useState({ sku: "", system: "", counted: "" });
   const [savingManual, setSavingManual] = React.useState(false);
@@ -1572,13 +1576,28 @@ function Counting({
     window.setTimeout(() => setPrintMode(false), 2_000);
   }
 
+  const countedItems = draft.filter((item) => item.counted > 0);
+  const compliantItems = draft.filter((item) => item.counted > 0 && item.counted === item.system);
+  const divergentRows = draft.filter((item) => item.counted !== item.system);
+  const pendingItems = draft.filter((item) => item.counted === 0);
   const totalSystem = draft.reduce((sum, item) => sum + item.system, 0);
   const totalCounted = draft.reduce((sum, item) => sum + item.counted, 0);
-  const divergentItems = draft.filter((item) => item.counted !== item.system).length;
+  const divergentItems = divergentRows.length;
   const searchDigits = searchCode.replace(/\D/g, "");
+  const filteredDraft = draft.filter((item) => {
+    if (countFilter === "counted") return item.counted > 0;
+    if (countFilter === "ok") return item.counted > 0 && item.counted === item.system;
+    if (countFilter === "divergent") return item.counted !== item.system;
+    if (countFilter === "pending") return item.counted === 0;
+    return true;
+  });
   const visibleDraft = searchDigits
-    ? draft.filter((item) => String(item.sku).replace(/\D/g, "").includes(searchDigits))
-    : draft;
+    ? filteredDraft.filter((item) => String(item.sku).replace(/\D/g, "").includes(searchDigits))
+    : filteredDraft;
+  const printableDraft = printFilter === "counted" ? countedItems : visibleDraft;
+  const printTotalSystem = printableDraft.reduce((sum, item) => sum + item.system, 0);
+  const printTotalCounted = printableDraft.reduce((sum, item) => sum + item.counted, 0);
+  const printDivergentItems = printableDraft.filter((item) => item.counted !== item.system).length;
 
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
@@ -1670,7 +1689,36 @@ function Counting({
           className: "secondary-action compact",
           disabled: !draft.length,
           onClick: printCountReport
-        }, "Imprimir contagem")
+        }, printFilter === "counted" ? "Imprimir contados" : "Imprimir filtro")
+      ),
+      draft.length && h("section", { className: "count-status-filter" },
+        h("div", { className: "count-status-filter-head" },
+          h("strong", null, "Acompanhamento da contagem"),
+          h("span", null, `${compliantItems.length} corretos · ${divergentItems} divergentes · ${pendingItems.length} pendentes`)
+        ),
+        h("div", { className: "count-filter-grid" },
+          [
+            ["all", "Todos", draft.length],
+            ["counted", "Já contados", countedItems.length],
+            ["ok", "Conformes", compliantItems.length],
+            ["divergent", "Divergentes", divergentItems],
+            ["pending", "Pendentes", pendingItems.length]
+          ].map(([value, label, amount]) => h("button", {
+            key: value,
+            className: `count-filter-chip ${countFilter === value ? "active" : ""}`,
+            onClick: () => setCountFilter(value)
+          }, h("span", null, label), h("strong", null, amount)))
+        ),
+        h("label", { className: "print-scope-control" },
+          h("span", null, "Impressão"),
+          h("select", {
+            value: printFilter,
+            onChange: (event) => setPrintFilter(event.target.value)
+          },
+            h("option", { value: "counted" }, "Somente produtos contados"),
+            h("option", { value: "visible" }, "Somente filtro atual")
+          )
+        )
       ),
       draft.length && h("section", { className: "balance-search" },
         h("div", { className: "balance-search-head" },
@@ -1719,7 +1767,11 @@ function Counting({
           h("thead", null, h("tr", null, h("th", null, "SKU"), h("th", null, "Sistema"), h("th", null, "Contado"), h("th", null, "Diferença"))),
           h("tbody", null, visibleDraft.map((item) => h("tr", {
             key: item.sku,
-            className: searchDigits && String(item.sku).replace(/\D/g, "") === searchDigits ? "count-row-found" : ""
+            className: [
+              item.counted > 0 && item.counted === item.system ? "count-row-ok" : "",
+              item.counted !== item.system ? "count-row-divergent" : "",
+              searchDigits && String(item.sku).replace(/\D/g, "") === searchDigits ? "count-row-found" : ""
+            ].filter(Boolean).join(" ")
           },
             h("td", null, item.sku),
             h("td", null, item.system),
@@ -1802,8 +1854,8 @@ function Counting({
     ),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Divergências"), h("span", null, "por SKU")),
-      h("div", { className: "stack" }, draft.filter((item) => item.counted !== item.system).length
-        ? draft.filter((item) => item.counted !== item.system).map((item) =>
+      h("div", { className: "stack" }, divergentRows.length
+        ? divergentRows.map((item) =>
           h("div", { className: "list-item", key: item.sku },
             h("strong", null, item.sku),
             h("span", null, `${item.counted - item.system > 0 ? "+" : ""}${item.counted - item.system} un.`)
@@ -1826,10 +1878,10 @@ function Counting({
         h("div", null, h("span", null, "Relatório emitido em"), h("strong", null, formatDate(printGeneratedAt)))
       ),
       h("div", { className: "count-print-totals" },
-        h("div", null, h("span", null, "SKUs"), h("strong", null, draft.length)),
-        h("div", null, h("span", null, "Saldo do sistema"), h("strong", null, totalSystem)),
-        h("div", null, h("span", null, "Total contado"), h("strong", null, totalCounted)),
-        h("div", null, h("span", null, "Itens divergentes"), h("strong", null, divergentItems))
+        h("div", null, h("span", null, "SKUs"), h("strong", null, printableDraft.length)),
+        h("div", null, h("span", null, "Saldo do sistema"), h("strong", null, printTotalSystem)),
+        h("div", null, h("span", null, "Total contado"), h("strong", null, printTotalCounted)),
+        h("div", null, h("span", null, "Itens divergentes"), h("strong", null, printDivergentItems))
       ),
       h("table", { className: "count-print-table" },
         h("thead", null,
@@ -1841,7 +1893,7 @@ function Counting({
             h("th", null, "Resultado")
           )
         ),
-        h("tbody", null, draft.map((item) => {
+        h("tbody", null, printableDraft.map((item) => {
           const difference = item.counted - item.system;
           return h("tr", { key: item.sku },
             h("td", null, item.sku),

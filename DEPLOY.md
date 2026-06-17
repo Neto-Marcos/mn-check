@@ -34,7 +34,7 @@ https://mm-check.onrender.com/api/health
 Versão esperada:
 
 ```json
-{"app":"MN - Check","version":"1.8.1"}
+{"app":"MN - Check","version":"1.8.2"}
 ```
 
 O primeiro boot cria automaticamente todas as tabelas. Uma falha de conexão impede a inicialização, evitando perda silenciosa de dados.

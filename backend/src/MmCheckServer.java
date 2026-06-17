@@ -1266,7 +1266,7 @@ public class MmCheckServer {
           "role", role,
           "label", label,
           "allowedViews", switch (role) {
-            case "admin" -> List.of("overview", "separation", "conference", "counting", "carriers", "history", "reports", "users");
+            case "admin" -> List.of("overview", "separation", "conference", "counting", "history", "users");
             case "separation" -> List.of("separation");
             case "expedition" -> List.of("conference");
             case "stock" -> List.of("counting");
