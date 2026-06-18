@@ -597,11 +597,14 @@ public class MmCheckServer {
           Map<String, Object> body = readJson(exchange);
           String code = digits(string(body.get("code")));
           if (code.isBlank()) throw new ApiException(400, "CÃ³digo de barras invÃ¡lido.");
-          MapItem item = map.items.stream()
+          List<MapItem> matchingItems = map.items.stream()
               .filter(entry -> digits(entry.barcode).equals(code) || digits(entry.sku).equals(code))
+              .toList();
+          if (matchingItems.isEmpty()) throw new ApiException(422, "Produto não pertence a este mapa.");
+          MapItem item = matchingItems.stream()
+              .filter(entry -> entry.checkedQuantity < entry.quantity)
               .findFirst()
-              .orElseThrow(() -> new ApiException(422, "Produto nÃ£o pertence a este mapa."));
-          if (item.checkedQuantity >= item.quantity) throw new ApiException(409, "A quantidade deste produto jÃ¡ foi conferida.");
+              .orElseThrow(() -> new ApiException(409, "A quantidade deste produto já foi conferida."));
           item.checkedQuantity++;
           map.status = "conferencia";
           PostgresDatabase.ConferenceSession conferenceSession = relationalDatabase.saveConferenceProgress(
@@ -627,11 +630,14 @@ public class MmCheckServer {
           Map<String, Object> body = readJson(exchange);
           String code = digits(string(body.get("code")));
           if (code.isBlank()) throw new ApiException(400, "Código de barras inválido.");
-          MapItem item = map.items.stream()
+          List<MapItem> matchingItems = map.items.stream()
               .filter(entry -> digits(entry.barcode).equals(code) || digits(entry.sku).equals(code))
+              .toList();
+          if (matchingItems.isEmpty()) throw new ApiException(422, "Produto não pertence a este mapa.");
+          MapItem item = matchingItems.stream()
+              .filter(entry -> entry.checkedQuantity < entry.quantity)
               .findFirst()
-              .orElseThrow(() -> new ApiException(422, "Produto não pertence a este mapa."));
-          if (item.checkedQuantity >= item.quantity) throw new ApiException(409, "A quantidade deste produto já foi separada.");
+              .orElseThrow(() -> new ApiException(409, "A quantidade deste produto já foi separada."));
           item.checkedQuantity++;
           item.ok = item.checkedQuantity >= item.quantity;
           db.recordHistory(user, "separation_scan", "Mapa " + map.id + ": código " + code + " separado");
