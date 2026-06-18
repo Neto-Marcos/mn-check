@@ -79,7 +79,12 @@ public class ScannerController {
 
     Map<String, Object> legacyResult = Map.of();
     if (validation.approved()) {
-      legacyResult = registerApprovedScan(authorization, request.mapId(), validation.expected().digits());
+      legacyResult = registerApprovedScan(
+          authorization,
+          request.mapId(),
+          validation.expected().digits(),
+          request.stage()
+      );
     }
 
     PostgresDatabase.ScanHistoryEntry saved = database.saveScanHistory(
@@ -135,12 +140,14 @@ public class ScannerController {
   private Map<String, Object> registerApprovedScan(
       String authorization,
       String mapId,
-      String digits
+      String digits,
+      String stage
   ) throws Exception {
     String payload = "{\"code\":\"" + digits + "\"}";
+    String action = "separation".equalsIgnoreCase(stage) ? "separation-scan" : "scan";
     HttpRequest.Builder builder = HttpRequest.newBuilder()
         .uri(URI.create("http://127.0.0.1:" + MnCheckApplication.LEGACY_PORT
-            + "/api/maps/" + mapId + "/scan"))
+            + "/api/maps/" + mapId + "/" + action))
         .timeout(Duration.ofSeconds(10))
         .header("Content-Type", "application/json");
     if (authorization != null && !authorization.isBlank()) {
@@ -249,7 +256,8 @@ public class ScannerController {
       String expectedCode,
       String scannedCode,
       String operator,
-      String source
+      String source,
+      String stage
   ) {}
 
   private record ExpectedItem(String sku, String name) {}

@@ -619,12 +619,36 @@ public class MmCheckServer {
               "conferenceSession", conferenceSession.toMap()
           ));
           return;
+        } else if ("separation-scan".equals(action)) {
+          if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!"separacao".equals(map.status)) {
+            throw new ApiException(403, "O mapa não está disponível para separação.");
+          }
+          Map<String, Object> body = readJson(exchange);
+          String code = digits(string(body.get("code")));
+          if (code.isBlank()) throw new ApiException(400, "Código de barras inválido.");
+          MapItem item = map.items.stream()
+              .filter(entry -> digits(entry.barcode).equals(code) || digits(entry.sku).equals(code))
+              .findFirst()
+              .orElseThrow(() -> new ApiException(422, "Produto não pertence a este mapa."));
+          if (item.checkedQuantity >= item.quantity) throw new ApiException(409, "A quantidade deste produto já foi separada.");
+          item.checkedQuantity++;
+          item.ok = item.checkedQuantity >= item.quantity;
+          db.recordHistory(user, "separation_scan", "Mapa " + map.id + ": código " + code + " separado");
+          db.save();
+          json(exchange, 200, Map.of(
+              "item", item.toMap(),
+              "allChecked", map.items.stream().allMatch(entry -> entry.checkedQuantity >= entry.quantity)
+          ));
+          return;
         } else if ("send-conference".equals(action)) {
-          if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
-          if (!map.items.stream().allMatch(item -> item.ok)) throw new ApiException(400, "Todos os itens precisam estar ok.");
+          if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!map.items.stream().allMatch(item -> item.checkedQuantity >= item.quantity)) {
+            throw new ApiException(400, "Leia todas as unidades no coletor antes de enviar para conferência.");
+          }
           map.status = "aguardando conferencia";
           map.items.forEach(item -> item.checkedQuantity = 0);
-          db.recordHistory(user, "send_conference", "Mapa " + map.id + " enviado para conferÃªncia");
+          db.recordHistory(user, "send_conference", "Mapa " + map.id + " enviado para conferência");
         } else if ("pause-conference".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
           if (!List.of("aguardando conferencia", "conferencia").contains(map.status)) {

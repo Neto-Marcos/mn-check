@@ -21,6 +21,7 @@ import {
   APP_VERSION,
   BOTTOM_NAV_PRIORITY,
   MAP_FILE_ACCEPT,
+  MAP_FILE_TYPES,
   OFFLINE_BOOTSTRAP,
   OFFLINE_COUNT_DRAFT,
   OFFLINE_SCAN_QUEUE,
@@ -123,7 +124,7 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=191").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=192").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -376,43 +377,7 @@ function App() {
   }
 
   async function uploadMapFile(event) {
-    return uploadMapFilesForReview(event);
-    const files = Array.from(event.target.files || []);
-    event.target.value = "";
-    if (!files.length) return;
-
-    const contentType = mapContentType(file);
-    if (!MAP_FILE_TYPES.has(contentType)) {
-      notify("Use PDF, PNG, JPG, JPEG, WebP, HEIC ou HEIF.");
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      notify("Arquivo muito grande. Use até 10 MB neste MVP.");
-      return;
-    }
-
-    try {
-      setMapImporting(true);
-      const dataUrl = await readFileAsDataUrl(file);
-      await request("/api/maps/upload", {
-        method: "POST",
-        body: {
-          fileName: file.name,
-          contentType,
-          dataUrl,
-          mapNumber: mapUploadMetadataRef.current.mapNumber,
-          orderNumbers: mapUploadMetadataRef.current.orderNumbers,
-        },
-      });
-      mapUploadMetadataRef.current = { mapNumber: "", orderNumbers: [] };
-      setMapImportOpen(false);
-      await refresh("Mapa lido pela IA e enviado para separação.", "separation");
-    } catch (error) {
-      notify(error.message);
-    } finally {
-      setMapImporting(false);
-    }
+    await uploadMapFilesForReview(event);
   }
 
   async function uploadMapFilesForReview(event) {
@@ -435,6 +400,7 @@ function App() {
       setMapDraftFiles(uploadFiles);
       const response = await request("/api/maps/analyze", {
         method: "POST",
+        timeout: 180000,
         body: {
           files: uploadFiles,
           mapNumber: mapUploadMetadataRef.current.mapNumber,
@@ -541,6 +507,22 @@ function App() {
       notify(error.message);
       throw error;
     }
+  }
+
+  async function scanSeparationBarcode(mapId, code, expectedCode, source) {
+    const result = await request("/api/scanner/validate", {
+      method: "POST",
+      body: {
+        mapId,
+        expectedCode,
+        scannedCode: code,
+        operator: user?.name || user?.username || "Operador",
+        source,
+        stage: "separation"
+      },
+    });
+    await refresh(null, "separation");
+    return result;
   }
 
   async function syncOfflineScans() {
@@ -732,7 +714,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=191", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=192", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -786,7 +768,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=191", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=192", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -890,6 +872,7 @@ function App() {
       view === "separation" && h(Separation, {
         maps: data.maps,
         onToggle: toggleItem,
+        onScan: scanSeparationBarcode,
         onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferência."),
         onDelete: deleteMap
       }),
@@ -1172,6 +1155,20 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
     onCamera(values);
   }
 
+  function useFile() {
+    const values = metadata();
+    if (!values.mapNumber) {
+      setError("Informe o número do mapa.");
+      return;
+    }
+    if (!values.orderNumbers.length) {
+      setError("Informe pelo menos um número de pedido.");
+      return;
+    }
+    setError("");
+    onFile(values);
+  }
+
   if (reviewDraft) {
     return h("div", { className: "modal-backdrop", role: "presentation", onMouseDown: onClose },
       h("section", {
@@ -1286,7 +1283,7 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
           h("strong", null, "Câmera"),
           h("span", null, "Usa os números informados e lê somente os itens da foto")
         ),
-        h("button", { className: "map-source-option", disabled: busy, onClick: () => onFile(metadata()) },
+        h("button", { className: "map-source-option", disabled: busy, onClick: useFile },
           h("strong", null, "Arquivo ou imagem"),
           h("span", null, "PDF, PNG, JPG, WebP, HEIC ou HEIF")
         )
@@ -1478,13 +1475,13 @@ function Overview({ data }) {
   );
 }
 
-function Separation({ maps, onToggle, onSend, onDelete }) {
+function Separation({ maps, onToggle, onScan, onSend, onDelete }) {
   const separationMaps = maps.filter((map) => map.status === "separacao");
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Separação de mapas"), h("span", null, "marque os itens separados")),
+      h("div", { className: "panel-header" }, h("h3", null, "Separação de mapas"), h("span", null, "leia as unidades com o coletor")),
       h("div", { className: "stack" }, separationMaps.length
-        ? separationMaps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend, onDelete }))
+        ? separationMaps.map((map) => h(MapCard, { key: map.id, map, onToggle, onScan, onSend, onDelete }))
         : empty("Nenhum mapa em separação."))
     ),
     h(QueueSummary, { maps: separationMaps, mode: "separation" })
@@ -2179,14 +2176,18 @@ function History({ data }) {
   );
 }
 
-function MapCard({ map, onToggle, onSend, onDelete }) {
+function MapCard({ map, onToggle, onScan, onSend, onDelete }) {
   const editable = map.status === "separacao";
-  return h("article", { className: "order-card" },
+  const totalQuantity = map.items.reduce((sum, item) => sum + item.quantity, 0);
+  const checkedQuantity = map.items.reduce((sum, item) => sum + Math.min(item.quantity, item.checkedQuantity || 0), 0);
+  const allSeparated = totalQuantity > 0 && checkedQuantity >= totalQuantity;
+
+  return h("article", { className: "order-card conference-card separation-card" },
     h("div", { className: "order-head" },
       h("div", { className: "order-title" },
         h("strong", null, `Mapa ${map.id}`),
         h("span", null, map.client),
-        h("small", null, `Rota ${map.route}`)
+        h("small", null, `Rota ${map.route} - ${plural(map.items.length, "produto", "produtos")}`)
       ),
       h("div", { className: `status-pill ${statusClass(map.status)}` }, status(map.status))
     ),
@@ -2195,31 +2196,211 @@ function MapCard({ map, onToggle, onSend, onDelete }) {
       h("strong", null, "Pedidos"),
       h("span", null, map.orderNumbers.join(", "))
     ),
-    h("div", { className: "item-checks" }, map.items.map((item) =>
-      h("label", { className: "check-line", key: item.sku },
-        h("input", { type: "checkbox", checked: item.ok, disabled: !editable, onChange: (event) => onToggle(map.id, item.sku, event.target.checked) }),
-        `${item.sku} - ${item.quantity} un. - ${item.name}`
-      )
-    )),
-    h("div", { className: "order-actions" },
-      editable
-        ? [
-            h("button", {
-              className: "primary-action compact",
-              key: "send",
-              onClick: () => onSend(map.id)
-            }, "Enviar para conferência"),
-            h("button", {
-              className: "danger-action",
-              key: "delete",
-              onClick: () => onDelete(map)
-            }, "Apagar mapa")
-          ]
-        : h("span", { className: "status-note" }, "Mapa mantido no histórico desta tela.")
-    )
+    editable && h(SeparationScanner, { map, onScan, onSend, onDelete, allSeparated }),
+    !editable && h("span", { className: "status-note" }, "Mapa mantido no histórico desta tela.")
   );
 }
 
+function SeparationScanner({ map, onScan, onSend, onDelete, allSeparated }) {
+  const [manualCode, setManualCode] = React.useState("");
+  const [result, setResult] = React.useState(null);
+  const [validating, setValidating] = React.useState(false);
+  const [history, setHistory] = React.useState([]);
+  const [lastCode, setLastCode] = React.useState("");
+  const codeInputRef = React.useRef(null);
+  const lastScanRef = React.useRef({ code: "", at: 0 });
+  const manualStartedAtRef = React.useRef(0);
+  const validatingRef = React.useRef(false);
+  const physicalScannerRef = React.useRef({ value: "", lastKeyAt: 0 });
+  const totalQuantity = map.items.reduce((sum, item) => sum + item.quantity, 0);
+  const checkedQuantity = map.items.reduce((sum, item) => sum + Math.min(item.quantity, item.checkedQuantity || 0), 0);
+  const remainingQuantity = Math.max(0, totalQuantity - checkedQuantity);
+  const expectedItem = map.items.find((item) => (item.checkedQuantity || 0) < item.quantity) || map.items[map.items.length - 1];
+
+  React.useEffect(() => {
+    let active = true;
+    authorizedJson(`/api/scanner/history?mapId=${encodeURIComponent(map.id)}&limit=20`)
+      .then((body) => {
+        if (!active) return;
+        setHistory((body.history || []).map((entry) => ({
+          code: entry.scanned,
+          name: entry.reason,
+          ok: entry.approved,
+          source: entry.source,
+          at: entry.at
+        })));
+      })
+      .catch(() => {});
+    const focusTimer = window.setTimeout(() => codeInputRef.current?.focus(), 180);
+    function capturePhysicalScanner(event) {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName)) return;
+      const current = physicalScannerRef.current;
+      const now = Date.now();
+      if (now - current.lastKeyAt > 250) current.value = "";
+      current.lastKeyAt = now;
+      if (event.key === "Enter") {
+        if (current.value.replace(/\D/g, "").length === 7) {
+          event.preventDefault();
+          validate(current.value, "scanner");
+        }
+        current.value = "";
+        return;
+      }
+      if (/^[\d .-]$/.test(event.key)) current.value += event.key;
+    }
+    document.addEventListener("keydown", capturePhysicalScanner);
+    return () => {
+      active = false;
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", capturePhysicalScanner);
+    };
+  }, [map.id, checkedQuantity]);
+
+  async function validate(code, source = "manual") {
+    const cleanCode = String(code || "").replace(/\D/g, "");
+    if (!cleanCode || validatingRef.current) {
+      if (!cleanCode) setResult({ type: "error", title: "Código obrigatório", text: "Digite ou escaneie um código para validar." });
+      return;
+    }
+    if (!expectedItem || allSeparated) return;
+    const now = Date.now();
+    if (lastScanRef.current.code === cleanCode && now - lastScanRef.current.at < 1000) return;
+    lastScanRef.current = { code: cleanCode, at: now };
+    validatingRef.current = true;
+    setValidating(true);
+    setLastCode(cleanCode);
+    try {
+      const response = await onScan(map.id, cleanCode, expectedItem.sku, source);
+      const approved = Boolean(response.approved);
+      setResult({
+        type: approved ? "success" : "error",
+        title: approved ? (response.allChecked ? "Separação concluída" : "APROVADO") : "BLOQUEADO",
+        text: approved
+          ? (response.allChecked ? "Todas as unidades foram lidas. Envie para conferência." : `${response.item.name}: ${response.item.checkedQuantity}/${response.item.quantity} unidades.`)
+          : response.reason
+      });
+      setHistory((current) => [{
+        code: response.scanned || cleanCode,
+        name: approved ? response.reason : `${response.reason} - esperado ${response.expected}`,
+        ok: approved,
+        source,
+        at: response.at || new Date().toISOString(),
+      }, ...current].slice(0, 20));
+      setManualCode("");
+      playFeedback(approved);
+      window.setTimeout(() => codeInputRef.current?.focus(), 80);
+    } catch (error) {
+      setResult({ type: "error", title: "Código não confere", text: error.message });
+      setHistory((current) => [{
+        code: cleanCode,
+        name: error.message,
+        ok: false,
+        source,
+        at: new Date().toISOString(),
+      }, ...current].slice(0, 20));
+      playFeedback(false);
+    } finally {
+      validatingRef.current = false;
+      setValidating(false);
+    }
+  }
+
+  const resultTitle = allSeparated ? "Separação concluída" : result?.title || "Aguardando leitura";
+  const resultType = allSeparated ? "success" : result?.type || "waiting";
+
+  return h("div", { className: "conference-flow separation-flow" },
+    h("section", { className: "conference-step scan-step" },
+      h("div", { className: "conference-step-title" },
+        h("span", null, "1"),
+        h("div", null,
+          h("strong", null, "Leitura da separação"),
+          h("small", null, "Use o coletor/bipador para separar unidade por unidade")
+        )
+      ),
+      h("div", { className: "manual-validation" },
+        h("input", {
+          ref: codeInputRef,
+          inputMode: "numeric",
+          autoFocus: true,
+          autoComplete: "off",
+          enterKeyHint: "done",
+          spellCheck: false,
+          placeholder: "Bipe com o coletor ou digite o código",
+          value: manualCode,
+          disabled: allSeparated || validating,
+          onChange: (event) => {
+            if (!manualCode) manualStartedAtRef.current = Date.now();
+            setManualCode(event.target.value);
+          },
+          onKeyDown: (event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            const elapsed = Date.now() - manualStartedAtRef.current;
+            validate(manualCode, elapsed < 1800 ? "scanner" : "manual");
+          }
+        }),
+        h("button", {
+          className: "primary-action",
+          disabled: allSeparated || validating || !manualCode.replace(/\D/g, ""),
+          onClick: () => validate(manualCode, "manual")
+        }, validating ? "Validando..." : "Validar")
+      ),
+      h("p", { className: "scanner-help" }, "O coletor funciona como teclado: bipar a etiqueta preenche o código e envia com Enter.")
+    ),
+    h("section", { className: "conference-step result-step" },
+      h("div", { className: "conference-step-title" },
+        h("span", null, "2"),
+        h("div", null,
+          h("strong", null, "Resultado da separação"),
+          h("small", null, `${checkedQuantity} de ${totalQuantity} unidades separadas`)
+        )
+      ),
+      h("div", { className: `conference-result ${resultType}` },
+        h("strong", null, resultTitle),
+        h("span", null, allSeparated ? "Tudo pronto para enviar" : result?.text || "Bipe a próxima etiqueta para continuar.")
+      ),
+      h("div", { className: "conference-progress" },
+        h("div", { style: { width: `${totalQuantity ? Math.round((checkedQuantity / totalQuantity) * 100) : 0}%` } })
+      ),
+      expectedItem && h("div", { className: "expected-details" },
+        detailRow(allSeparated ? "Último código esperado" : "Próximo código esperado", normalizeProductCode(expectedItem.sku)),
+        detailRow("Produto", expectedItem.name),
+        detailRow("SKU", expectedItem.sku),
+        detailRow("Voltagem esperada", voltageFromSku(expectedItem.sku)),
+        detailRow("Quantidade", `${expectedItem.checkedQuantity || 0}/${expectedItem.quantity}`),
+        detailRow("Produto lido", lastCode ? normalizeProductCode(lastCode) : "---")
+      ),
+      h("div", { className: "conference-final-actions" },
+        h("button", {
+          className: "primary-action finish-conference",
+          disabled: !allSeparated,
+          onClick: () => onSend(map.id)
+        }, allSeparated ? "Enviar para conferência" : `Faltam ${remainingQuantity} unidades`),
+        h("button", { className: "danger-action", onClick: () => onDelete(map) }, "Apagar mapa")
+      )
+    ),
+    h("section", { className: "conference-step history-step" },
+      h("div", { className: "conference-step-title simple" },
+        h("div", null,
+          h("strong", null, "Histórico"),
+          h("small", null, `${history.length} leituras registradas`)
+        )
+      ),
+      history.length
+        ? h("div", { className: "scan-history" }, history.map((entry, index) =>
+            h("div", { className: entry.ok ? "success" : "error", key: `${entry.at}-${index}` },
+              h("span", null, entry.ok ? "OK" : "!"),
+              h("div", null,
+                h("strong", null, entry.code),
+                h("small", null, `${entry.name} - ${scanSourceLabel(entry.source)}`)
+              ),
+              h("time", null, new Date(entry.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }))
+            )
+          ))
+        : h("p", { className: "empty-history" }, "Nenhuma separação realizada ainda.")
+    )
+  );
+}
 function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, onPause, onResume, onCancel }) {
   const [cancelOpen, setCancelOpen] = React.useState(false);
   const actionable = ["aguardando conferencia", "conferencia"].includes(map.status);
@@ -2583,10 +2764,10 @@ function QueueSummary({ maps, mode }) {
     queue.length
       ? h("div", { className: "queue-list" }, queue.map((map) => {
           const checked = mode === "separation"
-            ? map.items.filter((item) => item.ok).length
+            ? map.items.reduce((sum, item) => sum + Math.min(item.quantity, item.checkedQuantity || 0), 0)
             : map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
           const total = mode === "separation"
-            ? map.items.length
+            ? map.items.reduce((sum, item) => sum + item.quantity, 0)
             : map.items.reduce((sum, item) => sum + item.quantity, 0);
           const percent = total ? Math.round((checked / total) * 100) : 0;
           return h("div", { className: `queue-item ${map.status === "corrigir problema" ? "urgent" : ""}`, key: map.id },
@@ -2634,7 +2815,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=191", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=192", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),
