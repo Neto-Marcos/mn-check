@@ -59,18 +59,21 @@ export function scanSourceLabel(source) {
 }
 
 export function playFeedback(success) {
-  if (navigator.vibrate) navigator.vibrate(success ? 90 : [80, 50, 80]);
+  if (navigator.vibrate) navigator.vibrate(success ? 110 : [120, 70, 120, 70, 160]);
   try {
     const context = new (window.AudioContext || window.webkitAudioContext)();
+    const resume = context.resume?.();
+    resume?.catch?.(() => {});
     const now = context.currentTime;
     const tones = success
       ? [
-          { start: 0, frequency: 880, duration: 0.09 },
-          { start: 0.12, frequency: 1175, duration: 0.11 },
+          { start: 0, frequency: 1046, duration: 0.1 },
+          { start: 0.13, frequency: 1318, duration: 0.12 },
         ]
       : [
-          { start: 0, frequency: 220, duration: 0.18 },
-          { start: 0.2, frequency: 165, duration: 0.22 },
+          { start: 0, frequency: 260, duration: 0.16 },
+          { start: 0.18, frequency: 180, duration: 0.18 },
+          { start: 0.38, frequency: 120, duration: 0.24 },
         ];
 
     tones.forEach((tone) => {
@@ -81,14 +84,14 @@ export function playFeedback(success) {
       oscillator.type = success ? "sine" : "square";
       oscillator.frequency.setValueAtTime(tone.frequency, startAt);
       gain.gain.setValueAtTime(0.0001, startAt);
-      gain.gain.exponentialRampToValueAtTime(success ? 0.08 : 0.06, startAt + 0.015);
+      gain.gain.exponentialRampToValueAtTime(success ? 0.22 : 0.28, startAt + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start(startAt);
       oscillator.stop(endAt + 0.02);
     });
-    window.setTimeout(() => context.close?.(), success ? 320 : 520);
+    window.setTimeout(() => context.close?.(), success ? 360 : 820);
   } catch (_) {}
 }
 

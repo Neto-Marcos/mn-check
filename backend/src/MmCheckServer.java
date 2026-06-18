@@ -596,28 +596,23 @@ public class MmCheckServer {
           }
           Map<String, Object> body = readJson(exchange);
           String code = digits(string(body.get("code")));
-          if (code.isBlank()) throw new ApiException(400, "CÃ³digo de barras invÃ¡lido.");
-          List<MapItem> matchingItems = map.items.stream()
-              .filter(entry -> digits(entry.barcode).equals(code) || digits(entry.sku).equals(code))
-              .toList();
-          if (matchingItems.isEmpty()) throw new ApiException(422, "Produto não pertence a este mapa.");
-          MapItem item = matchingItems.stream()
-              .filter(entry -> entry.checkedQuantity < entry.quantity)
-              .findFirst()
-              .orElseThrow(() -> new ApiException(409, "A quantidade deste produto já foi conferida."));
+          String lineId = string(body.get("lineId"));
+          if (code.isBlank()) throw new ApiException(400, "Codigo de barras invalido.");
+          MapItem item = findPendingScanItem(map, lineId, code, "conferida");
           item.checkedQuantity++;
+          String itemLineId = lineIdFor(map, item);
           map.status = "conferencia";
           PostgresDatabase.ConferenceSession conferenceSession = relationalDatabase.saveConferenceProgress(
               map.id,
               user.name,
-              item.sku,
+              progressKey(itemLineId, item.sku),
               item.checkedQuantity,
               item.quantity
           );
           db.recordHistory(user, "scan_item", "Mapa " + map.id + ": cÃ³digo " + code + " conferido");
           db.save();
           json(exchange, 200, Map.of(
-              "item", item.toMap(),
+              "item", item.toMap(itemLineId),
               "allChecked", map.items.stream().allMatch(entry -> entry.checkedQuantity >= entry.quantity),
               "conferenceSession", conferenceSession.toMap()
           ));
@@ -629,21 +624,16 @@ public class MmCheckServer {
           }
           Map<String, Object> body = readJson(exchange);
           String code = digits(string(body.get("code")));
-          if (code.isBlank()) throw new ApiException(400, "Código de barras inválido.");
-          List<MapItem> matchingItems = map.items.stream()
-              .filter(entry -> digits(entry.barcode).equals(code) || digits(entry.sku).equals(code))
-              .toList();
-          if (matchingItems.isEmpty()) throw new ApiException(422, "Produto não pertence a este mapa.");
-          MapItem item = matchingItems.stream()
-              .filter(entry -> entry.checkedQuantity < entry.quantity)
-              .findFirst()
-              .orElseThrow(() -> new ApiException(409, "A quantidade deste produto já foi separada."));
+          String lineId = string(body.get("lineId"));
+          if (code.isBlank()) throw new ApiException(400, "Codigo de barras invalido.");
+          MapItem item = findPendingScanItem(map, lineId, code, "separada");
           item.checkedQuantity++;
           item.ok = item.checkedQuantity >= item.quantity;
+          String itemLineId = lineIdFor(map, item);
           db.recordHistory(user, "separation_scan", "Mapa " + map.id + ": código " + code + " separado");
           db.save();
           json(exchange, 200, Map.of(
-              "item", item.toMap(),
+              "item", item.toMap(itemLineId),
               "allChecked", map.items.stream().allMatch(entry -> entry.checkedQuantity >= entry.quantity)
           ));
           return;
@@ -775,13 +765,62 @@ public class MmCheckServer {
       PostgresDatabase.ConferenceSession session
   ) {
     if (session == null) return;
-    Map<String, Integer> checkedBySku = new LinkedHashMap<>();
-    session.items().forEach(item -> checkedBySku.put(item.sku(), item.checkedQuantity()));
-    map.items.forEach(item -> {
-      if (checkedBySku.containsKey(item.sku)) {
-        item.checkedQuantity = Math.min(item.quantity, checkedBySku.get(item.sku));
+    Map<String, Integer> checkedByLine = new LinkedHashMap<>();
+    session.items().forEach(item -> checkedByLine.put(item.sku(), item.checkedQuantity()));
+    for (int index = 0; index < map.items.size(); index++) {
+      MapItem item = map.items.get(index);
+      String lineId = lineIdFor(index);
+      String lineKey = progressKey(lineId, item.sku);
+      if (checkedByLine.containsKey(lineKey)) {
+        item.checkedQuantity = Math.min(item.quantity, checkedByLine.get(lineKey));
+      } else if (checkedByLine.containsKey(item.sku)) {
+        item.checkedQuantity = Math.min(item.quantity, checkedByLine.get(item.sku));
       }
-    });
+    }
+  }
+
+  private static MapItem findPendingScanItem(CargoMap map, String lineId, String code, String completedLabel) {
+    if (!lineId.isBlank()) {
+      MapItem lineItem = itemByLineId(map, lineId);
+      if (lineItem == null) throw new ApiException(422, "Linha do mapa nao encontrada.");
+      if (!matchesCode(lineItem, code)) throw new ApiException(422, "Produto nao pertence a esta linha do mapa.");
+      if (lineItem.checkedQuantity >= lineItem.quantity) {
+        throw new ApiException(409, "A quantidade deste produto ja foi " + completedLabel + ".");
+      }
+      return lineItem;
+    }
+    List<MapItem> matchingItems = map.items.stream()
+        .filter(entry -> matchesCode(entry, code))
+        .toList();
+    if (matchingItems.isEmpty()) throw new ApiException(422, "Produto nao pertence a este mapa.");
+    return matchingItems.stream()
+        .filter(entry -> entry.checkedQuantity < entry.quantity)
+        .findFirst()
+        .orElseThrow(() -> new ApiException(409, "A quantidade deste produto ja foi " + completedLabel + "."));
+  }
+
+  private static boolean matchesCode(MapItem item, String code) {
+    return digits(item.barcode).equals(code) || digits(item.sku).equals(code);
+  }
+
+  private static MapItem itemByLineId(CargoMap map, String lineId) {
+    for (int index = 0; index < map.items.size(); index++) {
+      if (lineIdFor(index).equals(lineId)) return map.items.get(index);
+    }
+    return null;
+  }
+
+  private static String lineIdFor(CargoMap map, MapItem item) {
+    int index = map.items.indexOf(item);
+    return lineIdFor(Math.max(0, index));
+  }
+
+  private static String lineIdFor(int index) {
+    return "line-" + index;
+  }
+
+  private static String progressKey(String lineId, String sku) {
+    return lineId + "|" + sku;
   }
 
   private static Map<String, Object> countData() {
@@ -1498,7 +1537,11 @@ public class MmCheckServer {
       map.put("attachmentName", attachmentName == null ? "" : attachmentName);
       map.put("attachmentType", attachmentType == null ? "" : attachmentType);
       map.put("attachmentPath", attachmentPath == null ? "" : attachmentPath);
-      map.put("items", items.stream().map(MapItem::toMap).toList());
+      List<Map<String, Object>> visibleItems = new ArrayList<>();
+      for (int index = 0; index < items.size(); index++) {
+        visibleItems.add(items.get(index).toMap(lineIdFor(index)));
+      }
+      map.put("items", visibleItems);
       return map;
     }
 
@@ -1541,7 +1584,12 @@ public class MmCheckServer {
     }
 
     Map<String, Object> toMap() {
+      return toMap("");
+    }
+
+    Map<String, Object> toMap(String lineId) {
       return Map.of(
+          "lineId", lineId,
           "sku", sku,
           "name", name,
           "barcode", barcode,

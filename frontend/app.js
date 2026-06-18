@@ -124,7 +124,7 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=193").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=194").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -467,7 +467,7 @@ function App() {
     }
   }
 
-  async function scanBarcode(mapId, code, expectedCode, source) {
+  async function scanBarcode(mapId, code, expectedCode, source, lineId) {
     try {
       const result = await request("/api/scanner/validate", {
         method: "POST",
@@ -476,7 +476,8 @@ function App() {
           expectedCode,
           scannedCode: code,
           operator: user?.name || user?.username || "Operador",
-          source
+          source,
+          lineId
         },
       });
       if (result.approved) await refresh(null, "conference");
@@ -492,6 +493,7 @@ function App() {
           scannedCode: code,
           operator: user?.name || user?.username || "Operador",
           source,
+          lineId,
           approved: local.approved,
           at: new Date().toISOString()
         });
@@ -509,7 +511,7 @@ function App() {
     }
   }
 
-  async function scanSeparationBarcode(mapId, code, expectedCode, source) {
+  async function scanSeparationBarcode(mapId, code, expectedCode, source, lineId) {
     const result = await request("/api/scanner/validate", {
       method: "POST",
       body: {
@@ -518,6 +520,7 @@ function App() {
         scannedCode: code,
         operator: user?.name || user?.username || "Operador",
         source,
+        lineId,
         stage: "separation"
       },
     });
@@ -714,7 +717,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=193", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=194", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -768,7 +771,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=193", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=194", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -2270,7 +2273,7 @@ function SeparationScanner({ map, onScan, onSend, onDelete, allSeparated }) {
     setValidating(true);
     setLastCode(cleanCode);
     try {
-      const response = await onScan(map.id, cleanCode, expectedItem.sku, source);
+      const response = await onScan(map.id, cleanCode, expectedItem.sku, source, expectedItem.lineId);
       const approved = Boolean(response.approved);
       setResult({
         type: approved ? "success" : "error",
@@ -2564,7 +2567,7 @@ function BarcodeScanner({
     setValidating(true);
     setLastCode(cleanCode);
     try {
-      const response = await onScan(map.id, cleanCode, currentExpected.sku, source);
+      const response = await onScan(map.id, cleanCode, currentExpected.sku, source, currentExpected.lineId);
       const approved = Boolean(response.approved);
       const completedOffline = response.offline && approved && remainingQuantity <= 1;
       if (response.offline && approved) setOfflineProgress((current) => current + 1);
@@ -2815,7 +2818,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=193", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=194", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),

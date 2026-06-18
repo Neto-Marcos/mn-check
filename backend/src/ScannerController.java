@@ -49,7 +49,7 @@ public class ScannerController {
       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
       @RequestBody ScanRequest request
   ) throws Exception {
-    ExpectedItem expectedItem = loadExpectedItem(authorization, request.mapId());
+    ExpectedItem expectedItem = loadExpectedItem(authorization, request.mapId(), request.lineId(), request.expectedCode());
     BarcodeValidationService.ValidationResult validation;
     try {
       validation = validationService.validate(expectedItem.sku(), request.scannedCode());
@@ -83,7 +83,8 @@ public class ScannerController {
           authorization,
           request.mapId(),
           validation.expected().digits(),
-          request.stage()
+          request.stage(),
+          expectedItem.lineId()
       );
     }
 
@@ -141,9 +142,13 @@ public class ScannerController {
       String authorization,
       String mapId,
       String digits,
-      String stage
+      String stage,
+      String lineId
   ) throws Exception {
-    String payload = "{\"code\":\"" + digits + "\"}";
+    Map<String, Object> requestBody = new LinkedHashMap<>();
+    requestBody.put("code", digits);
+    if (lineId != null && !lineId.isBlank()) requestBody.put("lineId", lineId);
+    String payload = objectMapper.writeValueAsString(requestBody);
     String action = "separation".equalsIgnoreCase(stage) ? "separation-scan" : "scan";
     HttpRequest.Builder builder = HttpRequest.newBuilder()
         .uri(URI.create("http://127.0.0.1:" + MnCheckApplication.LEGACY_PORT
@@ -169,7 +174,7 @@ public class ScannerController {
     return body;
   }
 
-  private ExpectedItem loadExpectedItem(String authorization, String mapId) throws Exception {
+  private ExpectedItem loadExpectedItem(String authorization, String mapId, String lineId, String expectedCode) throws Exception {
     Map<String, Object> bootstrap = loadBootstrap(authorization);
     List<Map<String, Object>> maps = objectMapper.convertValue(
         bootstrap.getOrDefault("maps", List.of()),
@@ -183,14 +188,42 @@ public class ScannerController {
         map.getOrDefault("items", List.of()),
         new TypeReference<List<Map<String, Object>>>() {}
     );
+    if (lineId != null && !lineId.isBlank()) {
+      Map<String, Object> lineItem = items.stream()
+          .filter(item -> matchesLine(item, lineId))
+          .findFirst()
+          .orElseThrow(() -> new ScannerApiException(422, "Linha do mapa nao encontrada."));
+      return new ExpectedItem(
+          String.valueOf(lineItem.getOrDefault("lineId", "")),
+          String.valueOf(lineItem.getOrDefault("sku", "")),
+          String.valueOf(lineItem.getOrDefault("name", "Produto"))
+      );
+    }
     Map<String, Object> pending = items.stream()
+        .filter(item -> matchesExpectedCode(item, expectedCode))
         .filter(item -> integer(item.get("checkedQuantity")) < integer(item.get("quantity")))
         .findFirst()
-        .orElseThrow(() -> new ScannerApiException(409, "Todos os itens deste mapa já foram conferidos."));
+        .orElseGet(() -> items.stream()
+            .filter(item -> integer(item.get("checkedQuantity")) < integer(item.get("quantity")))
+            .findFirst()
+            .orElseThrow(() -> new ScannerApiException(409, "Todos os itens deste mapa ja foram conferidos.")));
     return new ExpectedItem(
+        String.valueOf(pending.getOrDefault("lineId", "")),
         String.valueOf(pending.getOrDefault("sku", "")),
         String.valueOf(pending.getOrDefault("name", "Produto"))
     );
+  }
+
+  private boolean matchesLine(Map<String, Object> item, String lineId) {
+    return lineId != null && !lineId.isBlank() && lineId.equals(String.valueOf(item.getOrDefault("lineId", "")));
+  }
+
+  private boolean matchesExpectedCode(Map<String, Object> item, String expectedCode) {
+    if (expectedCode == null || expectedCode.isBlank()) return false;
+    String expectedDigits = expectedCode.replaceAll("\\D+", "");
+    String skuDigits = String.valueOf(item.getOrDefault("sku", "")).replaceAll("\\D+", "");
+    String barcodeDigits = String.valueOf(item.getOrDefault("barcode", "")).replaceAll("\\D+", "");
+    return !expectedDigits.isBlank() && (expectedDigits.equals(skuDigits) || expectedDigits.equals(barcodeDigits));
   }
 
   private Map<String, Object> loadBootstrap(String authorization) throws Exception {
@@ -257,10 +290,11 @@ public class ScannerController {
       String scannedCode,
       String operator,
       String source,
-      String stage
+      String stage,
+      String lineId
   ) {}
 
-  private record ExpectedItem(String sku, String name) {}
+  private record ExpectedItem(String lineId, String sku, String name) {}
 
   private static final class ScannerApiException extends RuntimeException {
     final int status;
