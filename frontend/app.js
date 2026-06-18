@@ -1,36 +1,41 @@
+import { authorizedJson, isNetworkFailure } from "./api.js";
+import { clearStoredToken, readStoredToken, storeToken } from "./auth.js";
+import { conferenceStatusLabel } from "./conferencia.js";
+import {
+  countAccounted,
+  countDifference,
+  hasCountMovement,
+  normalizeCountRows,
+  safeQuantity
+} from "./contagem.js";
+import { mapContentType, readFileAsDataUrl } from "./mapas.js";
+import {
+  normalizeInventorySku,
+  normalizeProductCode,
+  playFeedback,
+  scanSourceLabel,
+  validateBarcodeLocally,
+  voltageFromSku
+} from "./scanner.js";
+import {
+  APP_VERSION,
+  BOTTOM_NAV_PRIORITY,
+  MAP_FILE_ACCEPT,
+  OFFLINE_BOOTSTRAP,
+  OFFLINE_COUNT_DRAFT,
+  OFFLINE_SCAN_QUEUE,
+  ROLE_OPTIONS,
+  TITLES,
+  emptyData,
+  readOfflineScanQueue,
+  readStoredJson,
+  saveOfflineCountDraft
+} from "./state.js";
+import { formatDate, initials, plural, status, statusClass } from "./ui.js";
+
+const React = window.React;
+const ReactDOM = window.ReactDOM;
 const h = React.createElement;
-const APP_VERSION = "1.9.0";
-const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
-const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
-const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
-const MAP_FILE_TYPES = new Set([
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/heic",
-  "image/heif",
-]);
-const MAP_FILE_ACCEPT = "application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg,image/webp,.webp,image/heic,.heic,image/heif,.heif";
-
-const ROLE_OPTIONS = [
-  ["separation", "Conferente de separação"],
-  ["expedition", "Conferente de expedição"],
-  ["stock", "Conferente de estoque"],
-  ["admin", "Administrador"],
-];
-
-const TITLES = {
-  overview: ["painel", "Visão geral"],
-  separation: ["operação", "Separação"],
-  counting: ["estoque", "Contagem"],
-  conference: ["validação", "Conferência"],
-  history: ["admin", "Histórico"],
-  users: ["admin", "Usuários"],
-  settings: ["conta", "Configurações"],
-};
-
-const BOTTOM_NAV_PRIORITY = ["overview", "separation", "conference", "counting", "history", "settings"];
 
 const ICON_PATHS = {
   overview: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
@@ -80,7 +85,7 @@ function SystemClock() {
 }
 
 function App() {
-  const [token, setToken] = React.useState(localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "");
+  const [token, setToken] = React.useState(readStoredToken());
   const [theme, setTheme] = React.useState(() => {
     const saved = localStorage.getItem("mnCheckTheme");
     if (saved === "dark" || saved === "light") return saved;
@@ -118,7 +123,7 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=190").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=191").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -161,8 +166,7 @@ function App() {
         setView(cached.user.allowedViews?.[0] || "overview");
         return;
       }
-      localStorage.removeItem("mnCheckToken");
-      localStorage.removeItem("mmJavaToken");
+      clearStoredToken();
       setToken("");
     });
   }, []);
@@ -298,8 +302,7 @@ function App() {
     setAuthenticating(true);
     try {
       const body = await request("/api/login", { method: "POST", body: login });
-      localStorage.setItem("mnCheckToken", body.token);
-      localStorage.removeItem("mmJavaToken");
+      storeToken(body.token);
       setToken(body.token);
       setUser(body.user);
       const bootstrap = await request("/api/bootstrap", { token: body.token });
@@ -714,8 +717,7 @@ function App() {
   }
 
   function logout() {
-    localStorage.removeItem("mnCheckToken");
-    localStorage.removeItem("mmJavaToken");
+    clearStoredToken();
     setToken("");
     setUser(null);
     setData(emptyData());
@@ -730,7 +732,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=190", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=191", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -784,7 +786,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=190", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=191", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -1510,33 +1512,6 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
     ),
     h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
   );
-}
-
-function safeQuantity(value) {
-  const parsed = Number.parseInt(value || "0", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-function normalizeCountRows(rows) {
-  return (rows || []).map((item) => ({
-    ...item,
-    system: safeQuantity(item.system),
-    counted: safeQuantity(item.counted),
-    damaged: safeQuantity(item.damaged),
-    other: safeQuantity(item.other)
-  }));
-}
-
-function countAccounted(item) {
-  return safeQuantity(item.counted) + safeQuantity(item.damaged) + safeQuantity(item.other);
-}
-
-function countDifference(item) {
-  return countAccounted(item) - safeQuantity(item.system);
-}
-
-function hasCountMovement(item) {
-  return countAccounted(item) > 0;
 }
 
 function Counting({
@@ -2587,135 +2562,6 @@ function detailRow(label, value) {
   );
 }
 
-function voltageFromSku(sku) {
-  const gradeY = String(sku || "").split(".").pop();
-  return {
-    "0": "Bivolt",
-    "1": "127V",
-    "2": "220V",
-    "3": "127V",
-    "4": "Bivolt",
-  }[gradeY] || "Não informado";
-}
-
-function normalizeProductCode(value) {
-  const digits = String(value || "").replace(/\D/g, "");
-  if (digits.length !== 7) return value || "---";
-  return `${digits.slice(0, 5)}.${digits[5]}.${digits[6]}`;
-}
-
-function normalizeInventorySku(value) {
-  const cleaned = String(value || "").trim().replace(/[,/-]/g, ".");
-  if (/^\d{4,8}\.\d{1,3}\.\d{1,3}$/.test(cleaned)) return cleaned;
-  const digits = cleaned.replace(/\D/g, "");
-  if (digits.length >= 7 && digits.length <= 10) {
-    return `${digits.slice(0, -2)}.${digits.slice(-2, -1)}.${digits.slice(-1)}`;
-  }
-  return cleaned;
-}
-
-function validateBarcodeLocally(expectedValue, scannedValue) {
-  const expected = String(expectedValue || "").replace(/\D/g, "");
-  const scanned = String(scannedValue || "").replace(/\D/g, "");
-  if (expected.length !== 7 || scanned.length !== 7) {
-    return {
-      approved: false,
-      status: "BLOQUEADO",
-      reason: "O código deve conter SKU de 5 dígitos, cor e voltagem.",
-      expected: normalizeProductCode(expectedValue),
-      scanned: normalizeProductCode(scannedValue)
-    };
-  }
-  let reason = "Produto correto";
-  if (expected.slice(0, 5) !== scanned.slice(0, 5)) reason = "SKU incorreto";
-  else if (expected[5] !== scanned[5]) reason = "Cor incorreta";
-  else if (voltageGroup(expected[6]) !== voltageGroup(scanned[6])) reason = "Voltagem incorreta";
-  const approved = reason === "Produto correto";
-  return {
-    approved,
-    status: approved ? "APROVADO" : "BLOQUEADO",
-    reason,
-    expected: normalizeProductCode(expected),
-    scanned: normalizeProductCode(scanned)
-  };
-}
-
-function voltageGroup(code) {
-  if (code === "0" || code === "4") return "bivolt";
-  if (code === "1" || code === "3") return "127";
-  if (code === "2") return "220";
-  return "invalid";
-}
-
-function readStoredJson(key, fallback) {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || "null");
-    return value ?? fallback;
-  } catch (_) {
-    return fallback;
-  }
-}
-
-function readOfflineScanQueue() {
-  const queue = readStoredJson(OFFLINE_SCAN_QUEUE, []);
-  return Array.isArray(queue) ? queue : [];
-}
-
-function saveOfflineCountDraft(counts, user) {
-  localStorage.setItem(OFFLINE_COUNT_DRAFT, JSON.stringify({
-    counts,
-    operator: user?.name || user?.username || "Operador",
-    savedAt: new Date().toISOString()
-  }));
-}
-
-function isNetworkFailure(error) {
-  return !navigator.onLine
-    || error instanceof TypeError
-    || /failed to fetch|networkerror|network request failed/i.test(String(error?.message || ""));
-}
-
-function scanSourceLabel(source) {
-  return {
-    scanner: "coletor/bipador",
-    manual: "digitação manual"
-  }[source] || "leitura";
-}
-
-function initials(name) {
-  return String(name || "MN")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join("") || "MN";
-}
-
-async function authorizedJson(path) {
-  const token = localStorage.getItem("mnCheckToken") || localStorage.getItem("mmJavaToken") || "";
-  const response = await fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "Não foi possível carregar os dados.");
-  return body;
-}
-
-function playFeedback(success) {
-  if (navigator.vibrate) navigator.vibrate(success ? 90 : [80, 50, 80]);
-  try {
-    const context = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.frequency.value = success ? 880 : 220;
-    gain.gain.value = 0.05;
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + (success ? 0.12 : 0.28));
-  } catch (_) {}
-}
-
 function QueueSummary({ maps, mode }) {
   const activeStatuses = mode === "separation"
     ? ["separacao"]
@@ -2771,95 +2617,6 @@ function empty(message) {
   return h("div", { className: "list-item" }, h("strong", null, message), h("span", null, "Os registros aparecerão aqui."));
 }
 
-function status(value) {
-  return {
-    separacao: "separação",
-    "aguardando conferencia": "aguardando conferência",
-    conferencia: "conferência",
-    perfeito: "conferido",
-    conferido: "conferido",
-    "corrigir problema": "corrigir problema",
-  }[value] || value;
-}
-
-function statusClass(value) {
-  return {
-    separacao: "status-open",
-    "aguardando conferencia": "status-waiting",
-    conferencia: "status-waiting",
-    perfeito: "status-done",
-    conferido: "status-done",
-    "corrigir problema": "status-error",
-  }[value] || "";
-}
-
-function conferenceStatusLabel(value) {
-  return {
-    EM_ANDAMENTO: "Conferência em andamento",
-    PAUSADA: "Conferência pausada",
-    FINALIZADA: "Conferência finalizada",
-    CANCELADA: "Conferência cancelada"
-  }[value] || "Conferência";
-}
-
-function plural(value, singular, pluralText) {
-  return `${value} ${value === 1 ? singular : pluralText}`;
-}
-
-function formatDate(value) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(value)).replace(",", "");
-}
-
-function mapContentType(file) {
-  if (MAP_FILE_TYPES.has(file.type)) return file.type;
-  const extension = String(file.name || "").toLowerCase().split(".").pop();
-  return {
-    pdf: "application/pdf",
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    webp: "image/webp",
-    heic: "image/heic",
-    heif: "image/heif",
-  }[extension] || "";
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
-    reader.readAsDataURL(file);
-  });
-}
-
-function emptyData() {
-  return {
-    maps: [],
-    historyMaps: [],
-    users: [],
-    counts: [],
-    countsUpdatedAt: "",
-    countsSourceName: "",
-    countsImportWarnings: [],
-    countsImportMetrics: {},
-    countsImportIgnored: [],
-    balanceHistory: [],
-    inventoryMetrics: {},
-    errors: [],
-    historyEvents: [],
-    notifications: [],
-    metrics: {}
-  };
-}
-
 class AppErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -2877,7 +2634,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=190", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=191", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),
