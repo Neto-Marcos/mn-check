@@ -62,14 +62,33 @@ export function playFeedback(success) {
   if (navigator.vibrate) navigator.vibrate(success ? 90 : [80, 50, 80]);
   try {
     const context = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.frequency.value = success ? 880 : 220;
-    gain.gain.value = 0.05;
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + (success ? 0.12 : 0.28));
+    const now = context.currentTime;
+    const tones = success
+      ? [
+          { start: 0, frequency: 880, duration: 0.09 },
+          { start: 0.12, frequency: 1175, duration: 0.11 },
+        ]
+      : [
+          { start: 0, frequency: 220, duration: 0.18 },
+          { start: 0.2, frequency: 165, duration: 0.22 },
+        ];
+
+    tones.forEach((tone) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const startAt = now + tone.start;
+      const endAt = startAt + tone.duration;
+      oscillator.type = success ? "sine" : "square";
+      oscillator.frequency.setValueAtTime(tone.frequency, startAt);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(success ? 0.08 : 0.06, startAt + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startAt);
+      oscillator.stop(endAt + 0.02);
+    });
+    window.setTimeout(() => context.close?.(), success ? 320 : 520);
   } catch (_) {}
 }
 
