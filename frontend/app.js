@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.8.6";
+const APP_VERSION = "1.8.7";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -118,7 +118,7 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=186").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=187").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -730,7 +730,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=186", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=187", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -784,7 +784,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=186", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=187", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -1901,7 +1901,7 @@ function Counting({
             h("th", null, "Contado"),
             h("th", null, "Avaria"),
             h("th", null, "Outros"),
-            h("th", null, "Diferen�a")
+            h("th", null, "Diferença")
           )),
           h("tbody", null, visibleDraft.map((item) => h("tr", {
             key: item.sku,
@@ -2057,16 +2057,26 @@ function Counting({
         h("div", null, h("span", null, "Itens divergentes"), h("strong", null, printDivergentItems))
       ),
       h("table", { className: "count-print-table" },
+        h("colgroup", null,
+          h("col", { className: "print-col-sku" }),
+          h("col", { className: "print-col-qty" }),
+          h("col", { className: "print-col-qty" }),
+          h("col", { className: "print-col-qty" }),
+          h("col", { className: "print-col-qty" }),
+          h("col", { className: "print-col-qty" }),
+          h("col", { className: "print-col-diff" }),
+          h("col", { className: "print-col-status" })
+        ),
         h("thead", null,
           h("tr", null,
             h("th", null, "SKU"),
             h("th", null, "Sistema"),
-            h("th", null, "Contado"),
+            h("th", null, "Cont."),
             h("th", null, "Avaria"),
             h("th", null, "Outros"),
             h("th", null, "Apurado"),
-            h("th", null, "Diferença"),
-            h("th", null, "Resultado")
+            h("th", null, "Dif."),
+            h("th", null, "Status")
           )
         ),
         h("tbody", null, printableDraft.map((item) => {
@@ -2847,7 +2857,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=186", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=187", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),

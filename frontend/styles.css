@@ -18,7 +18,7 @@
   --shadow-lg: 0 26px 90px rgba(91, 16, 24, 0.2);
 }
 
-/* Interface 1.8.6: mobile-first bottom navigation and lighter app motion. */
+/* Interface 1.8.7: mobile-first bottom navigation and lighter app motion. */
 .mobile-bottom-nav {
   display: none;
 }
@@ -2874,8 +2874,8 @@ th + th {
 
 @media print {
   @page {
-    size: A4 portrait;
-    margin: 12mm;
+    size: A4 landscape;
+    margin: 10mm;
   }
 
   html,
@@ -2925,13 +2925,13 @@ th + th {
     color: #171214;
     background: #fff;
     font-family: Arial, sans-serif;
-    font-size: 10pt;
+    font-size: 9pt;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 
   .count-print-header {
-    padding-bottom: 12px;
+    padding-bottom: 10px;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -2948,7 +2948,7 @@ th + th {
 
   .count-print-header h1 {
     margin: 4px 0;
-    font-size: 20pt;
+    font-size: 17pt;
     letter-spacing: 0;
   }
 
@@ -2965,7 +2965,7 @@ th + th {
   }
 
   .count-print-meta {
-    margin: 12px 0;
+    margin: 10px 0;
     display: grid;
     grid-template-columns: 1.2fr 1fr 1fr;
     gap: 8px;
@@ -2973,7 +2973,7 @@ th + th {
 
   .count-print-meta > div,
   .count-print-totals > div {
-    padding: 8px;
+    padding: 6px;
     display: grid;
     gap: 3px;
     border: 1px solid #ded5d7;
@@ -2994,10 +2994,10 @@ th + th {
   }
 
   .count-print-totals {
-    margin-bottom: 12px;
+    margin-bottom: 10px;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .count-print-totals > div:last-child {
@@ -3009,6 +3009,20 @@ th + th {
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
+    font-size: 7.5pt;
+  }
+
+  .count-print-table col.print-col-sku {
+    width: 24%;
+  }
+
+  .count-print-table col.print-col-qty,
+  .count-print-table col.print-col-diff {
+    width: 9%;
+  }
+
+  .count-print-table col.print-col-status {
+    width: 13%;
   }
 
   .count-print-table thead {
@@ -3021,27 +3035,30 @@ th + th {
 
   .count-print-table th,
   .count-print-table td {
-    padding: 7px 8px;
+    padding: 5px;
     border: 1px solid #d8ced0;
+    overflow-wrap: anywhere;
+    line-height: 1.15;
     text-align: right;
+    vertical-align: middle;
   }
 
   .count-print-table th {
     background: #6b111b;
     color: #fff;
-    font-size: 8pt;
+    font-size: 6.8pt;
+    letter-spacing: 0;
+    text-align: center;
     text-transform: uppercase;
   }
 
   .count-print-table th:first-child,
   .count-print-table td:first-child {
-    width: 34%;
     text-align: left;
   }
 
   .count-print-table th:last-child,
   .count-print-table td:last-child {
-    width: 20%;
     text-align: left;
   }
 
@@ -4628,7 +4645,7 @@ th + th {
 
 }
 
-/* Interface 1.8.6 - contagem por motivo e identidade atualizada */
+/* Interface 1.8.7 - contagem por motivo e identidade atualizada */
 .app-logo,
 .hero-logo {
   object-fit: cover;
@@ -4720,7 +4737,7 @@ th + th {
   }
 }
 
-/* Interface 1.8.6 - filtros de contagem consistentes */
+/* Interface 1.8.7 - filtros de contagem consistentes */
 .count-status-filter {
   gap: 12px;
 }
