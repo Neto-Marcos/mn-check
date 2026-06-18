@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.8.8";
+const APP_VERSION = "1.8.9";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -118,7 +118,7 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=188").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=189").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -730,7 +730,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=188", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=189", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -784,7 +784,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=188", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=189", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -1569,12 +1569,23 @@ function Counting({
   const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
   const fileInputRef = React.useRef(null);
   const countInputRefs = React.useRef({});
+  const manualSkuRef = React.useRef(null);
 
   React.useEffect(() => {
     const pending = readStoredJson(OFFLINE_COUNT_DRAFT, null);
     setDraft(normalizeCountRows(pending?.counts || counts));
     setOfflinePending(Boolean(pending?.counts?.length));
   }, [counts]);
+
+  React.useEffect(() => {
+    if (!manualOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.setTimeout(() => manualSkuRef.current?.focus(), 0);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [manualOpen]);
 
   React.useEffect(() => {
     const clearPending = () => setOfflinePending(false);
@@ -1944,7 +1955,13 @@ function Counting({
         ? empty("Nenhum SKU corresponde à pesquisa.")
         : empty("Selecione um PDF para carregar os saldos.")
     ),
-    manualOpen && h("div", { className: "modal-backdrop", role: "presentation" },
+    manualOpen && ReactDOM.createPortal(h("div", {
+      className: "modal-backdrop",
+      role: "presentation",
+      onMouseDown: (event) => {
+        if (event.target === event.currentTarget) setManualOpen(false);
+      }
+    },
       h("form", { className: "modal-card manual-product-modal", onSubmit: submitManualProduct },
         h("div", { className: "modal-head" },
           h("div", null,
@@ -1964,6 +1981,7 @@ function Counting({
         h("label", null,
           h("span", null, "SKU"),
           h("input", {
+            ref: manualSkuRef,
             value: manualProduct.sku,
             placeholder: "76331.3.4",
             inputMode: "numeric",
@@ -2021,7 +2039,7 @@ function Counting({
           }, savingManual ? "Salvando..." : "Salvar produto")
         )
       )
-    ),
+    ), document.body),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Divergências"), h("span", null, "por SKU")),
       h("div", { className: "stack" }, divergentRows.length
@@ -2857,7 +2875,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=188", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=189", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),
