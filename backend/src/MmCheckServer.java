@@ -35,7 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.8.0";
+  private static final String APP_VERSION = "1.8.4";
   private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
   private static final int PORT = Integer.parseInt(
       System.getProperty("mmcheck.legacy.port", System.getenv().getOrDefault("PORT", "4173"))
@@ -63,7 +63,7 @@ public class MmCheckServer {
     server.start();
     String databaseIdentity = relationalDatabase.testConnection();
     System.out.println("MN - Check " + APP_VERSION + " rodando em http://0.0.0.0:" + PORT
-        + " com persistência PostgreSQL " + databaseIdentity);
+        + " com persistÃªncia PostgreSQL " + databaseIdentity);
     Thread.currentThread().join();
   }
 
@@ -91,11 +91,11 @@ public class MmCheckServer {
       } catch (Exception recoveryError) {
         recoveryError.printStackTrace();
       }
-      json(exchange, 503, Map.of("error", "Banco de dados temporariamente indisponível. A alteração não foi confirmada."));
+      json(exchange, 503, Map.of("error", "Banco de dados temporariamente indisponÃ­vel. A alteraÃ§Ã£o nÃ£o foi confirmada."));
     } catch (PostgresDatabase.DatabaseException error) {
       error.printStackTrace();
       json(exchange, 503, Map.of(
-          "error", "PostgreSQL temporariamente indisponível. Nenhuma alteração foi confirmada."
+          "error", "PostgreSQL temporariamente indisponÃ­vel. Nenhuma alteraÃ§Ã£o foi confirmada."
       ));
     } catch (Exception error) {
       error.printStackTrace();
@@ -116,7 +116,7 @@ public class MmCheckServer {
       String password = string(body.get("password")).trim();
       User user = db.findUserByUsername(username)
           .filter(item -> item.passwordHash.equals(hash(password)))
-          .orElseThrow(() -> new ApiException(401, "Usuário ou senha inválidos."));
+          .orElseThrow(() -> new ApiException(401, "UsuÃ¡rio ou senha invÃ¡lidos."));
       String token = UUID.randomUUID().toString().replace("-", "");
       SESSIONS.put(token, user.id);
       json(exchange, 200, Map.of("token", token, "user", user.publicMap()));
@@ -144,7 +144,7 @@ public class MmCheckServer {
     if ("GET".equals(method) && "/api/importar/debug".equals(path)) {
       requireRole(user, "admin", "stock");
       StoredFile debugFile = persistence.loadFile("debug-importacao-saldo.txt")
-          .orElseThrow(() -> new ApiException(404, "Nenhum diagnóstico de importação foi gerado."));
+          .orElseThrow(() -> new ApiException(404, "Nenhum diagnÃ³stico de importaÃ§Ã£o foi gerado."));
       file(exchange, debugFile, "debug-importacao-saldo.txt");
       return;
     }
@@ -176,16 +176,20 @@ public class MmCheckServer {
       String sku = normalizeSku(string(body.get("sku")));
       int systemBalance = integerField(body, "system");
       int countedQuantity = integerField(body, "counted");
+      int damagedQuantity = optionalIntegerField(body, "damaged");
+      int otherQuantity = optionalIntegerField(body, "other");
       if (!sku.matches("\\d{4,8}\\.\\d{1,3}\\.\\d{1,3}")) {
         throw new ApiException(400, "Informe o SKU no formato produto.gradeX.gradeY. Exemplo: 76331.3.4.");
       }
-      if (systemBalance < 0 || countedQuantity < 0) {
-        throw new ApiException(400, "As quantidades não podem ser negativas.");
+      if (systemBalance < 0 || countedQuantity < 0 || damagedQuantity < 0 || otherQuantity < 0) {
+        throw new ApiException(400, "As quantidades nÃ£o podem ser negativas.");
       }
       PostgresDatabase.ImportSummary summary = relationalDatabase.saveManualBalanceProduct(
           sku,
           systemBalance,
           countedQuantity,
+          damagedQuantity,
+          otherQuantity,
           user.name
       );
       applyRelationalBalanceSnapshot();
@@ -196,6 +200,8 @@ public class MmCheckServer {
           + " sku=" + sku
           + " saldo_sistema=" + systemBalance
           + " saldo_contado=" + countedQuantity
+          + " avaria=" + damagedQuantity
+          + " outros=" + otherQuantity
           + " operador=\"" + user.name + "\"");
       json(exchange, 201, visibleData(user));
       return;
@@ -221,13 +227,13 @@ public class MmCheckServer {
       String role = string(body.get("role")).trim();
       String password = string(body.get("password"));
       if (username.isBlank() || name.isBlank() || password.isBlank()) {
-        throw new ApiException(400, "Preencha usuário, nome e senha.");
+        throw new ApiException(400, "Preencha usuÃ¡rio, nome e senha.");
       }
-      if (!User.allowedRoles().contains(role)) throw new ApiException(400, "Função inválida.");
-      if (db.findUserByUsername(username).isPresent()) throw new ApiException(409, "Usuário já cadastrado.");
+      if (!User.allowedRoles().contains(role)) throw new ApiException(400, "FunÃ§Ã£o invÃ¡lida.");
+      if (db.findUserByUsername(username).isPresent()) throw new ApiException(409, "UsuÃ¡rio jÃ¡ cadastrado.");
       User created = new User(UUID.randomUUID().toString(), username, name, role, User.label(role), hash(password));
       db.users.add(created);
-      db.recordHistory(user, "create_user", "Usuário " + username + " cadastrado");
+      db.recordHistory(user, "create_user", "UsuÃ¡rio " + username + " cadastrado");
       db.save();
       json(exchange, 201, Map.of("user", created.publicMap()));
       return;
@@ -237,13 +243,13 @@ public class MmCheckServer {
       requireAdmin(user);
       String userId = URLDecoder.decode(path.substring("/api/users/".length()), StandardCharsets.UTF_8);
       User target = db.users.stream().filter(item -> item.id.equals(userId)).findFirst()
-          .orElseThrow(() -> new ApiException(404, "Usuário não encontrado."));
+          .orElseThrow(() -> new ApiException(404, "UsuÃ¡rio nÃ£o encontrado."));
       if ("Marcos".equalsIgnoreCase(target.username)) {
-        throw new ApiException(403, "O administrador principal Marcos não pode ser removido.");
+        throw new ApiException(403, "O administrador principal Marcos nÃ£o pode ser removido.");
       }
       db.users.remove(target);
       SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
-      db.recordHistory(user, "delete_user", "Usuário " + target.username + " removido");
+      db.recordHistory(user, "delete_user", "UsuÃ¡rio " + target.username + " removido");
       db.save();
       json(exchange, 200, visibleData(user));
       return;
@@ -255,11 +261,11 @@ public class MmCheckServer {
           StandardCharsets.UTF_8
       );
       User target = db.users.stream().filter(item -> item.id.equals(userId)).findFirst()
-          .orElseThrow(() -> new ApiException(404, "Usuário não encontrado."));
+          .orElseThrow(() -> new ApiException(404, "UsuÃ¡rio nÃ£o encontrado."));
       boolean ownPassword = target.id.equals(user.id);
       boolean principalAdmin = "Marcos".equalsIgnoreCase(user.username);
       if (!ownPassword && !principalAdmin) {
-        throw new ApiException(403, "Somente Marcos pode redefinir a senha de outros usuários.");
+        throw new ApiException(403, "Somente Marcos pode redefinir a senha de outros usuÃ¡rios.");
       }
 
       Map<String, Object> body = readJson(exchange);
@@ -267,7 +273,7 @@ public class MmCheckServer {
       String newPassword = string(body.get("newPassword"));
       if (newPassword.length() < 6) throw new ApiException(400, "A nova senha deve ter pelo menos 6 caracteres.");
       if (ownPassword && !target.passwordHash.equals(hash(currentPassword))) {
-        throw new ApiException(401, "A senha atual está incorreta.");
+        throw new ApiException(401, "A senha atual estÃ¡ incorreta.");
       }
 
       User updated = new User(target.id, target.username, target.name, target.role, target.label, hash(newPassword));
@@ -275,7 +281,7 @@ public class MmCheckServer {
       db.users.set(index, updated);
       SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
       db.recordHistory(user, ownPassword ? "change_password" : "reset_password",
-          ownPassword ? "Senha própria alterada" : "Senha de " + target.username + " redefinida");
+          ownPassword ? "Senha prÃ³pria alterada" : "Senha de " + target.username + " redefinida");
       db.save();
       json(exchange, 200, Map.of("message", ownPassword ? "Senha alterada." : "Senha redefinida."));
       return;
@@ -283,7 +289,7 @@ public class MmCheckServer {
 
     if ("POST".equals(method) && "/api/maps/analyze".equals(path)) {
       if (!List.of("admin", "separation").contains(user.role)) {
-        throw new ApiException(403, "AÃ§Ã£o permitida apenas para administradores e conferentes de separaÃ§Ã£o.");
+        throw new ApiException(403, "AÃƒÂ§ÃƒÂ£o permitida apenas para administradores e conferentes de separaÃƒÂ§ÃƒÂ£o.");
       }
       Map<String, Object> body = readJson(exchange);
       String mapNumber = string(body.get("mapNumber")).replaceAll("\\D", "");
@@ -294,10 +300,10 @@ public class MmCheckServer {
           .distinct()
           .toList();
       List<MapUploadFile> files = parseMapUploadFiles(body);
-      if (mapNumber.isBlank()) throw new ApiException(400, "Informe manualmente o nÃºmero do mapa.");
-      if (orderNumbers.isEmpty()) throw new ApiException(400, "Informe pelo menos um nÃºmero de pedido.");
+      if (mapNumber.isBlank()) throw new ApiException(400, "Informe manualmente o nÃƒÂºmero do mapa.");
+      if (orderNumbers.isEmpty()) throw new ApiException(400, "Informe pelo menos um nÃƒÂºmero de pedido.");
       if (db.maps.stream().anyMatch(item -> item.id.equals(mapNumber))) {
-        throw new ApiException(409, "O mapa " + mapNumber + " jÃ¡ estÃ¡ cadastrado.");
+        throw new ApiException(409, "O mapa " + mapNumber + " jÃƒÂ¡ estÃƒÂ¡ cadastrado.");
       }
       CargoMap draft = null;
       for (MapUploadFile file : files) {
@@ -314,19 +320,19 @@ public class MmCheckServer {
 
     if ("POST".equals(method) && "/api/maps/confirm".equals(path)) {
       if (!List.of("admin", "separation").contains(user.role)) {
-        throw new ApiException(403, "AÃ§Ã£o permitida apenas para administradores e conferentes de separaÃ§Ã£o.");
+        throw new ApiException(403, "AÃƒÂ§ÃƒÂ£o permitida apenas para administradores e conferentes de separaÃƒÂ§ÃƒÂ£o.");
       }
       Map<String, Object> body = readJson(exchange);
       CargoMap map = CargoMap.fromMap(castMap(body.get("draft")));
-      if (map.id.isBlank()) throw new ApiException(400, "Informe o nÃºmero do mapa.");
+      if (map.id.isBlank()) throw new ApiException(400, "Informe o nÃƒÂºmero do mapa.");
       if (db.maps.stream().anyMatch(item -> item.id.equals(map.id))) {
-        throw new ApiException(409, "O mapa " + map.id + " jÃ¡ estÃ¡ cadastrado.");
+        throw new ApiException(409, "O mapa " + map.id + " jÃƒÂ¡ estÃƒÂ¡ cadastrado.");
       }
       if (map.orderNumbers == null || map.orderNumbers.isEmpty()) throw new ApiException(400, "Informe pelo menos um pedido.");
       map.items = map.items.stream()
           .filter(item -> !item.sku.isBlank() && !item.name.isBlank() && item.quantity > 0)
           .toList();
-      if (map.items.isEmpty()) throw new ApiException(400, "Confirme pelo menos um item vÃ¡lido.");
+      if (map.items.isEmpty()) throw new ApiException(400, "Confirme pelo menos um item vÃƒÂ¡lido.");
       map.status = "separacao";
       map.createdBy = user.id;
       List<MapUploadFile> files = parseMapUploadFiles(body);
@@ -349,7 +355,7 @@ public class MmCheckServer {
 
     if ("POST".equals(method) && "/api/maps/upload".equals(path)) {
       if (!List.of("admin", "separation").contains(user.role)) {
-        throw new ApiException(403, "Ação permitida apenas para administradores e conferentes de separação.");
+        throw new ApiException(403, "AÃ§Ã£o permitida apenas para administradores e conferentes de separaÃ§Ã£o.");
       }
       Map<String, Object> body = readJson(exchange);
       String fileName = string(body.get("fileName")).trim();
@@ -373,14 +379,14 @@ public class MmCheckServer {
           "image/heic",
           "image/heif"
       ).contains(contentType)) {
-        throw new ApiException(400, "Formato não permitido. Use PDF, PNG, JPG, WebP, HEIC ou HEIF.");
+        throw new ApiException(400, "Formato nÃ£o permitido. Use PDF, PNG, JPG, WebP, HEIC ou HEIF.");
       }
       boolean imageUpload = contentType.startsWith("image/");
       if (imageUpload && manualMapNumber.isBlank()) {
-        throw new ApiException(400, "Informe manualmente o número do mapa antes de enviar a imagem.");
+        throw new ApiException(400, "Informe manualmente o nÃºmero do mapa antes de enviar a imagem.");
       }
       if (imageUpload && manualOrderNumbers.isEmpty()) {
-        throw new ApiException(400, "Informe pelo menos um número de pedido antes de enviar a imagem.");
+        throw new ApiException(400, "Informe pelo menos um nÃºmero de pedido antes de enviar a imagem.");
       }
 
       byte[] documentBytes = decodeDataUrl(dataUrl);
@@ -391,7 +397,7 @@ public class MmCheckServer {
           ? String.valueOf(db.maps.stream().mapToInt(item -> Integer.parseInt(item.id)).max().orElse(15727) + 1)
           : manualMapNumber;
       if (db.maps.stream().anyMatch(item -> item.id.equals(next))) {
-        throw new ApiException(409, "O mapa " + next + " já está cadastrado.");
+        throw new ApiException(409, "O mapa " + next + " jÃ¡ estÃ¡ cadastrado.");
       }
       String storedName = next + "-" + safeFileName(fileName);
 
@@ -409,7 +415,7 @@ public class MmCheckServer {
     }
 
     if ("POST".equals(method) && List.of("/api/counts/upload", "/api/importar").contains(path)) {
-      if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+      if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
       Map<String, Object> body = readJson(exchange);
       String fileName = string(body.get("fileName")).trim();
       String contentType = string(body.get("contentType")).trim();
@@ -477,10 +483,10 @@ public class MmCheckServer {
 
     if (("PATCH".equals(method) && "/api/counts".equals(path))
         || ("POST".equals(method) && "/api/contagem".equals(path))) {
-      if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+      if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
       Map<String, Object> body = readJson(exchange);
       List<Object> rows = list(body.get("counts"));
-      if (rows.isEmpty()) throw new ApiException(400, "Não há contagens para atualizar.");
+      if (rows.isEmpty()) throw new ApiException(400, "NÃ£o hÃ¡ contagens para atualizar.");
       PostgresDatabase.BalanceSnapshot currentSnapshot = relationalDatabase.loadLatestBalances();
       Map<String, Integer> currentBalances = new LinkedHashMap<>();
       currentSnapshot.rows().forEach(item -> currentBalances.put(item.sku(), item.systemBalance()));
@@ -491,21 +497,25 @@ public class MmCheckServer {
       for (Object row : rows) {
         Map<String, Object> item = castMap(row);
         String sku = string(item.get("sku")).trim();
-        if (!sku.matches("[A-Za-z0-9.-]{1,64}")) throw new ApiException(400, "SKU inválido na contagem.");
+        if (!sku.matches("[A-Za-z0-9.-]{1,64}")) throw new ApiException(400, "SKU invÃ¡lido na contagem.");
         Integer system = currentBalances.get(sku);
-        if (system == null) throw new ApiException(400, "SKU não pertence ao saldo atual: " + sku + ".");
+        if (system == null) throw new ApiException(400, "SKU nÃ£o pertence ao saldo atual: " + sku + ".");
         int counted = integerField(item, "counted");
-        if (system < 0 || counted < 0) throw new ApiException(400, "As quantidades não podem ser negativas.");
-        if (updatedBySku.putIfAbsent(sku, new CountItem(sku, system, counted)) != null) {
+        int damaged = optionalIntegerField(item, "damaged");
+        int other = optionalIntegerField(item, "other");
+        if (system < 0 || counted < 0 || damaged < 0 || other < 0) {
+          throw new ApiException(400, "As quantidades nÃ£o podem ser negativas.");
+        }
+        if (updatedBySku.putIfAbsent(sku, new CountItem(sku, system, counted, damaged, other)) != null) {
           throw new ApiException(409, "SKU duplicado na contagem: " + sku + ".");
         }
       }
       List<CountItem> updated = new ArrayList<>(updatedBySku.values());
-      if (updated.isEmpty()) throw new ApiException(400, "Nenhuma contagem válida foi informada.");
+      if (updated.isEmpty()) throw new ApiException(400, "Nenhuma contagem vÃ¡lida foi informada.");
       long countId = relationalDatabase.saveCount(
           user.name,
           updated.stream()
-              .map(item -> new PostgresDatabase.CountRow(item.sku(), item.system(), item.counted()))
+              .map(item -> new PostgresDatabase.CountRow(item.sku(), item.system(), item.counted(), item.damaged(), item.other()))
               .toList()
       );
       db.counts = updated;
@@ -530,7 +540,7 @@ public class MmCheckServer {
       AdminNotification notification = db.notifications.stream()
           .filter(item -> item.id.equals(notificationId))
           .findFirst()
-          .orElseThrow(() -> new ApiException(404, "Notificação não encontrada."));
+          .orElseThrow(() -> new ApiException(404, "NotificaÃ§Ã£o nÃ£o encontrada."));
       if (!notification.readBy.contains(user.id)) notification.readBy.add(user.id);
       db.save();
       json(exchange, 200, Map.of(
@@ -541,18 +551,18 @@ public class MmCheckServer {
 
     if ("DELETE".equals(method) && path.startsWith("/api/maps/")) {
       if (!List.of("admin", "separation").contains(user.role)) {
-        throw new ApiException(403, "Ação permitida apenas para administradores e conferentes de separação.");
+        throw new ApiException(403, "AÃ§Ã£o permitida apenas para administradores e conferentes de separaÃ§Ã£o.");
       }
       String mapId = URLDecoder.decode(path.substring("/api/maps/".length()), StandardCharsets.UTF_8);
       CargoMap map = db.maps.stream().filter(item -> item.id.equals(mapId)).findFirst()
-          .orElseThrow(() -> new ApiException(404, "Mapa não encontrado."));
+          .orElseThrow(() -> new ApiException(404, "Mapa nÃ£o encontrado."));
       if (!"separacao".equals(map.status)) {
-        throw new ApiException(409, "Somente mapas ainda em separação podem ser apagados.");
+        throw new ApiException(409, "Somente mapas ainda em separaÃ§Ã£o podem ser apagados.");
       }
 
       deleteUpload(map.attachmentPath);
       db.maps.remove(map);
-      db.recordHistory(user, "delete_map", "Mapa " + map.id + " apagado durante a separação");
+      db.recordHistory(user, "delete_map", "Mapa " + map.id + " apagado durante a separaÃ§Ã£o");
       db.save();
       json(exchange, 200, visibleData(user));
       return;
@@ -561,15 +571,15 @@ public class MmCheckServer {
     String[] parts = path.split("/");
     if (parts.length >= 5 && "api".equals(parts[1]) && "maps".equals(parts[2])) {
       CargoMap map = db.maps.stream().filter(item -> item.id.equals(parts[3])).findFirst()
-          .orElseThrow(() -> new ApiException(404, "Mapa não encontrado."));
+          .orElseThrow(() -> new ApiException(404, "Mapa nÃ£o encontrado."));
 
       if ("PATCH".equals(method) && parts.length == 6 && "items".equals(parts[4])) {
-        if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
-        if (!"separacao".equals(map.status)) throw new ApiException(403, "Mapa fora da etapa de separação.");
+        if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
+        if (!"separacao".equals(map.status)) throw new ApiException(403, "Mapa fora da etapa de separaÃ§Ã£o.");
         Map<String, Object> body = readJson(exchange);
         String sku = URLDecoder.decode(parts[5], StandardCharsets.UTF_8);
         MapItem item = map.items.stream().filter(entry -> entry.sku.equals(sku)).findFirst()
-            .orElseThrow(() -> new ApiException(404, "Item não encontrado."));
+            .orElseThrow(() -> new ApiException(404, "Item nÃ£o encontrado."));
         item.ok = Boolean.TRUE.equals(body.get("ok"));
         db.recordHistory(user, "update_item", "Mapa " + map.id + ": " + item.sku);
         db.save();
@@ -580,18 +590,18 @@ public class MmCheckServer {
       if ("POST".equals(method) && parts.length == 5) {
         String action = parts[4];
         if ("scan".equals(action)) {
-          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
           if (!List.of("aguardando conferencia", "conferencia", "corrigir problema").contains(map.status)) {
-            throw new ApiException(403, "O mapa não está disponível para leitura.");
+            throw new ApiException(403, "O mapa nÃ£o estÃ¡ disponÃ­vel para leitura.");
           }
           Map<String, Object> body = readJson(exchange);
           String code = digits(string(body.get("code")));
-          if (code.isBlank()) throw new ApiException(400, "Código de barras inválido.");
+          if (code.isBlank()) throw new ApiException(400, "CÃ³digo de barras invÃ¡lido.");
           MapItem item = map.items.stream()
               .filter(entry -> digits(entry.barcode).equals(code) || digits(entry.sku).equals(code))
               .findFirst()
-              .orElseThrow(() -> new ApiException(422, "Produto não pertence a este mapa."));
-          if (item.checkedQuantity >= item.quantity) throw new ApiException(409, "A quantidade deste produto já foi conferida.");
+              .orElseThrow(() -> new ApiException(422, "Produto nÃ£o pertence a este mapa."));
+          if (item.checkedQuantity >= item.quantity) throw new ApiException(409, "A quantidade deste produto jÃ¡ foi conferida.");
           item.checkedQuantity++;
           map.status = "conferencia";
           PostgresDatabase.ConferenceSession conferenceSession = relationalDatabase.saveConferenceProgress(
@@ -601,7 +611,7 @@ public class MmCheckServer {
               item.checkedQuantity,
               item.quantity
           );
-          db.recordHistory(user, "scan_item", "Mapa " + map.id + ": código " + code + " conferido");
+          db.recordHistory(user, "scan_item", "Mapa " + map.id + ": cÃ³digo " + code + " conferido");
           db.save();
           json(exchange, 200, Map.of(
               "item", item.toMap(),
@@ -610,62 +620,62 @@ public class MmCheckServer {
           ));
           return;
         } else if ("send-conference".equals(action)) {
-          if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!List.of("admin", "separation").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
           if (!map.items.stream().allMatch(item -> item.ok)) throw new ApiException(400, "Todos os itens precisam estar ok.");
           map.status = "aguardando conferencia";
           map.items.forEach(item -> item.checkedQuantity = 0);
-          db.recordHistory(user, "send_conference", "Mapa " + map.id + " enviado para conferência");
+          db.recordHistory(user, "send_conference", "Mapa " + map.id + " enviado para conferÃªncia");
         } else if ("pause-conference".equals(action)) {
-          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
           if (!List.of("aguardando conferencia", "conferencia").contains(map.status)) {
-            throw new ApiException(409, "Esta conferência não pode ser pausada.");
+            throw new ApiException(409, "Esta conferÃªncia nÃ£o pode ser pausada.");
           }
           map.status = "conferencia";
           relationalDatabase.changeConferenceStatus(map.id, user.name, "PAUSADA");
-          db.recordHistory(user, "pause_conference", "Conferência do mapa " + map.id + " pausada");
+          db.recordHistory(user, "pause_conference", "ConferÃªncia do mapa " + map.id + " pausada");
         } else if ("resume-conference".equals(action)) {
-          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
           PostgresDatabase.ConferenceSession session =
               relationalDatabase.changeConferenceStatus(map.id, user.name, "EM_ANDAMENTO");
           restoreConferenceProgress(map, session);
           map.status = "conferencia";
-          db.recordHistory(user, "resume_conference", "Conferência do mapa " + map.id + " retomada");
+          db.recordHistory(user, "resume_conference", "ConferÃªncia do mapa " + map.id + " retomada");
         } else if ("cancel-conference".equals(action)) {
-          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
           map.items.forEach(item -> item.checkedQuantity = 0);
           map.status = "aguardando conferencia";
           relationalDatabase.cancelConferenceAndClear(map.id, user.name);
-          db.recordHistory(user, "cancel_conference", "Conferência do mapa " + map.id + " cancelada e zerada");
+          db.recordHistory(user, "cancel_conference", "ConferÃªncia do mapa " + map.id + " cancelada e zerada");
         } else if ("approve".equals(action)) {
-          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
           if (!map.items.stream().allMatch(item -> item.checkedQuantity >= item.quantity)) {
             throw new ApiException(400, "Confira todas as unidades antes de finalizar o mapa.");
           }
           map.status = "conferido";
           relationalDatabase.changeConferenceStatus(map.id, user.name, "FINALIZADA");
-          db.recordHistory(user, "approve_map", "Mapa " + map.id + " conferido sem divergência");
+          db.recordHistory(user, "approve_map", "Mapa " + map.id + " conferido sem divergÃªncia");
         } else if ("problem".equals(action)) {
-          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
-          if ("corrigir problema".equals(map.status)) throw new ApiException(409, "Este mapa já foi marcado com divergência.");
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
+          if ("corrigir problema".equals(map.status)) throw new ApiException(409, "Este mapa jÃ¡ foi marcado com divergÃªncia.");
           map.status = "corrigir problema";
-          db.errors.add(0, new ErrorRecord(map.id, "Divergência na conferência", user.name));
+          db.errors.add(0, new ErrorRecord(map.id, "DivergÃªncia na conferÃªncia", user.name));
           db.notifications.add(0, new AdminNotification(
               UUID.randomUUID().toString(),
               map.id,
-              "Divergência encontrada no mapa " + map.id,
-              user.name + " solicitou correção na conferência.",
+              "DivergÃªncia encontrada no mapa " + map.id,
+              user.name + " solicitou correÃ§Ã£o na conferÃªncia.",
               Instant.now().toString(),
               new ArrayList<>()
           ));
-          db.recordHistory(user, "problem_map", "Mapa " + map.id + " marcado com divergência");
+          db.recordHistory(user, "problem_map", "Mapa " + map.id + " marcado com divergÃªncia");
         } else if ("corrected".equals(action)) {
-          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
-          if (!"corrigir problema".equals(map.status)) throw new ApiException(403, "Mapa fora da etapa de correção.");
+          if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
+          if (!"corrigir problema".equals(map.status)) throw new ApiException(403, "Mapa fora da etapa de correÃ§Ã£o.");
           map.status = "conferido";
           relationalDatabase.changeConferenceStatus(map.id, user.name, "FINALIZADA");
           db.recordHistory(user, "corrected_map", "Mapa " + map.id + " corrigido e conferido");
         } else {
-          throw new ApiException(404, "Rota não encontrada.");
+          throw new ApiException(404, "Rota nÃ£o encontrada.");
         }
         db.save();
         json(exchange, 200, visibleData(user));
@@ -673,7 +683,7 @@ public class MmCheckServer {
       }
     }
 
-    throw new ApiException(404, "Rota não encontrada.");
+    throw new ApiException(404, "Rota nÃ£o encontrada.");
   }
 
   private static Map<String, Object> visibleData(User user) {
@@ -788,7 +798,13 @@ public class MmCheckServer {
       return;
     }
     db.counts = snapshot.rows().stream()
-        .map(row -> new CountItem(row.sku(), row.systemBalance(), row.countedQuantity()))
+        .map(row -> new CountItem(
+            row.sku(),
+            row.systemBalance(),
+            row.countedQuantity(),
+            row.damagedQuantity(),
+            row.otherQuantity()
+        ))
         .toList();
     PostgresDatabase.ImportSummary summary = snapshot.importSummary();
     db.countsUpdatedAt = summary.updatedAt().toString();
@@ -808,18 +824,18 @@ public class MmCheckServer {
     String header = exchange.getRequestHeaders().getFirst("Authorization");
     String token = header != null && header.startsWith("Bearer ") ? header.substring(7) : "";
     String userId = SESSIONS.get(token);
-    if (userId == null) throw new ApiException(401, "Sessão expirada. Faça login novamente.");
+    if (userId == null) throw new ApiException(401, "SessÃ£o expirada. FaÃ§a login novamente.");
     return db.users.stream().filter(user -> user.id.equals(userId)).findFirst()
-        .orElseThrow(() -> new ApiException(401, "Sessão inválida."));
+        .orElseThrow(() -> new ApiException(401, "SessÃ£o invÃ¡lida."));
   }
 
   private static void requireAdmin(User user) {
-    if (!"admin".equals(user.role)) throw new ApiException(403, "Ação permitida apenas para administradores.");
+    if (!"admin".equals(user.role)) throw new ApiException(403, "AÃ§Ã£o permitida apenas para administradores.");
   }
 
   private static void requireRole(User user, String... roles) {
     if (!List.of(roles).contains(user.role)) {
-      throw new ApiException(403, "Ação não permitida para este usuário.");
+      throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida para este usuÃ¡rio.");
     }
   }
 
@@ -928,7 +944,7 @@ public class MmCheckServer {
       String encoded = comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl;
       return Base64.getDecoder().decode(encoded);
     } catch (IllegalArgumentException error) {
-      throw new ApiException(400, "Arquivo enviado em formato inválido.");
+      throw new ApiException(400, "Arquivo enviado em formato invÃ¡lido.");
     }
   }
 
@@ -953,7 +969,7 @@ public class MmCheckServer {
     try {
       parsed = BalancePdfParser.parse(pdfBytes);
     } catch (IOException error) {
-      throw new ApiException(422, "Não foi possível ler o PDF de saldo: " + error.getMessage());
+      throw new ApiException(422, "NÃ£o foi possÃ­vel ler o PDF de saldo: " + error.getMessage());
     }
     BalancePdfParser.Metrics metrics = parsed.metrics();
     if (!parsed.conflicts().isEmpty()) {
@@ -966,10 +982,10 @@ public class MmCheckServer {
           + String.join(" ", parsed.conflicts()));
     }
     if (parsed.rows().isEmpty()) {
-      throw new ApiException(422, "O PDFBox não encontrou linhas válidas com Produto, Grade X, Grade Y e Saldo.");
+      throw new ApiException(422, "O PDFBox nÃ£o encontrou linhas vÃ¡lidas com Produto, Grade X, Grade Y e Saldo.");
     }
     List<CountItem> items = parsed.rows().stream()
-        .map(row -> new CountItem(row.sku(), row.balance(), 0))
+        .map(row -> new CountItem(row.sku(), row.balance(), 0, 0, 0))
         .toList();
     return new CountImportResult(
         items,
@@ -989,7 +1005,7 @@ public class MmCheckServer {
   ) throws Exception {
     String apiKey = System.getenv("GEMINI_API_KEY");
     if (apiKey == null || apiKey.isBlank()) {
-      throw new ApiException(503, "Leitura por IA não configurada. Adicione GEMINI_API_KEY no servidor.");
+      throw new ApiException(503, "Leitura por IA nÃ£o configurada. Adicione GEMINI_API_KEY no servidor.");
     }
     String encoded = dataUrl.substring(dataUrl.indexOf(",") + 1);
     String model = System.getenv().getOrDefault("GEMINI_MODEL", "gemini-2.5-flash");
@@ -1018,15 +1034,15 @@ public class MmCheckServer {
         .build();
     HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     if (response.statusCode() >= 400) {
-      throw new ApiException(502, "A IA não conseguiu processar o " + documentLabel + ". Verifique a chave e tente novamente.");
+      throw new ApiException(502, "A IA nÃ£o conseguiu processar o " + documentLabel + ". Verifique a chave e tente novamente.");
     }
 
     Map<String, Object> root = castMap(Json.parse(response.body()));
     List<Object> candidates = list(root.get("candidates"));
-    if (candidates.isEmpty()) throw new ApiException(422, "A IA não encontrou dados no " + documentLabel + ".");
+    if (candidates.isEmpty()) throw new ApiException(422, "A IA nÃ£o encontrou dados no " + documentLabel + ".");
     Map<String, Object> content = castMap(castMap(candidates.get(0)).get("content"));
     List<Object> parts = list(content.get("parts"));
-    if (parts.isEmpty()) throw new ApiException(422, "A IA não retornou dados do " + documentLabel + ".");
+    if (parts.isEmpty()) throw new ApiException(422, "A IA nÃ£o retornou dados do " + documentLabel + ".");
     String text = string(castMap(parts.get(0)).get("text"));
     return castMap(Json.parse(text));
   }
@@ -1035,10 +1051,10 @@ public class MmCheckServer {
     Map<String, Object> itemSchema = Map.of(
         "type", "object",
         "properties", Map.of(
-            "sku", Map.of("type", "string", "description", "Código exato do produto impresso no documento"),
-            "name", Map.of("type", "string", "description", "Descrição exata do produto"),
+            "sku", Map.of("type", "string", "description", "CÃ³digo exato do produto impresso no documento"),
+            "name", Map.of("type", "string", "description", "DescriÃ§Ã£o exata do produto"),
             "quantity", Map.of("type", "integer", "description", "Quantidade inteira do produto"),
-            "barcode", Map.of("type", "string", "description", "Código de barras se estiver visível; caso contrário string vazia")
+            "barcode", Map.of("type", "string", "description", "CÃ³digo de barras se estiver visÃ­vel; caso contrÃ¡rio string vazia")
         ),
         "required", List.of("sku", "name", "quantity", "barcode")
     );
@@ -1055,13 +1071,13 @@ public class MmCheckServer {
         "required", List.of("route", "client", "carrier", "branch", "date", "items")
     );
     String prompt = """
-        Extraia este mapa de carga logístico brasileiro. Não invente nenhum dado.
-        O número do mapa e os números dos pedidos são informados manualmente pelo operador;
-        não tente extraí-los nem usá-los como identificação.
+        Extraia este mapa de carga logÃ­stico brasileiro. NÃ£o invente nenhum dado.
+        O nÃºmero do mapa e os nÃºmeros dos pedidos sÃ£o informados manualmente pelo operador;
+        nÃ£o tente extraÃ­-los nem usÃ¡-los como identificaÃ§Ã£o.
         Identifique rota, cliente principal, transportadora, filial, data e todos os produtos.
-        Para cada produto extraia SKU, descrição, quantidade inteira e código de barras quando visível.
-        Ignore totais, pesos, cabeçalhos repetidos e anotações manuscritas.
-        Se um campo não estiver legível, retorne string vazia. Preserve os códigos exatamente como impressos.
+        Para cada produto extraia SKU, descriÃ§Ã£o, quantidade inteira e cÃ³digo de barras quando visÃ­vel.
+        Ignore totais, pesos, cabeÃ§alhos repetidos e anotaÃ§Ãµes manuscritas.
+        Se um campo nÃ£o estiver legÃ­vel, retorne string vazia. Preserve os cÃ³digos exatamente como impressos.
         """;
     Map<String, Object> analysis = analyzeDocumentWithGemini(contentType, dataUrl, prompt, schema, "mapa");
 
@@ -1085,9 +1101,9 @@ public class MmCheckServer {
       if (!barcode.isBlank()) item.barcode = barcode;
       map.items.add(item);
     }
-    if (map.items.isEmpty()) throw new ApiException(422, "Nenhum produto legível foi encontrado no arquivo.");
-    if (map.client.isBlank()) map.client = "Cliente não identificado";
-    if (map.route.isBlank()) map.route = "Não identificada";
+    if (map.items.isEmpty()) throw new ApiException(422, "Nenhum produto legÃ­vel foi encontrado no arquivo.");
+    if (map.client.isBlank()) map.client = "Cliente nÃ£o identificado";
+    if (map.route.isBlank()) map.route = "NÃ£o identificada";
     if (map.branch.isBlank()) map.branch = "281";
     return map;
   }
@@ -1096,7 +1112,7 @@ public class MmCheckServer {
     List<Object> rawFiles = list(body.get("files"));
     if (rawFiles.isEmpty() && !string(body.get("dataUrl")).isBlank()) rawFiles = List.of(body);
     if (rawFiles.isEmpty()) throw new ApiException(400, "Selecione pelo menos uma imagem ou PDF.");
-    if (rawFiles.size() > 8) throw new ApiException(400, "Envie no mÃ¡ximo 8 imagens ou arquivos por mapa.");
+    if (rawFiles.size() > 8) throw new ApiException(400, "Envie no mÃƒÂ¡ximo 8 imagens ou arquivos por mapa.");
     List<MapUploadFile> files = new ArrayList<>();
     long totalBytes = 0;
     for (Object rawFile : rawFiles) {
@@ -1104,17 +1120,17 @@ public class MmCheckServer {
       String fileName = string(file.get("fileName")).trim();
       String contentType = string(file.get("contentType")).trim();
       String dataUrl = string(file.get("dataUrl")).trim();
-      if (fileName.isBlank() || dataUrl.isBlank()) throw new ApiException(400, "Arquivo invÃ¡lido no upload.");
+      if (fileName.isBlank() || dataUrl.isBlank()) throw new ApiException(400, "Arquivo invÃƒÂ¡lido no upload.");
       if (contentType.isBlank()) contentType = "application/octet-stream";
       if (!List.of("application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif").contains(contentType)) {
-        throw new ApiException(400, "Formato nÃ£o permitido. Use PDF, PNG, JPG, WebP, HEIC ou HEIF.");
+        throw new ApiException(400, "Formato nÃƒÂ£o permitido. Use PDF, PNG, JPG, WebP, HEIC ou HEIF.");
       }
       byte[] bytes = decodeDataUrl(dataUrl);
       if (bytes.length == 0 || bytes.length > 10 * 1024 * 1024) {
         throw new ApiException(400, "Cada arquivo deve ter entre 1 byte e 10 MB.");
       }
       totalBytes += bytes.length;
-      if (totalBytes > 35L * 1024L * 1024L) throw new ApiException(400, "O total de arquivos deve ter no mÃ¡ximo 35 MB.");
+      if (totalBytes > 35L * 1024L * 1024L) throw new ApiException(400, "O total de arquivos deve ter no mÃƒÂ¡ximo 35 MB.");
       files.add(new MapUploadFile(fileName, contentType, dataUrl));
     }
     return files;
@@ -1155,7 +1171,7 @@ public class MmCheckServer {
     String databaseUrl = System.getenv("DATABASE_URL");
     if (databaseUrl == null || databaseUrl.isBlank()) {
       throw new PersistenceException(
-          "DATABASE_URL é obrigatória. Configure a conexão PostgreSQL do Neon antes de iniciar."
+          "DATABASE_URL Ã© obrigatÃ³ria. Configure a conexÃ£o PostgreSQL do Neon antes de iniciar."
       );
     }
     return databaseUrl;
@@ -1185,7 +1201,7 @@ public class MmCheckServer {
       try {
         Class.forName("org.postgresql.Driver");
       } catch (ClassNotFoundException error) {
-        throw new PersistenceException("Driver PostgreSQL JDBC não encontrado.", error);
+        throw new PersistenceException("Driver PostgreSQL JDBC nÃ£o encontrado.", error);
       }
 
       DatabaseUrlParser.JdbcConfig config;
@@ -1238,7 +1254,7 @@ public class MmCheckServer {
         statement.execute(historyIndexSql);
         statement.execute(filesSql);
       } catch (SQLException error) {
-        throw new PersistenceException("Não foi possível preparar as tabelas do PostgreSQL.", error);
+        throw new PersistenceException("NÃ£o foi possÃ­vel preparar as tabelas do PostgreSQL.", error);
       }
     }
 
@@ -1249,7 +1265,7 @@ public class MmCheckServer {
            ResultSet result = statement.executeQuery()) {
         return result.next() ? Optional.of(result.getString(1)) : Optional.empty();
       } catch (SQLException error) {
-        throw new PersistenceException("Não foi possível carregar os dados do PostgreSQL.", error);
+        throw new PersistenceException("NÃ£o foi possÃ­vel carregar os dados do PostgreSQL.", error);
       }
     }
 
@@ -1285,7 +1301,7 @@ public class MmCheckServer {
           connection.setAutoCommit(true);
         }
       } catch (SQLException error) {
-        throw new PersistenceException("Não foi possível salvar os dados no PostgreSQL.", error);
+        throw new PersistenceException("NÃ£o foi possÃ­vel salvar os dados no PostgreSQL.", error);
       }
     }
 
@@ -1304,7 +1320,7 @@ public class MmCheckServer {
         statement.setBytes(3, content);
         statement.executeUpdate();
       } catch (SQLException error) {
-        throw new PersistenceException("Não foi possível salvar o arquivo no PostgreSQL.", error);
+        throw new PersistenceException("NÃ£o foi possÃ­vel salvar o arquivo no PostgreSQL.", error);
       }
     }
 
@@ -1321,7 +1337,7 @@ public class MmCheckServer {
           ));
         }
       } catch (SQLException error) {
-        throw new PersistenceException("Não foi possível carregar o arquivo do PostgreSQL.", error);
+        throw new PersistenceException("NÃ£o foi possÃ­vel carregar o arquivo do PostgreSQL.", error);
       }
     }
 
@@ -1331,7 +1347,7 @@ public class MmCheckServer {
         statement.setString(1, name);
         statement.executeUpdate();
       } catch (SQLException error) {
-        throw new PersistenceException("Não foi possível remover o arquivo do PostgreSQL.", error);
+        throw new PersistenceException("NÃ£o foi possÃ­vel remover o arquivo do PostgreSQL.", error);
       }
     }
 
@@ -1366,10 +1382,10 @@ public class MmCheckServer {
     static String label(String role) {
       return switch (role) {
         case "admin" -> "Administrador";
-        case "separation" -> "Conferente de separação";
-        case "expedition" -> "Conferente de expedição";
+        case "separation" -> "Conferente de separaÃ§Ã£o";
+        case "expedition" -> "Conferente de expediÃ§Ã£o";
         case "stock" -> "Conferente de estoque";
-        default -> "Usuário";
+        default -> "UsuÃ¡rio";
       };
     }
 
@@ -1422,8 +1438,8 @@ public class MmCheckServer {
       CargoMap map = new CargoMap();
       map.id = id;
       map.route = List.of("1135/1135-CEDRAL", "1135/1140-RIO PRETO", "1135/1128-MIRASSOL", "1135/1172-BADY").get(variant);
-      map.client = List.of("LEITE EXPRESS TRANSPORTES LTDA", "RENOVA MATERIAIS DE CONSTRUÇÃO", "MERCADOMOVEIS LTDA", "CLIENTE BALCÃO").get(variant);
-      map.carrier = List.of("MARIVALDO D A LUZ", "VICTOR PEREIRA", "ROGERIO TRANSPORTES", "EXPEDIÇÃO INTERNA").get(variant);
+      map.client = List.of("LEITE EXPRESS TRANSPORTES LTDA", "RENOVA MATERIAIS DE CONSTRUÃ‡ÃƒO", "MERCADOMOVEIS LTDA", "CLIENTE BALCÃƒO").get(variant);
+      map.carrier = List.of("MARIVALDO D A LUZ", "VICTOR PEREIRA", "ROGERIO TRANSPORTES", "EXPEDIÃ‡ÃƒO INTERNA").get(variant);
       map.branch = "281";
       map.date = "29/05/2026";
       map.status = "separacao";
@@ -1432,7 +1448,7 @@ public class MmCheckServer {
           List.of(new MapItem("73578-1.2", "Lavadora Midea", 6, false), new MapItem("75480-1.2", "Refrigerador Midea", 6, false), new MapItem("66878-1.2", "Freezer Consul horizontal", 2, false)),
           List.of(new MapItem("74684-4.2", "Refrigerador Consul", 4, false), new MapItem("75480-1.2", "Refrigerador Midea", 6, false), new MapItem("66878-1.2", "Freezer Consul horizontal", 3, false)),
           List.of(new MapItem("88012-1.2", "Micro-ondas 32L", 8, false), new MapItem("90144-1.2", "Air fryer 12L", 5, false), new MapItem("73578-1.2", "Lavadora Midea", 2, false)),
-          List.of(new MapItem("66220-1.2", "Fogão 5 bocas", 4, false), new MapItem("71390-1.2", "Aspirador 1800W", 7, false), new MapItem("80818-1.2", "Cafeteira elétrica", 6, false))
+          List.of(new MapItem("66220-1.2", "FogÃ£o 5 bocas", 4, false), new MapItem("71390-1.2", "Aspirador 1800W", 7, false), new MapItem("80818-1.2", "Cafeteira elÃ©trica", 6, false))
       );
       map.items.addAll(variants.get(variant).stream().map(item -> new MapItem(item.sku, item.name, item.quantity, item.ok)).toList());
       return map;
@@ -1524,9 +1540,15 @@ public class MmCheckServer {
     }
   }
 
-  record CountItem(String sku, int system, int counted) {
+  record CountItem(String sku, int system, int counted, int damaged, int other) {
     Map<String, Object> toMap() {
-      return Map.of("sku", sku, "system", system, "counted", counted);
+      return Map.of(
+          "sku", sku,
+          "system", system,
+          "counted", counted,
+          "damaged", damaged,
+          "other", other
+      );
     }
   }
 
@@ -1622,7 +1644,13 @@ public class MmCheckServer {
       db.maps = new ArrayList<>(list(map.get("maps")).stream().map(item -> CargoMap.fromMap(castMap(item))).toList());
       db.counts = new ArrayList<>(list(map.get("counts")).stream().map(item -> {
         Map<String, Object> count = castMap(item);
-        return new CountItem(string(count.get("sku")), number(count.get("system")), number(count.get("counted")));
+        return new CountItem(
+            string(count.get("sku")),
+            number(count.get("system")),
+            number(count.get("counted")),
+            optionalNumber(count, "damaged"),
+            optionalNumber(count, "other")
+        );
       }).toList());
       db.countsUpdatedAt = string(map.get("countsUpdatedAt"));
       db.countsSourceName = string(map.get("countsSourceName"));
@@ -1726,8 +1754,18 @@ public class MmCheckServer {
     try {
       return number(item.get(field));
     } catch (RuntimeException error) {
-      throw new ApiException(400, "Valor inteiro inválido no campo " + field + ".");
+      throw new ApiException(400, "Valor inteiro invÃ¡lido no campo " + field + ".");
     }
+  }
+
+  private static int optionalIntegerField(Map<String, Object> item, String field) {
+    if (!item.containsKey(field) || item.get(field) == null || string(item.get(field)).isBlank()) return 0;
+    return integerField(item, field);
+  }
+
+  private static int optionalNumber(Map<String, Object> item, String field) {
+    if (!item.containsKey(field) || item.get(field) == null || string(item.get(field)).isBlank()) return 0;
+    return number(item.get(field));
   }
 
   private static List<Object> list(Object value) {

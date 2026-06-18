@@ -191,8 +191,8 @@ public final class PostgresDatabase {
     }
     String upsert = """
         INSERT INTO estoque_produtos
-          (sku, saldo_sistema, saldo_contado, ativo, ultima_atualizacao, importacao_id)
-        VALUES (?, ?, 0, TRUE, now(), ?)
+          (sku, saldo_sistema, saldo_contado, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, importacao_id)
+        VALUES (?, ?, 0, 0, 0, TRUE, now(), ?)
         ON CONFLICT (sku) DO UPDATE SET
           saldo_sistema = EXCLUDED.saldo_sistema,
           ativo = TRUE,
@@ -218,8 +218,8 @@ public final class PostgresDatabase {
         """;
     String insertItem = """
         INSERT INTO itens_contagem
-          (contagem_id, sku, saldo_sistema, quantidade_contada, diferenca)
-        VALUES (?, ?, ?, ?, ?)
+          (contagem_id, sku, saldo_sistema, quantidade_contada, quantidade_avaria, quantidade_outros, diferenca)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """;
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
@@ -238,20 +238,28 @@ public final class PostgresDatabase {
             statement.setString(2, row.sku());
             statement.setInt(3, row.systemBalance());
             statement.setInt(4, row.countedQuantity());
-            statement.setInt(5, row.countedQuantity() - row.systemBalance());
+            statement.setInt(5, row.damagedQuantity());
+            statement.setInt(6, row.otherQuantity());
+            statement.setInt(7, row.accountedQuantity() - row.systemBalance());
             statement.addBatch();
           }
           statement.executeBatch();
         }
         String updateInventory = """
             UPDATE estoque_produtos
-            SET saldo_contado = ?, ultima_contagem_em = now(), ultima_atualizacao = now()
+            SET saldo_contado = ?,
+                saldo_avaria = ?,
+                saldo_outros = ?,
+                ultima_contagem_em = now(),
+                ultima_atualizacao = now()
             WHERE sku = ?
             """;
         try (PreparedStatement statement = connection.prepareStatement(updateInventory)) {
           for (CountRow row : rows) {
             statement.setInt(1, row.countedQuantity());
-            statement.setString(2, row.sku());
+            statement.setInt(2, row.damagedQuantity());
+            statement.setInt(3, row.otherQuantity());
+            statement.setString(4, row.sku());
             statement.addBatch();
           }
           statement.executeBatch();
@@ -275,7 +283,7 @@ public final class PostgresDatabase {
 
     List<CountRow> rows = new ArrayList<>();
     String sql = """
-        SELECT sku, saldo_sistema, saldo_contado
+        SELECT sku, saldo_sistema, saldo_contado, saldo_avaria, saldo_outros
         FROM estoque_produtos
         WHERE ativo = TRUE
         ORDER BY sku
@@ -288,7 +296,9 @@ public final class PostgresDatabase {
           rows.add(new CountRow(
               sku,
               result.getInt("saldo_sistema"),
-              result.getInt("saldo_contado")
+              result.getInt("saldo_contado"),
+              result.getInt("saldo_avaria"),
+              result.getInt("saldo_outros")
           ));
         }
       }
@@ -302,6 +312,8 @@ public final class PostgresDatabase {
       String sku,
       int systemBalance,
       int countedQuantity,
+      int damagedQuantity,
+      int otherQuantity,
       String operator
   ) {
     String latestImportSql = "SELECT id FROM importacoes_saldo ORDER BY atualizado_em DESC, id DESC LIMIT 1";
@@ -318,11 +330,13 @@ public final class PostgresDatabase {
         """;
     String upsertInventorySql = """
         INSERT INTO estoque_produtos
-          (sku, saldo_sistema, saldo_contado, ativo, ultima_atualizacao, ultima_contagem_em, importacao_id)
-        VALUES (?, ?, ?, TRUE, now(), now(), ?)
+          (sku, saldo_sistema, saldo_contado, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, ultima_contagem_em, importacao_id)
+        VALUES (?, ?, ?, ?, ?, TRUE, now(), now(), ?)
         ON CONFLICT (sku) DO UPDATE SET
           saldo_sistema = EXCLUDED.saldo_sistema,
           saldo_contado = EXCLUDED.saldo_contado,
+          saldo_avaria = EXCLUDED.saldo_avaria,
+          saldo_outros = EXCLUDED.saldo_outros,
           ativo = TRUE,
           ultima_atualizacao = now(),
           ultima_contagem_em = now(),
@@ -359,7 +373,9 @@ public final class PostgresDatabase {
           statement.setString(1, sku);
           statement.setInt(2, systemBalance);
           statement.setInt(3, countedQuantity);
-          statement.setLong(4, importId);
+          statement.setInt(4, damagedQuantity);
+          statement.setInt(5, otherQuantity);
+          statement.setLong(6, importId);
           statement.executeUpdate();
         }
         try (PreparedStatement statement = connection.prepareStatement("""
@@ -509,7 +525,7 @@ public final class PostgresDatabase {
         SELECT
           COUNT(*) FILTER (WHERE ativo) AS ativos,
           COUNT(*) FILTER (WHERE NOT ativo) AS inativos,
-          COUNT(*) FILTER (WHERE ativo AND saldo_contado <> saldo_sistema) AS divergentes
+          COUNT(*) FILTER (WHERE ativo AND (saldo_contado + saldo_avaria + saldo_outros) <> saldo_sistema) AS divergentes
         FROM estoque_produtos
         """;
     try (Connection connection = connect();
@@ -906,10 +922,14 @@ public final class PostgresDatabase {
           sku VARCHAR(64) NOT NULL,
           saldo_sistema INTEGER NOT NULL CHECK (saldo_sistema >= 0),
           quantidade_contada INTEGER NOT NULL CHECK (quantidade_contada >= 0),
+          quantidade_avaria INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_avaria >= 0),
+          quantidade_outros INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_outros >= 0),
           diferenca INTEGER NOT NULL,
           UNIQUE (contagem_id, sku)
         )
         """,
+        "ALTER TABLE itens_contagem ADD COLUMN IF NOT EXISTS quantidade_avaria INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_avaria >= 0)",
+        "ALTER TABLE itens_contagem ADD COLUMN IF NOT EXISTS quantidade_outros INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_outros >= 0)",
         """
         CREATE TABLE IF NOT EXISTS historico_scanner (
           id BIGSERIAL PRIMARY KEY,
@@ -928,12 +948,16 @@ public final class PostgresDatabase {
           sku VARCHAR(64) PRIMARY KEY,
           saldo_sistema INTEGER NOT NULL CHECK (saldo_sistema >= 0),
           saldo_contado INTEGER NOT NULL DEFAULT 0 CHECK (saldo_contado >= 0),
+          saldo_avaria INTEGER NOT NULL DEFAULT 0 CHECK (saldo_avaria >= 0),
+          saldo_outros INTEGER NOT NULL DEFAULT 0 CHECK (saldo_outros >= 0),
           ativo BOOLEAN NOT NULL DEFAULT TRUE,
           ultima_atualizacao TIMESTAMPTZ NOT NULL DEFAULT now(),
           ultima_contagem_em TIMESTAMPTZ,
           importacao_id BIGINT NOT NULL REFERENCES importacoes_saldo(id)
         )
         """,
+        "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_avaria INTEGER NOT NULL DEFAULT 0 CHECK (saldo_avaria >= 0)",
+        "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_outros INTEGER NOT NULL DEFAULT 0 CHECK (saldo_outros >= 0)",
         """
         CREATE TABLE IF NOT EXISTS conferencias (
           id BIGSERIAL PRIMARY KEY,
@@ -967,12 +991,28 @@ public final class PostgresDatabase {
       for (String sql : statements) statement.execute(sql);
       statement.execute("""
           INSERT INTO estoque_produtos
-            (sku, saldo_sistema, saldo_contado, ativo, ultima_atualizacao, ultima_contagem_em, importacao_id)
+            (sku, saldo_sistema, saldo_contado, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, ultima_contagem_em, importacao_id)
           SELECT
             s.sku,
             s.saldo,
             COALESCE((
               SELECT ic.quantidade_contada
+              FROM itens_contagem ic
+              JOIN contagens c ON c.id = ic.contagem_id
+              WHERE ic.sku = s.sku
+              ORDER BY c.criado_em DESC, c.id DESC
+              LIMIT 1
+            ), 0),
+            COALESCE((
+              SELECT ic.quantidade_avaria
+              FROM itens_contagem ic
+              JOIN contagens c ON c.id = ic.contagem_id
+              WHERE ic.sku = s.sku
+              ORDER BY c.criado_em DESC, c.id DESC
+              LIMIT 1
+            ), 0),
+            COALESCE((
+              SELECT ic.quantidade_outros
               FROM itens_contagem ic
               JOIN contagens c ON c.id = ic.contagem_id
               WHERE ic.sku = s.sku
@@ -1010,7 +1050,17 @@ public final class PostgresDatabase {
   }
 
   public record BalanceRow(String sku, int balance) {}
-  public record CountRow(String sku, int systemBalance, int countedQuantity) {}
+  public record CountRow(
+      String sku,
+      int systemBalance,
+      int countedQuantity,
+      int damagedQuantity,
+      int otherQuantity
+  ) {
+    int accountedQuantity() {
+      return countedQuantity + damagedQuantity + otherQuantity;
+    }
+  }
   public record ImportSummary(
       long id,
       String fileName,

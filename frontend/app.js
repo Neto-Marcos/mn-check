@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.8.3";
+const APP_VERSION = "1.8.4";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -14,25 +14,26 @@ const MAP_FILE_TYPES = new Set([
 const MAP_FILE_ACCEPT = "application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg,image/webp,.webp,image/heic,.heic,image/heif,.heif";
 
 const ROLE_OPTIONS = [
-  ["separation", "Conferente de separação"],
-  ["expedition", "Conferente de expedição"],
+  ["separation", "Conferente de separaÃ§Ã£o"],
+  ["expedition", "Conferente de expediÃ§Ã£o"],
   ["stock", "Conferente de estoque"],
   ["admin", "Administrador"],
 ];
 
 const TITLES = {
-  overview: ["painel", "Visão geral"],
-  separation: ["operação", "Separação"],
+  overview: ["painel", "VisÃ£o geral"],
+  separation: ["operaÃ§Ã£o", "SeparaÃ§Ã£o"],
   counting: ["estoque", "Contagem"],
-  conference: ["validação", "Conferência"],
+  conference: ["validaÃ§Ã£o", "ConferÃªncia"],
   carriers: ["cadastros", "Transportadoras"],
-  reports: ["análise", "Relatórios"],
-  history: ["admin", "Histórico"],
-  users: ["admin", "Usuários"],
-  settings: ["conta", "Configurações"],
+  reports: ["anÃ¡lise", "RelatÃ³rios"],
+  history: ["admin", "HistÃ³rico"],
+  users: ["admin", "UsuÃ¡rios"],
+  settings: ["conta", "ConfiguraÃ§Ãµes"],
 };
 
 const TEMPORARILY_DISABLED_VIEWS = new Set(["carriers", "reports"]);
+const BOTTOM_NAV_PRIORITY = ["overview", "separation", "conference", "counting", "history", "settings"];
 
 const ICON_PATHS = {
   overview: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
@@ -122,14 +123,14 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=183").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=184").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
       setOnline(connected);
       notify(connected
-        ? "Conexão restabelecida. Sincronizando dados off-line..."
-        : "Você está off-line. O sistema continuará funcionando normalmente."
+        ? "ConexÃ£o restabelecida. Sincronizando dados off-line..."
+        : "VocÃª estÃ¡ off-line. O sistema continuarÃ¡ funcionando normalmente."
       );
     };
     window.addEventListener("online", updateConnection);
@@ -182,7 +183,7 @@ function App() {
         const notifications = body.notifications || [];
         const unread = notifications.filter((item) => !item.read).length;
         if (unreadNotificationsRef.current !== null && unread > unreadNotificationsRef.current) {
-          notify("Nova divergência encontrada. Verifique as notificações.");
+          notify("Nova divergÃªncia encontrada. Verifique as notificaÃ§Ãµes.");
         }
         unreadNotificationsRef.current = unread;
         setData((current) => ({ ...current, notifications }));
@@ -230,14 +231,14 @@ function App() {
       });
       const text = await response.text();
       const body = text ? JSON.parse(text) : {};
-      if (!response.ok) throw new Error(body.error || "Operação não concluída.");
+      if (!response.ok) throw new Error(body.error || "OperaÃ§Ã£o nÃ£o concluÃ­da.");
       return body;
     } catch (error) {
       if (error.name === "AbortError") {
         throw new Error("O servidor demorou para responder. Tente novamente.");
       }
       if (error instanceof SyntaxError) {
-        throw new Error("O servidor retornou uma resposta inválida.");
+        throw new Error("O servidor retornou uma resposta invÃ¡lida.");
       }
       throw error;
     } finally {
@@ -327,7 +328,7 @@ function App() {
     try {
       await request("/api/users", { method: "POST", body: newUser });
       setNewUser({ username: "", name: "", role: "separation", password: "" });
-      await refresh("Usuário cadastrado com sucesso.", "users");
+      await refresh("UsuÃ¡rio cadastrado com sucesso.", "users");
     } catch (error) {
       notify(error.message);
     }
@@ -338,7 +339,7 @@ function App() {
     if (!window.confirm(`Remover o acesso de ${target.name}?`)) return;
     try {
       await request(`/api/users/${encodeURIComponent(target.id)}`, { method: "DELETE" });
-      await refresh("Usuário removido com sucesso.", "users");
+      await refresh("UsuÃ¡rio removido com sucesso.", "users");
     } catch (error) {
       notify(error.message);
     }
@@ -389,7 +390,7 @@ function App() {
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      notify("Arquivo muito grande. Use até 10 MB neste MVP.");
+      notify("Arquivo muito grande. Use atÃ© 10 MB neste MVP.");
       return;
     }
 
@@ -408,7 +409,7 @@ function App() {
       });
       mapUploadMetadataRef.current = { mapNumber: "", orderNumbers: [] };
       setMapImportOpen(false);
-      await refresh("Mapa lido pela IA e enviado para separação.", "separation");
+      await refresh("Mapa lido pela IA e enviado para separaÃ§Ã£o.", "separation");
     } catch (error) {
       notify(error.message);
     } finally {
@@ -426,7 +427,7 @@ function App() {
       for (const file of files) {
         const contentType = mapContentType(file);
         if (!MAP_FILE_TYPES.has(contentType)) throw new Error("Use PDF, PNG, JPG, JPEG, WebP, HEIC ou HEIF.");
-        if (file.size > 10 * 1024 * 1024) throw new Error("Cada arquivo deve ter atÃ© 10 MB.");
+        if (file.size > 10 * 1024 * 1024) throw new Error("Cada arquivo deve ter atÃƒÂ© 10 MB.");
         uploadFiles.push({
           fileName: file.name,
           contentType,
@@ -462,7 +463,7 @@ function App() {
       setMapDraft(null);
       setMapDraftFiles([]);
       setMapImportOpen(false);
-      await refresh("Mapa revisado e enviado para separaÃ§Ã£o.", "separation");
+      await refresh("Mapa revisado e enviado para separaÃƒÂ§ÃƒÂ£o.", "separation");
     } catch (error) {
       notify(error.message);
     } finally {
@@ -493,7 +494,7 @@ function App() {
   }
 
   async function deleteMap(map) {
-    if (!window.confirm(`Apagar o mapa ${map.id}? Esta ação não pode ser desfeita.`)) return;
+    if (!window.confirm(`Apagar o mapa ${map.id}? Esta aÃ§Ã£o nÃ£o pode ser desfeita.`)) return;
     try {
       await request(`/api/maps/${map.id}`, { method: "DELETE" });
       await refresh(`Mapa ${map.id} apagado.`, "separation");
@@ -582,7 +583,7 @@ function App() {
       window.dispatchEvent(new CustomEvent("mncheck-offline-synced"));
     }
     if (networkFailed) {
-      throw new TypeError("A conexão ainda não está disponível para sincronizar as leituras.");
+      throw new TypeError("A conexÃ£o ainda nÃ£o estÃ¡ disponÃ­vel para sincronizar as leituras.");
     }
   }
 
@@ -600,7 +601,7 @@ function App() {
     if (!response.ok) {
       if (response.status === 401) return 0;
       const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || "A contagem off-line ainda não pôde ser sincronizada.");
+      throw new Error(body.error || "A contagem off-line ainda nÃ£o pÃ´de ser sincronizada.");
     }
     localStorage.removeItem(OFFLINE_COUNT_DRAFT);
     window.dispatchEvent(new CustomEvent("mncheck-count-synced"));
@@ -656,7 +657,7 @@ function App() {
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || "Não foi possível baixar o diagnóstico.");
+        throw new Error(body.error || "NÃ£o foi possÃ­vel baixar o diagnÃ³stico.");
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -676,7 +677,7 @@ function App() {
     try {
       await request("/api/contagem", { method: "POST", body: { counts } });
       localStorage.removeItem(OFFLINE_COUNT_DRAFT);
-      await refresh("Contagem física atualizada.", "counting");
+      await refresh("Contagem fÃ­sica atualizada.", "counting");
     } catch (error) {
       if (isNetworkFailure(error)) {
         setOnline(false);
@@ -686,7 +687,7 @@ function App() {
           localStorage.setItem(OFFLINE_BOOTSTRAP, JSON.stringify(next));
           return next;
         });
-        notify("Você está off-line. A contagem foi salva no aparelho e será sincronizada automaticamente.");
+        notify("VocÃª estÃ¡ off-line. A contagem foi salva no aparelho e serÃ¡ sincronizada automaticamente.");
         return { offline: true };
       }
       notify(error.message);
@@ -734,17 +735,17 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
-          h("p", { className: "eyebrow" }, "conferência operacional"),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=184", alt: "MN - Check" }),
+          h("p", { className: "eyebrow" }, "conferÃªncia operacional"),
           h("h1", null, "MN - Check"),
-          h("p", null, "Controle de separação, conferência e estoque."),
-          h("span", { className: "version-badge" }, `Versão ${appVersion}`)
+          h("p", null, "Controle de separaÃ§Ã£o, conferÃªncia e estoque."),
+          h("span", { className: "version-badge" }, `VersÃ£o ${appVersion}`)
         )
       ),
       h("form", { className: "login-card", onSubmit: handleLogin },
         h("p", { className: "eyebrow" }, "acesso"),
         h("h2", null, "Entrar no MN - Check"),
-        h("label", null, "Usuário",
+        h("label", null, "UsuÃ¡rio",
           h("input", {
             value: login.username,
             onChange: (event) => setLogin({ ...login, username: event.target.value }),
@@ -771,6 +772,9 @@ function App() {
 
   const allowedViews = user.allowedViews || [];
   const navigationViews = [...allowedViews.filter((item) => !TEMPORARILY_DISABLED_VIEWS.has(item)), "settings"];
+  const bottomNavigationViews = BOTTOM_NAV_PRIORITY
+    .filter((item) => navigationViews.includes(item))
+    .slice(0, 5);
   const [eyebrow, title] = TITLES[view] || TITLES[allowedViews[0]];
   const notifications = data.notifications || [];
   const unreadNotifications = notifications.filter((item) => !item.read).length;
@@ -783,12 +787,12 @@ function App() {
       "aria-label": "Fechar menu",
       onClick: () => setMobileNavOpen(false)
     }),
-    h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
+    h("aside", { className: "sidebar", "aria-label": "NavegaÃ§Ã£o principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.svg?v=3", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=184", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
-          h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
+          h("small", { className: "sidebar-version" }, `VersÃ£o ${appVersion}`)
         ),
         h("button", {
           className: "sidebar-collapse-action",
@@ -826,8 +830,8 @@ function App() {
         h("span", null)
       ),
       !online && h("div", { className: "offline-banner", role: "status" },
-        h("strong", null, "Você está off-line"),
-        h("span", null, "Continue trabalhando normalmente. As alterações serão enviadas quando a conexão voltar.")
+        h("strong", null, "VocÃª estÃ¡ off-line"),
+        h("span", null, "Continue trabalhando normalmente. As alteraÃ§Ãµes serÃ£o enviadas quando a conexÃ£o voltar.")
       ),
       h("header", { className: "topbar" },
         h("div", { className: "topbar-heading" },
@@ -854,8 +858,8 @@ function App() {
           }, h(Icon, { name: theme === "dark" ? "sun" : "moon", size: 18 })),
           user.role === "admin" && h("button", {
             className: `topbar-icon-action ${unreadNotifications ? "has-unread" : ""}`,
-            title: "Notificações",
-            "aria-label": "Abrir notificações",
+            title: "NotificaÃ§Ãµes",
+            "aria-label": "Abrir notificaÃ§Ãµes",
             onClick: () => setNotificationsOpen(true)
           },
             h(Icon, { name: "notifications", size: 19 }),
@@ -889,18 +893,18 @@ function App() {
       view === "separation" && h(Separation, {
         maps: data.maps,
         onToggle: toggleItem,
-        onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferência."),
+        onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferÃªncia."),
         onDelete: deleteMap
       }),
       view === "conference" && h(Conference, {
         maps: data.maps,
-        onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
-        onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
+        onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergÃªncia."),
+        onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergÃªncia."),
         onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
         onScan: scanBarcode,
-        onPause: (id) => mapAction(id, "pause-conference", "Conferência pausada com o progresso salvo."),
-        onResume: (id) => mapAction(id, "resume-conference", "Conferência retomada."),
-        onCancel: (id) => mapAction(id, "cancel-conference", "Conferência cancelada e progresso apagado.")
+        onPause: (id) => mapAction(id, "pause-conference", "ConferÃªncia pausada com o progresso salvo."),
+        onResume: (id) => mapAction(id, "resume-conference", "ConferÃªncia retomada."),
+        onCancel: (id) => mapAction(id, "cancel-conference", "ConferÃªncia cancelada e progresso apagado.")
       }),
       view === "counting" && h(Counting, {
         counts: data.counts,
@@ -940,6 +944,18 @@ function App() {
         onPassword: () => setPasswordTarget(user),
         onLogout: logout
       })
+    ),
+    h("nav", { className: "mobile-bottom-nav", "aria-label": "Navegacao rapida" },
+      bottomNavigationViews.map((item) => h("button", {
+        key: `bottom-${item}`,
+        className: `bottom-nav-item ${view === item ? "active" : ""}`,
+        "aria-current": view === item ? "page" : undefined,
+        title: TITLES[item][1],
+        onClick: () => selectView(item)
+      },
+        h(Icon, { name: item, size: 22 }),
+        h("span", null, TITLES[item][1])
+      ))
     ),
     notificationsOpen && user.role === "admin" && h(NotificationPanel, {
       notifications,
@@ -985,7 +1001,7 @@ function PasswordDialog({ target, ownPassword, onClose, onSave }) {
       return;
     }
     if (values.newPassword !== values.confirmation) {
-      setError("A confirmação não corresponde à nova senha.");
+      setError("A confirmaÃ§Ã£o nÃ£o corresponde Ã  nova senha.");
       return;
     }
     setSaving(true);
@@ -1001,10 +1017,10 @@ function PasswordDialog({ target, ownPassword, onClose, onSave }) {
     h("form", { className: "new-map-dialog password-dialog", onSubmit: submit, onMouseDown: (event) => event.stopPropagation() },
       h("div", { className: "dialog-head" },
         h("div", null,
-          h("p", { className: "eyebrow" }, ownPassword ? "segurança da conta" : "administração"),
+          h("p", { className: "eyebrow" }, ownPassword ? "seguranÃ§a da conta" : "administraÃ§Ã£o"),
           h("h3", null, ownPassword ? "Alterar minha senha" : `Redefinir senha de ${target.name}`)
         ),
-        h("button", { className: "dialog-close", type: "button", disabled: saving, onClick: onClose, "aria-label": "Fechar" }, "×")
+        h("button", { className: "dialog-close", type: "button", disabled: saving, onClick: onClose, "aria-label": "Fechar" }, "Ã—")
       ),
       ownPassword && h("label", null, "Senha atual",
         h("input", {
@@ -1056,13 +1072,13 @@ function ConferenceCancelDialog({ map, onClose, onContinue, onPause, onCancel })
       h("div", { className: "modal-icon warning" }, "!"),
       h("div", { className: "modal-copy" },
         h("p", { className: "eyebrow" }, `Mapa ${map.id}`),
-        h("h3", { id: `cancel-conference-${map.id}` }, "Deseja realmente cancelar esta conferência?"),
+        h("h3", { id: `cancel-conference-${map.id}` }, "Deseja realmente cancelar esta conferÃªncia?"),
         h("p", null, "Escolha se o progresso deve ser mantido para continuar depois ou apagado definitivamente.")
       ),
       h("div", { className: "modal-actions stacked" },
         h("button", { className: "danger-action", onClick: onCancel }, "Cancelar e apagar tudo"),
         h("button", { className: "secondary-action", onClick: onPause }, "Salvar progresso e sair"),
-        h("button", { className: "ghost-action", onClick: onContinue }, "Continuar conferência")
+        h("button", { className: "ghost-action", onClick: onContinue }, "Continuar conferÃªncia")
       )
     )
   );
@@ -1071,8 +1087,8 @@ function ConferenceCancelDialog({ map, onClose, onContinue, onPause, onCancel })
 function NotificationPanel({ notifications, onClose, onRead, onOpenMap }) {
   return h("aside", { className: "notification-panel" },
     h("div", { className: "notification-panel-head" },
-      h("div", null, h("strong", null, "Notificações"), h("span", null, "Divergências operacionais")),
-      h("button", { className: "dialog-close", onClick: onClose, "aria-label": "Fechar notificações" }, "×")
+      h("div", null, h("strong", null, "NotificaÃ§Ãµes"), h("span", null, "DivergÃªncias operacionais")),
+      h("button", { className: "dialog-close", onClick: onClose, "aria-label": "Fechar notificaÃ§Ãµes" }, "Ã—")
     ),
     h("div", { className: "notification-list" },
       notifications.length
@@ -1093,7 +1109,7 @@ function NotificationPanel({ notifications, onClose, onRead, onOpenMap }) {
               }, "Marcar como lida")
             )
           ))
-        : empty("Nenhuma notificação.")
+        : empty("Nenhuma notificaÃ§Ã£o.")
     )
   );
 }
@@ -1150,11 +1166,11 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
   function useCamera() {
     const values = metadata();
     if (!values.mapNumber) {
-      setError("Informe o número do mapa.");
+      setError("Informe o nÃºmero do mapa.");
       return;
     }
     if (!values.orderNumbers.length) {
-      setError("Informe pelo menos um número de pedido.");
+      setError("Informe pelo menos um nÃºmero de pedido.");
       return;
     }
     setError("");
@@ -1229,10 +1245,10 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
           h("p", { className: "eyebrow" }, "entrada de documento"),
           h("h3", { id: "new-map-title" }, "Como deseja inserir o novo mapa?")
         ),
-        h("button", { className: "dialog-close", disabled: busy, onClick: onClose, "aria-label": "Fechar" }, "×")
+        h("button", { className: "dialog-close", disabled: busy, onClick: onClose, "aria-label": "Fechar" }, "Ã—")
       ),
       h("div", { className: "map-manual-fields" },
-        h("label", null, "Número do mapa",
+        h("label", null, "NÃºmero do mapa",
           h("input", {
             inputMode: "numeric",
             placeholder: "Ex.: 15728",
@@ -1241,7 +1257,7 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
             onChange: (event) => setMapNumber(event.target.value)
           })
         ),
-        h("label", null, "Números dos pedidos",
+        h("label", null, "NÃºmeros dos pedidos",
           h("div", { className: "order-entry-row" },
             h("input", {
               inputMode: "numeric",
@@ -1266,14 +1282,14 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
             disabled: busy,
             onChange: (event) => setOrdersText(event.target.value)
           }),
-          h("small", null, "No iPhone, digite um pedido e toque em Adicionar. Também funciona um pedido por linha.")
+          h("small", null, "No iPhone, digite um pedido e toque em Adicionar. TambÃ©m funciona um pedido por linha.")
         )
       ),
       error && h("div", { className: "form-error" }, error),
       h("div", { className: "map-source-grid" },
         h("button", { className: "map-source-option", disabled: busy, onClick: useCamera },
-          h("strong", null, "Câmera"),
-          h("span", null, "Usa os números informados e lê somente os itens da foto")
+          h("strong", null, "CÃ¢mera"),
+          h("span", null, "Usa os nÃºmeros informados e lÃª somente os itens da foto")
         ),
         h("button", { className: "map-source-option", disabled: busy, onClick: () => onFile(metadata()) },
           h("strong", null, "Arquivo ou imagem"),
@@ -1327,10 +1343,10 @@ function Settings({
         )
       ),
       h("dl", { className: "account-details" },
-        h("div", null, h("dt", null, "Usuário"), h("dd", null, user.username)),
-        h("div", null, h("dt", null, "Permissão"), h("dd", null, user.label)),
-        h("div", null, h("dt", null, "Conexão"), h("dd", { className: online ? "text-success" : "text-warning" }, online ? "Online" : "Modo offline")),
-        h("div", null, h("dt", null, "Versão"), h("dd", null, appVersion))
+        h("div", null, h("dt", null, "UsuÃ¡rio"), h("dd", null, user.username)),
+        h("div", null, h("dt", null, "PermissÃ£o"), h("dd", null, user.label)),
+        h("div", null, h("dt", null, "ConexÃ£o"), h("dd", { className: online ? "text-success" : "text-warning" }, online ? "Online" : "Modo offline")),
+        h("div", null, h("dt", null, "VersÃ£o"), h("dd", null, appVersion))
       ),
       h("button", { className: "secondary-action settings-password-action", onClick: onPassword },
         h(Icon, { name: "key", size: 18 }),
@@ -1339,13 +1355,13 @@ function Settings({
     ),
     h("article", { className: "panel settings-preferences" },
       h("div", { className: "panel-header" },
-        h("div", null, h("p", { className: "eyebrow" }, "preferências"), h("h3", null, "Aparência e navegação")),
+        h("div", null, h("p", { className: "eyebrow" }, "preferÃªncias"), h("h3", null, "AparÃªncia e navegaÃ§Ã£o")),
         h("span", null, "salvo neste aparelho")
       ),
       h("div", { className: "preference-list" },
         h(PreferenceRow, {
           title: "Tema da interface",
-          description: "Escolha o contraste mais confortável para o ambiente de trabalho."
+          description: "Escolha o contraste mais confortÃ¡vel para o ambiente de trabalho."
         },
           h("div", { className: "segmented-control", role: "group", "aria-label": "Tema da interface" },
             h("button", {
@@ -1360,13 +1376,13 @@ function Settings({
         ),
         h(PreferenceRow, {
           title: "Densidade das telas",
-          description: "Ajusta o espaçamento sem alterar nenhuma informação."
+          description: "Ajusta o espaÃ§amento sem alterar nenhuma informaÃ§Ã£o."
         },
           h("div", { className: "segmented-control", role: "group", "aria-label": "Densidade das telas" },
             h("button", {
               className: density === "comfortable" ? "active" : "",
               onClick: () => onDensityChange("comfortable")
-            }, "Confortável"),
+            }, "ConfortÃ¡vel"),
             h("button", {
               className: density === "compact" ? "active" : "",
               onClick: () => onDensityChange("compact")
@@ -1375,7 +1391,7 @@ function Settings({
         ),
         h(PreferenceRow, {
           title: "Menu lateral",
-          description: "Define como a navegação deve iniciar no desktop."
+          description: "Define como a navegaÃ§Ã£o deve iniciar no desktop."
         },
           h("label", { className: "setting-switch" },
             h("input", {
@@ -1391,9 +1407,9 @@ function Settings({
     ),
     h("article", { className: "panel settings-session" },
       h("div", null,
-        h("p", { className: "eyebrow" }, "sessão"),
+        h("p", { className: "eyebrow" }, "sessÃ£o"),
         h("h3", null, "Encerrar acesso"),
-        h("p", null, "Use esta opção ao terminar o trabalho neste aparelho.")
+        h("p", null, "Use esta opÃ§Ã£o ao terminar o trabalho neste aparelho.")
       ),
       h("button", { className: "logout-action", onClick: onLogout },
         h(Icon, { name: "logout", size: 18 }),
@@ -1430,9 +1446,9 @@ function Overview({ data }) {
 
   return h(React.Fragment, null,
     h("div", { className: "metric-grid" },
-      metric("Conferências ativas", activeConferences),
+      metric("ConferÃªncias ativas", activeConferences),
       metric("Itens conferidos hoje", checkedToday),
-      metric("Divergências", metrics.errorCount || 0),
+      metric("DivergÃªncias", metrics.errorCount || 0),
       metric("Finalizados", metrics.perfect || 0)
     ),
     h("div", { className: "content-grid" },
@@ -1440,15 +1456,15 @@ function Overview({ data }) {
         h("div", { className: "panel-header" }, h("h3", null, "Mapa operacional"), h("span", null, "tempo real")),
         h("div", { className: "flow-board" },
           flow("Filial", "281"),
-          flow("Setor", "expedição central"),
-          flow("Separação", plural(metrics.separating || 0, "mapa", "mapas")),
-          flow("Conferência", plural(metrics.waiting || 0, "mapa", "mapas")),
+          flow("Setor", "expediÃ§Ã£o central"),
+          flow("SeparaÃ§Ã£o", plural(metrics.separating || 0, "mapa", "mapas")),
+          flow("ConferÃªncia", plural(metrics.waiting || 0, "mapa", "mapas")),
           flow("Conferidos", plural(metrics.perfect || 0, "mapa", "mapas")),
-          flow("Histórico de erros", `${metrics.errorCount || 0} registros`)
+          flow("HistÃ³rico de erros", `${metrics.errorCount || 0} registros`)
         )
       ),
       h("article", { className: "panel" },
-        h("div", { className: "panel-header" }, h("h3", null, "Progresso das conferências"), h("span", null, "dados reais")),
+        h("div", { className: "panel-header" }, h("h3", null, "Progresso das conferÃªncias"), h("span", null, "dados reais")),
         conferenceProgress.length
           ? h("div", { className: "bars" }, conferenceProgress.map((entry) =>
           h("div", { key: entry.id },
@@ -1461,7 +1477,7 @@ function Overview({ data }) {
             )
           )
         ))
-          : empty("Nenhuma conferência em andamento.")
+          : empty("Nenhuma conferÃªncia em andamento.")
       )
     )
   );
@@ -1469,7 +1485,7 @@ function Overview({ data }) {
 
 function Carriers({ maps }) {
   const carriers = Object.values((maps || []).reduce((index, map) => {
-    const name = String(map.carrier || "Não informada").trim() || "Não informada";
+    const name = String(map.carrier || "NÃ£o informada").trim() || "NÃ£o informada";
     if (!index[name]) index[name] = { name, maps: 0, active: 0, completed: 0 };
     index[name].maps++;
     if (["separacao", "aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status)) {
@@ -1495,7 +1511,7 @@ function Carriers({ maps }) {
               ),
               h("dl", null,
                 h("div", null, h("dt", null, "Ativos"), h("dd", null, carrier.active)),
-                h("div", null, h("dt", null, "Concluídos"), h("dd", null, carrier.completed))
+                h("div", null, h("dt", null, "ConcluÃ­dos"), h("dd", null, carrier.completed))
               )
             )
           ))
@@ -1520,7 +1536,7 @@ function Reports({ data }) {
       metric("Unidades previstas", totalUnits),
       metric("Unidades conferidas", checkedUnits),
       metric("Progresso operacional", `${completion}%`),
-      metric("Divergências", divergences),
+      metric("DivergÃªncias", divergences),
       metric("Produtos ativos", inventory.active || 0),
       metric("Produtos inativos", inventory.inactive || 0)
     ),
@@ -1532,7 +1548,7 @@ function Reports({ data }) {
       h("div", { className: "report-progress" },
         h("div", { className: "report-progress-copy" },
           h("strong", null, `${checkedUnits} de ${totalUnits} unidades`),
-          h("span", null, "Conferência acumulada dos mapas disponíveis")
+          h("span", null, "ConferÃªncia acumulada dos mapas disponÃ­veis")
         ),
         h("div", { className: "bar-track" },
           h("div", { className: "bar-fill", style: { width: `${completion}%` } })
@@ -1541,20 +1557,20 @@ function Reports({ data }) {
     ),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" },
-        h("h3", null, "Versões de saldo"),
-        h("span", null, "últimas importações")
+        h("h3", null, "VersÃµes de saldo"),
+        h("span", null, "Ãºltimas importaÃ§Ãµes")
       ),
       balanceHistory.length
         ? h("div", { className: "timeline-list" }, balanceHistory.map((item) =>
             h("div", { className: "list-item", key: item.id },
               h("div", null,
                 h("strong", null, item.fileName),
-                h("span", null, `${item.importedBy} · ${formatDate(item.updatedAt)}`)
+                h("span", null, `${item.importedBy} Â· ${formatDate(item.updatedAt)}`)
               ),
-              h("span", null, `${item.skuCount} SKUs · ${item.changedItems} alterados · ${item.removedItems || 0} inativos`)
+              h("span", null, `${item.skuCount} SKUs Â· ${item.changedItems} alterados Â· ${item.removedItems || 0} inativos`)
             )
           ))
-        : empty("Nenhuma versão de saldo registrada.")
+        : empty("Nenhuma versÃ£o de saldo registrada.")
     )
   );
 }
@@ -1563,10 +1579,10 @@ function Separation({ maps, onToggle, onSend, onDelete }) {
   const separationMaps = maps.filter((map) => map.status === "separacao");
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Separação de mapas"), h("span", null, "marque os itens separados")),
+      h("div", { className: "panel-header" }, h("h3", null, "SeparaÃ§Ã£o de mapas"), h("span", null, "marque os itens separados")),
       h("div", { className: "stack" }, separationMaps.length
         ? separationMaps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend, onDelete }))
-        : empty("Nenhum mapa em separação."))
+        : empty("Nenhum mapa em separaÃ§Ã£o."))
     ),
     h(QueueSummary, { maps: separationMaps, mode: "separation" })
   );
@@ -1578,7 +1594,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
   );
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Reconferência da expedição"), h("span", null, "mapas já separados")),
+      h("div", { className: "panel-header" }, h("h3", null, "ReconferÃªncia da expediÃ§Ã£o"), h("span", null, "mapas jÃ¡ separados")),
       h("div", { className: "stack" }, conferenceMaps.length ? conferenceMaps.map((map, index) => h(ConferenceCard, {
         key: map.id,
         map,
@@ -1589,10 +1605,37 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
         onPause,
         onResume,
         onCancel
-      })) : empty("Nenhum mapa aguardando conferência."))
+      })) : empty("Nenhum mapa aguardando conferÃªncia."))
     ),
     h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
   );
+}
+
+function safeQuantity(value) {
+  const parsed = Number.parseInt(value || "0", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function normalizeCountRows(rows) {
+  return (rows || []).map((item) => ({
+    ...item,
+    system: safeQuantity(item.system),
+    counted: safeQuantity(item.counted),
+    damaged: safeQuantity(item.damaged),
+    other: safeQuantity(item.other)
+  }));
+}
+
+function countAccounted(item) {
+  return safeQuantity(item.counted) + safeQuantity(item.damaged) + safeQuantity(item.other);
+}
+
+function countDifference(item) {
+  return countAccounted(item) - safeQuantity(item.system);
+}
+
+function hasCountMovement(item) {
+  return countAccounted(item) > 0;
 }
 
 function Counting({
@@ -1610,7 +1653,7 @@ function Counting({
   online
 }) {
   const initialOfflineDraft = readStoredJson(OFFLINE_COUNT_DRAFT, null);
-  const [draft, setDraft] = React.useState(initialOfflineDraft?.counts || counts);
+  const [draft, setDraft] = React.useState(normalizeCountRows(initialOfflineDraft?.counts || counts));
   const [importing, setImporting] = React.useState(false);
   const [savingCount, setSavingCount] = React.useState(false);
   const [offlinePending, setOfflinePending] = React.useState(Boolean(initialOfflineDraft?.counts?.length));
@@ -1619,7 +1662,7 @@ function Counting({
   const [countFilter, setCountFilter] = React.useState("all");
   const [printFilter, setPrintFilter] = React.useState("counted");
   const [manualOpen, setManualOpen] = React.useState(false);
-  const [manualProduct, setManualProduct] = React.useState({ sku: "", system: "", counted: "" });
+  const [manualProduct, setManualProduct] = React.useState({ sku: "", system: "", counted: "", damaged: "", other: "" });
   const [savingManual, setSavingManual] = React.useState(false);
   const [printMode, setPrintMode] = React.useState(false);
   const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
@@ -1628,7 +1671,7 @@ function Counting({
 
   React.useEffect(() => {
     const pending = readStoredJson(OFFLINE_COUNT_DRAFT, null);
-    setDraft(pending?.counts || counts);
+    setDraft(normalizeCountRows(pending?.counts || counts));
     setOfflinePending(Boolean(pending?.counts?.length));
   }, [counts]);
 
@@ -1653,7 +1696,7 @@ function Counting({
       return;
     }
     if (file.size > 25 * 1024 * 1024) {
-      window.alert("O PDF deve ter no máximo 25 MB.");
+      window.alert("O PDF deve ter no mÃ¡ximo 25 MB.");
       return;
     }
 
@@ -1667,10 +1710,10 @@ function Counting({
     }
   }
 
-  function changeCount(sku, value) {
-    const counted = Math.max(0, Number.parseInt(value || "0", 10) || 0);
+  function changeCountField(sku, field, value) {
+    const amount = safeQuantity(value);
     setDraft((current) => {
-      const next = current.map((item) => item.sku === sku ? { ...item, counted } : item);
+      const next = current.map((item) => item.sku === sku ? { ...item, [field]: amount } : item);
       if (!online || !navigator.onLine) {
         onOfflineDraft(next);
         setOfflinePending(true);
@@ -1696,18 +1739,20 @@ function Counting({
     const sku = normalizeInventorySku(manualProduct.sku);
     const system = Number.parseInt(manualProduct.system || "0", 10);
     const counted = Number.parseInt(manualProduct.counted || "0", 10);
+    const damaged = Number.parseInt(manualProduct.damaged || "0", 10);
+    const other = Number.parseInt(manualProduct.other || "0", 10);
     if (!/^\d{4,8}\.\d{1,3}\.\d{1,3}$/.test(sku)) {
       window.alert("Informe o SKU no formato produto.gradeX.gradeY. Exemplo: 76331.3.4.");
       return;
     }
-    if (system < 0 || counted < 0 || Number.isNaN(system) || Number.isNaN(counted)) {
-      window.alert("Informe quantidades válidas.");
+    if ([system, counted, damaged, other].some((value) => value < 0 || Number.isNaN(value))) {
+      window.alert("Informe quantidades vÃ¡lidas.");
       return;
     }
     setSavingManual(true);
     try {
-      await onAddProduct({ sku, system, counted });
-      setManualProduct({ sku: "", system: "", counted: "" });
+      await onAddProduct({ sku, system, counted, damaged, other });
+      setManualProduct({ sku: "", system: "", counted: "", damaged: "", other: "" });
       setManualOpen(false);
     } catch (error) {
       window.alert(error.message);
@@ -1725,7 +1770,7 @@ function Counting({
     }
     const match = draft.find((item) => String(item.sku).replace(/\D/g, "") === digits);
     if (!match) {
-      setSearchMessage(`Código ${value} não encontrado na lista de saldo.`);
+      setSearchMessage(`CÃ³digo ${value} nÃ£o encontrado na lista de saldo.`);
       playFeedback(false);
       return null;
     }
@@ -1748,19 +1793,22 @@ function Counting({
     window.setTimeout(() => setPrintMode(false), 2_000);
   }
 
-  const countedItems = draft.filter((item) => item.counted > 0);
-  const compliantItems = draft.filter((item) => item.counted > 0 && item.counted === item.system);
-  const divergentRows = draft.filter((item) => item.counted !== item.system);
-  const pendingItems = draft.filter((item) => item.counted === 0);
+  const countedItems = draft.filter(hasCountMovement);
+  const compliantItems = draft.filter((item) => hasCountMovement(item) && countDifference(item) === 0);
+  const divergentRows = draft.filter((item) => countDifference(item) !== 0);
+  const pendingItems = draft.filter((item) => !hasCountMovement(item));
   const totalSystem = draft.reduce((sum, item) => sum + item.system, 0);
   const totalCounted = draft.reduce((sum, item) => sum + item.counted, 0);
+  const totalDamaged = draft.reduce((sum, item) => sum + item.damaged, 0);
+  const totalOther = draft.reduce((sum, item) => sum + item.other, 0);
+  const totalAccounted = draft.reduce((sum, item) => sum + countAccounted(item), 0);
   const divergentItems = divergentRows.length;
   const searchDigits = searchCode.replace(/\D/g, "");
   const filteredDraft = draft.filter((item) => {
-    if (countFilter === "counted") return item.counted > 0;
-    if (countFilter === "ok") return item.counted > 0 && item.counted === item.system;
-    if (countFilter === "divergent") return item.counted !== item.system;
-    if (countFilter === "pending") return item.counted === 0;
+    if (countFilter === "counted") return hasCountMovement(item);
+    if (countFilter === "ok") return hasCountMovement(item) && countDifference(item) === 0;
+    if (countFilter === "divergent") return countDifference(item) !== 0;
+    if (countFilter === "pending") return !hasCountMovement(item);
     return true;
   });
   const visibleDraft = searchDigits
@@ -1769,17 +1817,20 @@ function Counting({
   const printableDraft = printFilter === "counted" ? countedItems : visibleDraft;
   const printTotalSystem = printableDraft.reduce((sum, item) => sum + item.system, 0);
   const printTotalCounted = printableDraft.reduce((sum, item) => sum + item.counted, 0);
-  const printDivergentItems = printableDraft.filter((item) => item.counted !== item.system).length;
+  const printTotalDamaged = printableDraft.reduce((sum, item) => sum + item.damaged, 0);
+  const printTotalOther = printableDraft.reduce((sum, item) => sum + item.other, 0);
+  const printTotalAccounted = printableDraft.reduce((sum, item) => sum + countAccounted(item), 0);
+  const printDivergentItems = printableDraft.filter((item) => countDifference(item) !== 0).length;
 
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" },
         h("h3", null, "Contagem de estoque"),
-        h("span", null, updatedAt ? `Saldo atualizado em ${formatDate(updatedAt)}` : "Saldo ainda não importado")
+        h("span", null, updatedAt ? `Saldo atualizado em ${formatDate(updatedAt)}` : "Saldo ainda nÃ£o importado")
       ),
       updatedAt && h("div", { className: "count-import-summary" },
         h("div", null,
-          h("span", { className: "count-import-label" }, "Última importação"),
+          h("span", { className: "count-import-label" }, "Ãšltima importaÃ§Ã£o"),
           h("strong", null, sourceName || "PDF de saldo")
         ),
         h("div", null,
@@ -1797,13 +1848,13 @@ function Counting({
         h("div", null, h("span", null, "Tempo"), h("strong", null, `${importMetrics.elapsedMs || 0} ms`))
       ),
       warnings.length > 0 && h("div", { className: "count-import-warnings" },
-        h("strong", null, "Avisos da importação"),
+        h("strong", null, "Avisos da importaÃ§Ã£o"),
         h("ul", null, warnings.map((warning) => h("li", { key: warning }, warning)))
       ),
       updatedAt && h("div", { className: "count-import-diagnostics" },
         h("div", { className: "count-import-diagnostics-head" },
           h("div", null,
-            h("strong", null, "Diagnóstico da importação"),
+            h("strong", null, "DiagnÃ³stico da importaÃ§Ã£o"),
             h("span", null, `${ignoredProducts.length} linhas detalhadas`)
           ),
           h("button", {
@@ -1830,8 +1881,8 @@ function Counting({
       offlinePending && h("div", { className: "offline-count-pending" },
         h("strong", null, "Contagem salva no aparelho"),
         h("span", null, online
-          ? "Aguardando confirmação do servidor."
-          : "Será enviada automaticamente quando a internet voltar.")
+          ? "Aguardando confirmaÃ§Ã£o do servidor."
+          : "SerÃ¡ enviada automaticamente quando a internet voltar.")
       ),
       h("input", {
         className: "hidden",
@@ -1866,12 +1917,19 @@ function Counting({
       draft.length && h("section", { className: "count-status-filter" },
         h("div", { className: "count-status-filter-head" },
           h("strong", null, "Acompanhamento da contagem"),
-          h("span", null, `${compliantItems.length} corretos · ${divergentItems} divergentes · ${pendingItems.length} pendentes`)
+          h("span", null, `${compliantItems.length} corretos Â· ${divergentItems} divergentes Â· ${pendingItems.length} pendentes`)
+        ),
+        h("div", { className: "count-total-strip" },
+          h("span", null, `Sistema ${totalSystem}`),
+          h("span", null, `Contado ${totalCounted}`),
+          h("span", null, `Avaria ${totalDamaged}`),
+          h("span", null, `Outros ${totalOther}`),
+          h("strong", null, `Apurado ${totalAccounted}`)
         ),
         h("div", { className: "count-filter-grid" },
           [
             ["all", "Todos", draft.length],
-            ["counted", "Já contados", countedItems.length],
+            ["counted", "JÃ¡ contados", countedItems.length],
             ["ok", "Conformes", compliantItems.length],
             ["divergent", "Divergentes", divergentItems],
             ["pending", "Pendentes", pendingItems.length]
@@ -1882,7 +1940,7 @@ function Counting({
           }, h("span", null, label), h("strong", null, amount)))
         ),
         h("label", { className: "print-scope-control" },
-          h("span", null, "Impressão"),
+          h("span", null, "ImpressÃ£o"),
           h("select", {
             value: printFilter,
             onChange: (event) => setPrintFilter(event.target.value)
@@ -1896,7 +1954,7 @@ function Counting({
         h("div", { className: "balance-search-head" },
           h("div", null,
             h("strong", null, "Localizar produto no saldo"),
-            h("span", null, "Use o coletor/bipador ou digite o código")
+            h("span", null, "Use o coletor/bipador ou digite o cÃ³digo")
           ),
           h("b", null, `${visibleDraft.length}/${draft.length} SKUs`)
         ),
@@ -1905,7 +1963,7 @@ function Counting({
             inputMode: "numeric",
             autoFocus: true,
             autoComplete: "off",
-            placeholder: "Código da etiqueta ou SKU",
+            placeholder: "CÃ³digo da etiqueta ou SKU",
             value: searchCode,
             onChange: (event) => {
               setSearchCode(event.target.value);
@@ -1936,12 +1994,19 @@ function Counting({
       ),
       visibleDraft.length ? h("div", { className: "table-wrap count-table-wrap" },
         h("table", null,
-          h("thead", null, h("tr", null, h("th", null, "SKU"), h("th", null, "Sistema"), h("th", null, "Contado"), h("th", null, "Diferença"))),
+          h("thead", null, h("tr", null,
+            h("th", null, "SKU"),
+            h("th", null, "Sistema"),
+            h("th", null, "Contado"),
+            h("th", null, "Avaria"),
+            h("th", null, "Outros"),
+            h("th", null, "Diferença")
+          )),
           h("tbody", null, visibleDraft.map((item) => h("tr", {
             key: item.sku,
             className: [
-              item.counted > 0 && item.counted === item.system ? "count-row-ok" : "",
-              item.counted !== item.system ? "count-row-divergent" : "",
+              hasCountMovement(item) && countDifference(item) === 0 ? "count-row-ok" : "",
+              countDifference(item) !== 0 ? "count-row-divergent" : "",
               searchDigits && String(item.sku).replace(/\D/g, "") === searchDigits ? "count-row-found" : ""
             ].filter(Boolean).join(" ")
           },
@@ -1955,13 +2020,27 @@ function Counting({
               ref: (element) => {
                 if (element) countInputRefs.current[item.sku] = element;
               },
-              onChange: (event) => changeCount(item.sku, event.target.value)
+              onChange: (event) => changeCountField(item.sku, "counted", event.target.value)
             })),
-            h("td", null, item.counted - item.system)
+            h("td", null, h("input", {
+              className: "count-input",
+              type: "number",
+              min: "0",
+              value: item.damaged,
+              onChange: (event) => changeCountField(item.sku, "damaged", event.target.value)
+            })),
+            h("td", null, h("input", {
+              className: "count-input",
+              type: "number",
+              min: "0",
+              value: item.other,
+              onChange: (event) => changeCountField(item.sku, "other", event.target.value)
+            })),
+            h("td", { className: countDifference(item) === 0 ? "diff-ok" : "diff-alert" }, countDifference(item))
           )))
         )
       ) : draft.length
-        ? empty("Nenhum SKU corresponde à pesquisa.")
+        ? empty("Nenhum SKU corresponde Ã  pesquisa.")
         : empty("Selecione um PDF para carregar os saldos.")
     ),
     manualOpen && h("div", { className: "modal-backdrop", role: "presentation" },
@@ -1976,10 +2055,10 @@ function Counting({
             className: "icon-button",
             onClick: () => setManualOpen(false),
             "aria-label": "Fechar"
-          }, "×")
+          }, "Ã—")
         ),
         h("p", { className: "modal-text" },
-          "Use esta opção quando o PDF não trouxe um item corretamente. O produto será salvo no PostgreSQL e aparecerá para todos."
+          "Use esta opÃ§Ã£o quando o PDF nÃ£o trouxe um item corretamente. O produto serÃ¡ salvo no PostgreSQL e aparecerÃ¡ para todos."
         ),
         h("label", null,
           h("span", null, "SKU"),
@@ -1990,7 +2069,7 @@ function Counting({
             onChange: (event) => setManualProduct((current) => ({ ...current, sku: event.target.value }))
           })
         ),
-        h("div", { className: "form-grid two" },
+        h("div", { className: "form-grid count-reason-grid" },
           h("label", null,
             h("span", null, "Saldo do sistema"),
             h("input", {
@@ -2007,6 +2086,24 @@ function Counting({
               min: "0",
               value: manualProduct.counted,
               onChange: (event) => setManualProduct((current) => ({ ...current, counted: event.target.value }))
+            })
+          ),
+          h("label", null,
+            h("span", null, "Avaria"),
+            h("input", {
+              type: "number",
+              min: "0",
+              value: manualProduct.damaged,
+              onChange: (event) => setManualProduct((current) => ({ ...current, damaged: event.target.value }))
+            })
+          ),
+          h("label", null,
+            h("span", null, "Outros"),
+            h("input", {
+              type: "number",
+              min: "0",
+              value: manualProduct.other,
+              onChange: (event) => setManualProduct((current) => ({ ...current, other: event.target.value }))
             })
           )
         ),
@@ -2025,34 +2122,37 @@ function Counting({
       )
     ),
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Divergências"), h("span", null, "por SKU")),
+      h("div", { className: "panel-header" }, h("h3", null, "DivergÃªncias"), h("span", null, "por SKU")),
       h("div", { className: "stack" }, divergentRows.length
         ? divergentRows.map((item) =>
           h("div", { className: "list-item", key: item.sku },
             h("strong", null, item.sku),
-            h("span", null, `${item.counted - item.system > 0 ? "+" : ""}${item.counted - item.system} un.`)
+            h("span", null, `${countDifference(item) > 0 ? "+" : ""}${countDifference(item)} un.`)
           )
         )
-        : empty("Nenhuma divergência informada."))
+        : empty("Nenhuma divergÃªncia informada."))
     ),
     printMode && h("section", { className: "count-print-sheet", "aria-hidden": "true" },
       h("header", { className: "count-print-header" },
         h("div", null,
           h("span", null, "MN - Check"),
-          h("h1", null, "Relatório de contagem de estoque"),
-          h("p", null, "Resultado da contagem física comparado ao saldo do sistema")
+          h("h1", null, "RelatÃ³rio de contagem de estoque"),
+          h("p", null, "Resultado da contagem fÃ­sica comparado ao saldo do sistema")
         ),
-        h("strong", null, `Versão ${APP_VERSION}`)
+        h("strong", null, `VersÃ£o ${APP_VERSION}`)
       ),
       h("div", { className: "count-print-meta" },
-        h("div", null, h("span", null, "Arquivo de saldo"), h("strong", null, sourceName || "Não informado")),
-        h("div", null, h("span", null, "Saldo importado em"), h("strong", null, updatedAt ? formatDate(updatedAt) : "Não informado")),
-        h("div", null, h("span", null, "Relatório emitido em"), h("strong", null, formatDate(printGeneratedAt)))
+        h("div", null, h("span", null, "Arquivo de saldo"), h("strong", null, sourceName || "NÃ£o informado")),
+        h("div", null, h("span", null, "Saldo importado em"), h("strong", null, updatedAt ? formatDate(updatedAt) : "NÃ£o informado")),
+        h("div", null, h("span", null, "RelatÃ³rio emitido em"), h("strong", null, formatDate(printGeneratedAt)))
       ),
       h("div", { className: "count-print-totals" },
         h("div", null, h("span", null, "SKUs"), h("strong", null, printableDraft.length)),
         h("div", null, h("span", null, "Saldo do sistema"), h("strong", null, printTotalSystem)),
         h("div", null, h("span", null, "Total contado"), h("strong", null, printTotalCounted)),
+        h("div", null, h("span", null, "Avaria"), h("strong", null, printTotalDamaged)),
+        h("div", null, h("span", null, "Outros"), h("strong", null, printTotalOther)),
+        h("div", null, h("span", null, "Total apurado"), h("strong", null, printTotalAccounted)),
         h("div", null, h("span", null, "Itens divergentes"), h("strong", null, printDivergentItems))
       ),
       h("table", { className: "count-print-table" },
@@ -2061,24 +2161,31 @@ function Counting({
             h("th", null, "SKU"),
             h("th", null, "Sistema"),
             h("th", null, "Contado"),
-            h("th", null, "Diferença"),
+            h("th", null, "Avaria"),
+            h("th", null, "Outros"),
+            h("th", null, "Apurado"),
+            h("th", null, "DiferenÃ§a"),
             h("th", null, "Resultado")
           )
         ),
         h("tbody", null, printableDraft.map((item) => {
-          const difference = item.counted - item.system;
+          const accounted = countAccounted(item);
+          const difference = countDifference(item);
           return h("tr", { key: item.sku },
             h("td", null, item.sku),
             h("td", null, item.system),
             h("td", null, item.counted),
+            h("td", null, item.damaged),
+            h("td", null, item.other),
+            h("td", null, accounted),
             h("td", null, difference > 0 ? `+${difference}` : difference),
             h("td", null, difference === 0 ? "Conforme" : "Divergente")
           );
         }))
       ),
       h("footer", { className: "count-print-signatures" },
-        h("div", null, h("span", null, "Responsável pela contagem")),
-        h("div", null, h("span", null, "Responsável pela validação"))
+        h("div", null, h("span", null, "ResponsÃ¡vel pela contagem")),
+        h("div", null, h("span", null, "ResponsÃ¡vel pela validaÃ§Ã£o"))
       )
     )
   );
@@ -2090,7 +2197,7 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
       h("div", { className: "panel-header" }, h("h3", null, "Cadastrar login"), h("span", null, "admin")),
       h("form", { className: "stack", onSubmit: createUser },
         h("div", { className: "form-row" },
-          h("input", { placeholder: "Usuário", value: newUser.username, onChange: (e) => setNewUser({ ...newUser, username: e.target.value }) }),
+          h("input", { placeholder: "UsuÃ¡rio", value: newUser.username, onChange: (e) => setNewUser({ ...newUser, username: e.target.value }) }),
           h("input", { placeholder: "Nome", value: newUser.name, onChange: (e) => setNewUser({ ...newUser, name: e.target.value }) })
         ),
         h("div", { className: "form-row" },
@@ -2099,11 +2206,11 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
           ),
           h("input", { placeholder: "Senha", type: "password", value: newUser.password, onChange: (e) => setNewUser({ ...newUser, password: e.target.value }) })
         ),
-        h("button", { className: "primary-action compact", type: "submit" }, "Cadastrar usuário")
+        h("button", { className: "primary-action compact", type: "submit" }, "Cadastrar usuÃ¡rio")
       )
     ),
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Usuários cadastrados"), h("span", null, `${users.length} ativos`)),
+      h("div", { className: "panel-header" }, h("h3", null, "UsuÃ¡rios cadastrados"), h("span", null, `${users.length} ativos`)),
       h("div", { className: "stack" }, users.map((user) =>
         h("div", { className: "user-card", key: user.id },
           h("div", { className: "user-card-info" },
@@ -2120,7 +2227,7 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
               : h("button", {
                   className: "remove-user-action",
                   onClick: () => removeUser(user)
-                }, "Remover usuário")
+                }, "Remover usuÃ¡rio")
           )
         )
       ))
@@ -2137,23 +2244,23 @@ function History({ data }) {
 
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Divergências e correções"), h("span", null, "histórico")),
+      h("div", { className: "panel-header" }, h("h3", null, "DivergÃªncias e correÃ§Ãµes"), h("span", null, "histÃ³rico")),
       h("div", { className: "stack" }, data.errors.length ? data.errors.map((item) =>
         h("div", { className: "list-item", key: `${item.order}-${item.issue}` }, h("strong", null, `Mapa ${item.order}`), h("span", null, `${item.issue} - ${item.owner}`))
       ) : empty("Nenhum erro registrado."))
     ),
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Histórico de mapas"), h("span", null, `${mapHistory.length} registros`)),
+      h("div", { className: "panel-header" }, h("h3", null, "HistÃ³rico de mapas"), h("span", null, `${mapHistory.length} registros`)),
       h("div", { className: "stack" }, mapHistory.length ? mapHistory.map((map) =>
         h("div", { className: "list-item", key: map.id },
           h("strong", null, `Mapa ${map.id} - ${map.client}`),
           h("span", null, `${status(map.status)} - Rota ${map.route}`)
         )
-      ) : empty("Nenhum mapa no histórico."))
+      ) : empty("Nenhum mapa no histÃ³rico."))
     ),
     h("article", { className: "panel history-events-panel" },
       h("div", { className: "panel-header" },
-        h("h3", null, "Movimentações"),
+        h("h3", null, "MovimentaÃ§Ãµes"),
         h("span", null, `${events.length} registros`)
       ),
       h("div", { className: "stack" }, events.length ? events.map((event, index) =>
@@ -2161,7 +2268,7 @@ function History({ data }) {
           h("strong", null, event.description),
           h("span", null, `${event.userName} - ${formatDate(event.at)}`)
         )
-      ) : empty("Nenhuma movimentação registrada."))
+      ) : empty("Nenhuma movimentaÃ§Ã£o registrada."))
     )
   );
 }
@@ -2195,14 +2302,14 @@ function MapCard({ map, onToggle, onSend, onDelete }) {
               className: "primary-action compact",
               key: "send",
               onClick: () => onSend(map.id)
-            }, "Enviar para conferência"),
+            }, "Enviar para conferÃªncia"),
             h("button", {
               className: "danger-action",
               key: "delete",
               onClick: () => onDelete(map)
             }, "Apagar mapa")
           ]
-        : h("span", { className: "status-note" }, "Mapa mantido no histórico desta tela.")
+        : h("span", { className: "status-note" }, "Mapa mantido no histÃ³rico desta tela.")
     )
   );
 }
@@ -2225,7 +2332,7 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, onPaus
     session.status && h("div", { className: `conference-session-banner ${paused ? "paused" : ""}` },
       h("div", null,
         h("strong", null, conferenceStatusLabel(session.status)),
-        h("span", null, `${session.operator || "Operador"} · atualizado ${formatDate(session.updatedAt)}`)
+        h("span", null, `${session.operator || "Operador"} Â· atualizado ${formatDate(session.updatedAt)}`)
       ),
       h("b", null, `${session.progress || 0}%`)
     ),
@@ -2350,13 +2457,13 @@ function BarcodeScanner({
 
   async function validate(code, source = "manual") {
     if (paused) {
-      setResult({ type: "error", title: "Conferência pausada", text: "Retome a conferência antes de bipar novas etiquetas." });
+      setResult({ type: "error", title: "ConferÃªncia pausada", text: "Retome a conferÃªncia antes de bipar novas etiquetas." });
       return;
     }
     const cleanCode = String(code || "").replace(/\D/g, "");
     if (!cleanCode || validatingRef.current) {
       if (!cleanCode) {
-        setResult({ type: "error", title: "Código obrigatório", text: "Digite ou escaneie um código para validar." });
+        setResult({ type: "error", title: "CÃ³digo obrigatÃ³rio", text: "Digite ou escaneie um cÃ³digo para validar." });
       }
       return;
     }
@@ -2378,12 +2485,12 @@ function BarcodeScanner({
         type: approved ? "success" : "error",
         title: approved
           ? (response.offline
-              ? (completedOffline ? "Conferência concluída offline" : "APROVADO OFFLINE")
-              : (response.allChecked ? "Conferência concluída" : "APROVADO"))
+              ? (completedOffline ? "ConferÃªncia concluÃ­da offline" : "APROVADO OFFLINE")
+              : (response.allChecked ? "ConferÃªncia concluÃ­da" : "APROVADO"))
           : "BLOQUEADO",
         text: approved
           ? (response.offline
-              ? "Etiqueta validada no aparelho. A leitura será sincronizada quando a internet voltar."
+              ? "Etiqueta validada no aparelho. A leitura serÃ¡ sincronizada quando a internet voltar."
               : response.allChecked
               ? "Todas as unidades foram lidas. Toque em OK para finalizar."
               : `${response.item.name}: ${response.item.checkedQuantity}/${response.item.quantity} unidades.`)
@@ -2392,7 +2499,7 @@ function BarcodeScanner({
       setHistory((current) => [{
         code: response.scanned || cleanCode,
         name: response.offline
-          ? `${response.reason} - aguardando sincronização`
+          ? `${response.reason} - aguardando sincronizaÃ§Ã£o`
           : approved ? response.reason : `${response.reason} - esperado ${response.expected}`,
         ok: approved,
         source,
@@ -2402,7 +2509,7 @@ function BarcodeScanner({
       playFeedback(approved);
       window.setTimeout(() => codeInputRef.current?.focus(), 80);
     } catch (error) {
-      setResult({ type: "error", title: "Código não confere", text: error.message });
+      setResult({ type: "error", title: "CÃ³digo nÃ£o confere", text: error.message });
       setHistory((current) => [{
         code: cleanCode,
         name: error.message,
@@ -2418,7 +2525,7 @@ function BarcodeScanner({
   }
 
   const resultTitle = allChecked
-    ? "Conferência concluída"
+    ? "ConferÃªncia concluÃ­da"
     : result?.title || "Aguardando leitura";
   const resultType = allChecked ? "success" : result?.type || "waiting";
 
@@ -2428,7 +2535,7 @@ function BarcodeScanner({
         h("span", null, "1"),
         h("div", null,
           h("strong", null, "Leitura da etiqueta"),
-          h("small", null, "Use o coletor/bipador ou digite o código")
+          h("small", null, "Use o coletor/bipador ou digite o cÃ³digo")
         )
       ),
       h("div", { className: "manual-validation" },
@@ -2439,7 +2546,7 @@ function BarcodeScanner({
           autoComplete: "off",
           enterKeyHint: "done",
           spellCheck: false,
-          placeholder: "Bipe com o coletor ou digite o código",
+          placeholder: "Bipe com o coletor ou digite o cÃ³digo",
           value: manualCode,
           disabled: needsCorrection || paused,
           onChange: (event) => {
@@ -2460,27 +2567,27 @@ function BarcodeScanner({
         }, validating ? "Validando..." : "Validar")
       ),
       h("p", { className: "scanner-help" },
-        "O coletor USB ou Bluetooth funciona como teclado: bipar a etiqueta preenche o código e envia com Enter."
+        "O coletor USB ou Bluetooth funciona como teclado: bipar a etiqueta preenche o cÃ³digo e envia com Enter."
       )
     ),
     h("section", { className: "conference-step result-step" },
       h("div", { className: "conference-step-title" },
         h("span", null, "2"),
         h("div", null,
-          h("strong", null, "Resultado da conferência"),
+          h("strong", null, "Resultado da conferÃªncia"),
           h("small", null, `${checkedQuantity} de ${totalQuantity} unidades conferidas`)
         )
       ),
       h("div", { className: `conference-result ${resultType}` },
         h("strong", null, resultTitle),
-        h("span", null, allChecked ? "Tudo pronto para finalizar" : result?.text || "Bipe a etiqueta com o coletor ou digite o código.")
+        h("span", null, allChecked ? "Tudo pronto para finalizar" : result?.text || "Bipe a etiqueta com o coletor ou digite o cÃ³digo.")
       ),
       h("div", { className: "conference-progress" },
         h("div", { style: { width: `${totalQuantity ? Math.round((checkedQuantity / totalQuantity) * 100) : 0}%` } })
       ),
       expectedItem && h("div", { className: "expected-details" },
         detailRow(
-          allChecked ? "Último código esperado" : "Próximo código esperado",
+          allChecked ? "Ãšltimo cÃ³digo esperado" : "PrÃ³ximo cÃ³digo esperado",
           normalizeProductCode(expectedItem.sku)
         ),
         detailRow("Produto", expectedItem.name),
@@ -2493,7 +2600,7 @@ function BarcodeScanner({
         paused && h("button", {
           className: "primary-action",
           onClick: onResume
-        }, "Retomar conferência"),
+        }, "Retomar conferÃªncia"),
         actionable && !paused && checkedQuantity > 0 && h("button", {
           className: "secondary-action",
           onClick: onPause
@@ -2501,18 +2608,18 @@ function BarcodeScanner({
         actionable && h("button", {
           className: "ghost-action",
           onClick: onCancel
-        }, "Cancelar conferência"),
+        }, "Cancelar conferÃªncia"),
         actionable && h("button", {
           className: "primary-action finish-conference",
           disabled: paused || !allChecked || offlineProgress > 0,
           onClick: () => onApprove(map.id)
         }, offlineProgress > 0
           ? "Aguardando internet para finalizar"
-          : allChecked ? "OK - Finalizar conferência" : `Faltam ${remainingQuantity} unidades`),
+          : allChecked ? "OK - Finalizar conferÃªncia" : `Faltam ${remainingQuantity} unidades`),
         actionable && !paused && h("button", {
           className: "danger-action",
           onClick: () => onProblem(map.id)
-        }, "Informar divergência"),
+        }, "Informar divergÃªncia"),
         needsCorrection && h("button", {
           className: "primary-action finish-conference",
           onClick: () => onCorrected(map.id)
@@ -2522,7 +2629,7 @@ function BarcodeScanner({
     h("section", { className: "conference-step history-step" },
       h("div", { className: "conference-step-title simple" },
         h("div", null,
-          h("strong", null, "Histórico"),
+          h("strong", null, "HistÃ³rico"),
           h("small", null, `${history.length} leituras registradas`)
         )
       ),
@@ -2537,7 +2644,7 @@ function BarcodeScanner({
               h("time", null, new Date(entry.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }))
             )
           ))
-        : h("p", { className: "empty-history" }, "Nenhuma conferência realizada ainda.")
+        : h("p", { className: "empty-history" }, "Nenhuma conferÃªncia realizada ainda.")
     )
   );
 }
@@ -2557,7 +2664,7 @@ function voltageFromSku(sku) {
     "2": "220V",
     "3": "127V",
     "4": "Bivolt",
-  }[gradeY] || "Não informado";
+  }[gradeY] || "NÃ£o informado";
 }
 
 function normalizeProductCode(value) {
@@ -2583,7 +2690,7 @@ function validateBarcodeLocally(expectedValue, scannedValue) {
     return {
       approved: false,
       status: "BLOQUEADO",
-      reason: "O código deve conter SKU de 5 dígitos, cor e voltagem.",
+      reason: "O cÃ³digo deve conter SKU de 5 dÃ­gitos, cor e voltagem.",
       expected: normalizeProductCode(expectedValue),
       scanned: normalizeProductCode(scannedValue)
     };
@@ -2640,7 +2747,7 @@ function isNetworkFailure(error) {
 function scanSourceLabel(source) {
   return {
     scanner: "coletor/bipador",
-    manual: "digitação manual"
+    manual: "digitaÃ§Ã£o manual"
   }[source] || "leitura";
 }
 
@@ -2659,7 +2766,7 @@ async function authorizedJson(path) {
     headers: token ? { Authorization: `Bearer ${token}` } : {}
   });
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "Não foi possível carregar os dados.");
+  if (!response.ok) throw new Error(body.error || "NÃ£o foi possÃ­vel carregar os dados.");
   return body;
 }
 
@@ -2693,7 +2800,7 @@ function QueueSummary({ maps, mode }) {
 
   return h("article", { className: "panel" },
     h("div", { className: "panel-header" },
-      h("h3", null, mode === "separation" ? "Fila de separação" : "Fila de conferência"),
+      h("h3", null, mode === "separation" ? "Fila de separaÃ§Ã£o" : "Fila de conferÃªncia"),
       h("span", null, `${queue.length} ${queue.length === 1 ? "mapa ativo" : "mapas ativos"}`)
     ),
     queue.length
@@ -2713,11 +2820,11 @@ function QueueSummary({ maps, mode }) {
             h("div", { className: "queue-progress" }, h("div", { style: { width: `${percent}%` } })),
             h("div", { className: "queue-meta" },
               h("span", null, status(map.status)),
-              h("span", null, `${percent}% concluído`)
+              h("span", null, `${percent}% concluÃ­do`)
             )
           );
         }))
-      : empty(mode === "separation" ? "Nenhum mapa aguardando separação." : "Nenhum mapa aguardando conferência.")
+      : empty(mode === "separation" ? "Nenhum mapa aguardando separaÃ§Ã£o." : "Nenhum mapa aguardando conferÃªncia.")
   );
 }
 
@@ -2730,14 +2837,14 @@ function flow(title, meta) {
 }
 
 function empty(message) {
-  return h("div", { className: "list-item" }, h("strong", null, message), h("span", null, "Os registros aparecerão aqui."));
+  return h("div", { className: "list-item" }, h("strong", null, message), h("span", null, "Os registros aparecerÃ£o aqui."));
 }
 
 function status(value) {
   return {
-    separacao: "separação",
-    "aguardando conferencia": "aguardando conferência",
-    conferencia: "conferência",
+    separacao: "separaÃ§Ã£o",
+    "aguardando conferencia": "aguardando conferÃªncia",
+    conferencia: "conferÃªncia",
     perfeito: "conferido",
     conferido: "conferido",
     "corrigir problema": "corrigir problema",
@@ -2757,11 +2864,11 @@ function statusClass(value) {
 
 function conferenceStatusLabel(value) {
   return {
-    EM_ANDAMENTO: "Conferência em andamento",
-    PAUSADA: "Conferência pausada",
-    FINALIZADA: "Conferência finalizada",
-    CANCELADA: "Conferência cancelada"
-  }[value] || "Conferência";
+    EM_ANDAMENTO: "ConferÃªncia em andamento",
+    PAUSADA: "ConferÃªncia pausada",
+    FINALIZADA: "ConferÃªncia finalizada",
+    CANCELADA: "ConferÃªncia cancelada"
+  }[value] || "ConferÃªncia";
 }
 
 function plural(value, singular, pluralText) {
@@ -2797,7 +2904,7 @@ function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.onerror = () => reject(new Error("NÃ£o foi possÃ­vel ler o arquivo."));
     reader.readAsDataURL(file);
   });
 }
@@ -2839,10 +2946,10 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.svg?v=3", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=184", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
-      h("h1", null, "Não foi possível concluir esta operação"),
-      h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),
+      h("h1", null, "NÃ£o foi possÃ­vel concluir esta operaÃ§Ã£o"),
+      h("p", null, "Seus dados persistidos nÃ£o foram apagados. Recarregue a tela para continuar."),
       h("button", { className: "primary-action", onClick: () => window.location.reload() }, "Recarregar sistema")
     );
   }

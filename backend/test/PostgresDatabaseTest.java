@@ -48,8 +48,8 @@ public class PostgresDatabaseTest {
     long countId = firstConnection.saveCount(
         "Teste automatizado " + suffix,
         List.of(
-            new PostgresDatabase.CountRow(firstSku, 406, 405),
-            new PostgresDatabase.CountRow(secondSku, 108, 108)
+            new PostgresDatabase.CountRow(firstSku, 406, 405, 0, 0),
+            new PostgresDatabase.CountRow(secondSku, 108, 108, 0, 0)
         )
     );
     assertTrue(countId > 0);
@@ -81,6 +81,8 @@ public class PostgresDatabaseTest {
         manualSku,
         112,
         111,
+        0,
+        0,
         "Teste automatizado"
     );
     PostgresDatabase.BalanceSnapshot afterManual = afterRestart.loadLatestBalances();
