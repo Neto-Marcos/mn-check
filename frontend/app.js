@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.8.7";
+const APP_VERSION = "1.8.8";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -118,7 +118,7 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=187").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=188").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -730,7 +730,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=187", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=188", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -784,7 +784,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=187", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=188", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -1821,11 +1821,11 @@ function Counting({
           h("span", null, `${compliantItems.length} corretos · ${divergentItems} divergentes · ${pendingItems.length} pendentes`)
         ),
         h("div", { className: "count-total-strip" },
-          h("span", null, `Sistema ${totalSystem}`),
-          h("span", null, `Contado ${totalCounted}`),
-          h("span", null, `Avaria ${totalDamaged}`),
-          h("span", null, `Outros ${totalOther}`),
-          h("strong", null, `Apurado ${totalAccounted}`)
+          h("div", { className: "count-total-card" }, h("span", null, "Sistema"), h("strong", null, totalSystem)),
+          h("div", { className: "count-total-card" }, h("span", null, "Contado"), h("strong", null, totalCounted)),
+          h("div", { className: "count-total-card" }, h("span", null, "Avaria"), h("strong", null, totalDamaged)),
+          h("div", { className: "count-total-card" }, h("span", null, "Outros"), h("strong", null, totalOther)),
+          h("div", { className: "count-total-card emphasis" }, h("span", null, "Apurado"), h("strong", null, totalAccounted))
         ),
         h("div", { className: "count-filter-grid" },
           [
@@ -2857,7 +2857,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=187", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=188", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),
