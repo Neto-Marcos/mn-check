@@ -18,7 +18,7 @@
   --shadow-lg: 0 26px 90px rgba(91, 16, 24, 0.2);
 }
 
-/* Interface 1.8.9: mobile-first bottom navigation and lighter app motion. */
+/* Interface 1.9.0: mobile-first bottom navigation and lighter app motion. */
 .mobile-bottom-nav {
   display: none;
 }
@@ -4645,7 +4645,7 @@ th + th {
 
 }
 
-/* Interface 1.8.9 - contagem por motivo e identidade atualizada */
+/* Interface 1.9.0 - contagem por motivo e identidade atualizada */
 .app-logo,
 .hero-logo {
   object-fit: cover;
@@ -4763,7 +4763,7 @@ th + th {
   }
 }
 
-/* Interface 1.8.9 - filtros de contagem consistentes */
+/* Interface 1.9.0 - filtros de contagem consistentes */
 .count-status-filter {
   gap: 12px;
 }
