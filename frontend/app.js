@@ -1,5 +1,5 @@
 const h = React.createElement;
-const APP_VERSION = "1.8.4";
+const APP_VERSION = "1.8.5";
 const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";
@@ -14,25 +14,22 @@ const MAP_FILE_TYPES = new Set([
 const MAP_FILE_ACCEPT = "application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg,image/webp,.webp,image/heic,.heic,image/heif,.heif";
 
 const ROLE_OPTIONS = [
-  ["separation", "Conferente de separaÃ§Ã£o"],
-  ["expedition", "Conferente de expediÃ§Ã£o"],
+  ["separation", "Conferente de separaÃƒÂ§ÃƒÂ£o"],
+  ["expedition", "Conferente de expediÃƒÂ§ÃƒÂ£o"],
   ["stock", "Conferente de estoque"],
   ["admin", "Administrador"],
 ];
 
 const TITLES = {
-  overview: ["painel", "VisÃ£o geral"],
-  separation: ["operaÃ§Ã£o", "SeparaÃ§Ã£o"],
+  overview: ["painel", "VisÃƒÂ£o geral"],
+  separation: ["operaÃƒÂ§ÃƒÂ£o", "SeparaÃƒÂ§ÃƒÂ£o"],
   counting: ["estoque", "Contagem"],
-  conference: ["validaÃ§Ã£o", "ConferÃªncia"],
-  carriers: ["cadastros", "Transportadoras"],
-  reports: ["anÃ¡lise", "RelatÃ³rios"],
-  history: ["admin", "HistÃ³rico"],
-  users: ["admin", "UsuÃ¡rios"],
-  settings: ["conta", "ConfiguraÃ§Ãµes"],
+  conference: ["validaÃƒÂ§ÃƒÂ£o", "ConferÃƒÂªncia"],
+  history: ["admin", "HistÃƒÂ³rico"],
+  users: ["admin", "UsuÃƒÂ¡rios"],
+  settings: ["conta", "ConfiguraÃƒÂ§ÃƒÂµes"],
 };
 
-const TEMPORARILY_DISABLED_VIEWS = new Set(["carriers", "reports"]);
 const BOTTOM_NAV_PRIORITY = ["overview", "separation", "conference", "counting", "history", "settings"];
 
 const ICON_PATHS = {
@@ -41,8 +38,6 @@ const ICON_PATHS = {
   conference: ["M20 6 9 17l-5-5"],
   counting: ["M3 3v18h18", "M7 16h2", "M11 12h2", "M15 8h2", "M19 5h2"],
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
-  carriers: ["M3 7h11v10H3z", "M14 10h4l3 3v4h-7z", "M7 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z", "M17 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"],
-  reports: ["M4 19V9", "M10 19V5", "M16 19v-7", "M22 19H2"],
   users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
   settings: ["M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.5 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.64 1 1.25 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.13.4-1.51 1Z"],
   notifications: ["M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9", "M13.73 21a2 2 0 0 1-3.46 0"],
@@ -123,14 +118,14 @@ function App() {
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=184").catch(() => {});
+      navigator.serviceWorker.register("/sw.js?v=185").catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
       setOnline(connected);
       notify(connected
-        ? "ConexÃ£o restabelecida. Sincronizando dados off-line..."
-        : "VocÃª estÃ¡ off-line. O sistema continuarÃ¡ funcionando normalmente."
+        ? "ConexÃƒÂ£o restabelecida. Sincronizando dados off-line..."
+        : "VocÃƒÂª estÃƒÂ¡ off-line. O sistema continuarÃƒÂ¡ funcionando normalmente."
       );
     };
     window.addEventListener("online", updateConnection);
@@ -183,7 +178,7 @@ function App() {
         const notifications = body.notifications || [];
         const unread = notifications.filter((item) => !item.read).length;
         if (unreadNotificationsRef.current !== null && unread > unreadNotificationsRef.current) {
-          notify("Nova divergÃªncia encontrada. Verifique as notificaÃ§Ãµes.");
+          notify("Nova divergÃƒÂªncia encontrada. Verifique as notificaÃƒÂ§ÃƒÂµes.");
         }
         unreadNotificationsRef.current = unread;
         setData((current) => ({ ...current, notifications }));
@@ -231,14 +226,14 @@ function App() {
       });
       const text = await response.text();
       const body = text ? JSON.parse(text) : {};
-      if (!response.ok) throw new Error(body.error || "OperaÃ§Ã£o nÃ£o concluÃ­da.");
+      if (!response.ok) throw new Error(body.error || "OperaÃƒÂ§ÃƒÂ£o nÃƒÂ£o concluÃƒÂ­da.");
       return body;
     } catch (error) {
       if (error.name === "AbortError") {
         throw new Error("O servidor demorou para responder. Tente novamente.");
       }
       if (error instanceof SyntaxError) {
-        throw new Error("O servidor retornou uma resposta invÃ¡lida.");
+        throw new Error("O servidor retornou uma resposta invÃƒÂ¡lida.");
       }
       throw error;
     } finally {
@@ -328,7 +323,7 @@ function App() {
     try {
       await request("/api/users", { method: "POST", body: newUser });
       setNewUser({ username: "", name: "", role: "separation", password: "" });
-      await refresh("UsuÃ¡rio cadastrado com sucesso.", "users");
+      await refresh("UsuÃƒÂ¡rio cadastrado com sucesso.", "users");
     } catch (error) {
       notify(error.message);
     }
@@ -339,7 +334,7 @@ function App() {
     if (!window.confirm(`Remover o acesso de ${target.name}?`)) return;
     try {
       await request(`/api/users/${encodeURIComponent(target.id)}`, { method: "DELETE" });
-      await refresh("UsuÃ¡rio removido com sucesso.", "users");
+      await refresh("UsuÃƒÂ¡rio removido com sucesso.", "users");
     } catch (error) {
       notify(error.message);
     }
@@ -390,7 +385,7 @@ function App() {
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      notify("Arquivo muito grande. Use atÃ© 10 MB neste MVP.");
+      notify("Arquivo muito grande. Use atÃƒÂ© 10 MB neste MVP.");
       return;
     }
 
@@ -409,7 +404,7 @@ function App() {
       });
       mapUploadMetadataRef.current = { mapNumber: "", orderNumbers: [] };
       setMapImportOpen(false);
-      await refresh("Mapa lido pela IA e enviado para separaÃ§Ã£o.", "separation");
+      await refresh("Mapa lido pela IA e enviado para separaÃƒÂ§ÃƒÂ£o.", "separation");
     } catch (error) {
       notify(error.message);
     } finally {
@@ -427,7 +422,7 @@ function App() {
       for (const file of files) {
         const contentType = mapContentType(file);
         if (!MAP_FILE_TYPES.has(contentType)) throw new Error("Use PDF, PNG, JPG, JPEG, WebP, HEIC ou HEIF.");
-        if (file.size > 10 * 1024 * 1024) throw new Error("Cada arquivo deve ter atÃƒÂ© 10 MB.");
+        if (file.size > 10 * 1024 * 1024) throw new Error("Cada arquivo deve ter atÃƒÆ’Ã‚Â© 10 MB.");
         uploadFiles.push({
           fileName: file.name,
           contentType,
@@ -463,7 +458,7 @@ function App() {
       setMapDraft(null);
       setMapDraftFiles([]);
       setMapImportOpen(false);
-      await refresh("Mapa revisado e enviado para separaÃƒÂ§ÃƒÂ£o.", "separation");
+      await refresh("Mapa revisado e enviado para separaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o.", "separation");
     } catch (error) {
       notify(error.message);
     } finally {
@@ -494,7 +489,7 @@ function App() {
   }
 
   async function deleteMap(map) {
-    if (!window.confirm(`Apagar o mapa ${map.id}? Esta aÃ§Ã£o nÃ£o pode ser desfeita.`)) return;
+    if (!window.confirm(`Apagar o mapa ${map.id}? Esta aÃƒÂ§ÃƒÂ£o nÃƒÂ£o pode ser desfeita.`)) return;
     try {
       await request(`/api/maps/${map.id}`, { method: "DELETE" });
       await refresh(`Mapa ${map.id} apagado.`, "separation");
@@ -583,7 +578,7 @@ function App() {
       window.dispatchEvent(new CustomEvent("mncheck-offline-synced"));
     }
     if (networkFailed) {
-      throw new TypeError("A conexÃ£o ainda nÃ£o estÃ¡ disponÃ­vel para sincronizar as leituras.");
+      throw new TypeError("A conexÃƒÂ£o ainda nÃƒÂ£o estÃƒÂ¡ disponÃƒÂ­vel para sincronizar as leituras.");
     }
   }
 
@@ -601,7 +596,7 @@ function App() {
     if (!response.ok) {
       if (response.status === 401) return 0;
       const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || "A contagem off-line ainda nÃ£o pÃ´de ser sincronizada.");
+      throw new Error(body.error || "A contagem off-line ainda nÃƒÂ£o pÃƒÂ´de ser sincronizada.");
     }
     localStorage.removeItem(OFFLINE_COUNT_DRAFT);
     window.dispatchEvent(new CustomEvent("mncheck-count-synced"));
@@ -657,7 +652,7 @@ function App() {
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || "NÃ£o foi possÃ­vel baixar o diagnÃ³stico.");
+        throw new Error(body.error || "NÃƒÂ£o foi possÃƒÂ­vel baixar o diagnÃƒÂ³stico.");
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -677,7 +672,7 @@ function App() {
     try {
       await request("/api/contagem", { method: "POST", body: { counts } });
       localStorage.removeItem(OFFLINE_COUNT_DRAFT);
-      await refresh("Contagem fÃ­sica atualizada.", "counting");
+      await refresh("Contagem fÃƒÂ­sica atualizada.", "counting");
     } catch (error) {
       if (isNetworkFailure(error)) {
         setOnline(false);
@@ -687,7 +682,7 @@ function App() {
           localStorage.setItem(OFFLINE_BOOTSTRAP, JSON.stringify(next));
           return next;
         });
-        notify("VocÃª estÃ¡ off-line. A contagem foi salva no aparelho e serÃ¡ sincronizada automaticamente.");
+        notify("VocÃƒÂª estÃƒÂ¡ off-line. A contagem foi salva no aparelho e serÃƒÂ¡ sincronizada automaticamente.");
         return { offline: true };
       }
       notify(error.message);
@@ -735,17 +730,17 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=184", alt: "MN - Check" }),
-          h("p", { className: "eyebrow" }, "conferÃªncia operacional"),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=185", alt: "MN - Check" }),
+          h("p", { className: "eyebrow" }, "conferÃƒÂªncia operacional"),
           h("h1", null, "MN - Check"),
-          h("p", null, "Controle de separaÃ§Ã£o, conferÃªncia e estoque."),
-          h("span", { className: "version-badge" }, `VersÃ£o ${appVersion}`)
+          h("p", null, "Controle de separaÃƒÂ§ÃƒÂ£o, conferÃƒÂªncia e estoque."),
+          h("span", { className: "version-badge" }, `VersÃƒÂ£o ${appVersion}`)
         )
       ),
       h("form", { className: "login-card", onSubmit: handleLogin },
         h("p", { className: "eyebrow" }, "acesso"),
         h("h2", null, "Entrar no MN - Check"),
-        h("label", null, "UsuÃ¡rio",
+        h("label", null, "UsuÃƒÂ¡rio",
           h("input", {
             value: login.username,
             onChange: (event) => setLogin({ ...login, username: event.target.value }),
@@ -771,7 +766,7 @@ function App() {
   }
 
   const allowedViews = user.allowedViews || [];
-  const navigationViews = [...allowedViews.filter((item) => !TEMPORARILY_DISABLED_VIEWS.has(item)), "settings"];
+  const navigationViews = [...allowedViews, "settings"];
   const bottomNavigationViews = BOTTOM_NAV_PRIORITY
     .filter((item) => navigationViews.includes(item))
     .slice(0, 5);
@@ -787,12 +782,12 @@ function App() {
       "aria-label": "Fechar menu",
       onClick: () => setMobileNavOpen(false)
     }),
-    h("aside", { className: "sidebar", "aria-label": "NavegaÃ§Ã£o principal" },
+    h("aside", { className: "sidebar", "aria-label": "NavegaÃƒÂ§ÃƒÂ£o principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=184", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=185", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
-          h("small", { className: "sidebar-version" }, `VersÃ£o ${appVersion}`)
+          h("small", { className: "sidebar-version" }, `VersÃƒÂ£o ${appVersion}`)
         ),
         h("button", {
           className: "sidebar-collapse-action",
@@ -830,8 +825,8 @@ function App() {
         h("span", null)
       ),
       !online && h("div", { className: "offline-banner", role: "status" },
-        h("strong", null, "VocÃª estÃ¡ off-line"),
-        h("span", null, "Continue trabalhando normalmente. As alteraÃ§Ãµes serÃ£o enviadas quando a conexÃ£o voltar.")
+        h("strong", null, "VocÃƒÂª estÃƒÂ¡ off-line"),
+        h("span", null, "Continue trabalhando normalmente. As alteraÃƒÂ§ÃƒÂµes serÃƒÂ£o enviadas quando a conexÃƒÂ£o voltar.")
       ),
       h("header", { className: "topbar" },
         h("div", { className: "topbar-heading" },
@@ -858,8 +853,8 @@ function App() {
           }, h(Icon, { name: theme === "dark" ? "sun" : "moon", size: 18 })),
           user.role === "admin" && h("button", {
             className: `topbar-icon-action ${unreadNotifications ? "has-unread" : ""}`,
-            title: "NotificaÃ§Ãµes",
-            "aria-label": "Abrir notificaÃ§Ãµes",
+            title: "NotificaÃƒÂ§ÃƒÂµes",
+            "aria-label": "Abrir notificaÃƒÂ§ÃƒÂµes",
             onClick: () => setNotificationsOpen(true)
           },
             h(Icon, { name: "notifications", size: 19 }),
@@ -893,18 +888,18 @@ function App() {
       view === "separation" && h(Separation, {
         maps: data.maps,
         onToggle: toggleItem,
-        onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferÃªncia."),
+        onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferÃƒÂªncia."),
         onDelete: deleteMap
       }),
       view === "conference" && h(Conference, {
         maps: data.maps,
-        onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergÃªncia."),
-        onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergÃªncia."),
+        onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergÃƒÂªncia."),
+        onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergÃƒÂªncia."),
         onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
         onScan: scanBarcode,
-        onPause: (id) => mapAction(id, "pause-conference", "ConferÃªncia pausada com o progresso salvo."),
-        onResume: (id) => mapAction(id, "resume-conference", "ConferÃªncia retomada."),
-        onCancel: (id) => mapAction(id, "cancel-conference", "ConferÃªncia cancelada e progresso apagado.")
+        onPause: (id) => mapAction(id, "pause-conference", "ConferÃƒÂªncia pausada com o progresso salvo."),
+        onResume: (id) => mapAction(id, "resume-conference", "ConferÃƒÂªncia retomada."),
+        onCancel: (id) => mapAction(id, "cancel-conference", "ConferÃƒÂªncia cancelada e progresso apagado.")
       }),
       view === "counting" && h(Counting, {
         counts: data.counts,
@@ -921,8 +916,6 @@ function App() {
         online
       }),
       view === "history" && h(History, { data }),
-      view === "carriers" && h(Carriers, { maps: data.maps }),
-      view === "reports" && h(Reports, { data }),
       view === "users" && h(Users, {
         users: data.users,
         newUser,
@@ -1001,7 +994,7 @@ function PasswordDialog({ target, ownPassword, onClose, onSave }) {
       return;
     }
     if (values.newPassword !== values.confirmation) {
-      setError("A confirmaÃ§Ã£o nÃ£o corresponde Ã  nova senha.");
+      setError("A confirmaÃƒÂ§ÃƒÂ£o nÃƒÂ£o corresponde ÃƒÂ  nova senha.");
       return;
     }
     setSaving(true);
@@ -1017,10 +1010,10 @@ function PasswordDialog({ target, ownPassword, onClose, onSave }) {
     h("form", { className: "new-map-dialog password-dialog", onSubmit: submit, onMouseDown: (event) => event.stopPropagation() },
       h("div", { className: "dialog-head" },
         h("div", null,
-          h("p", { className: "eyebrow" }, ownPassword ? "seguranÃ§a da conta" : "administraÃ§Ã£o"),
+          h("p", { className: "eyebrow" }, ownPassword ? "seguranÃƒÂ§a da conta" : "administraÃƒÂ§ÃƒÂ£o"),
           h("h3", null, ownPassword ? "Alterar minha senha" : `Redefinir senha de ${target.name}`)
         ),
-        h("button", { className: "dialog-close", type: "button", disabled: saving, onClick: onClose, "aria-label": "Fechar" }, "Ã—")
+        h("button", { className: "dialog-close", type: "button", disabled: saving, onClick: onClose, "aria-label": "Fechar" }, "Ãƒâ€”")
       ),
       ownPassword && h("label", null, "Senha atual",
         h("input", {
@@ -1072,13 +1065,13 @@ function ConferenceCancelDialog({ map, onClose, onContinue, onPause, onCancel })
       h("div", { className: "modal-icon warning" }, "!"),
       h("div", { className: "modal-copy" },
         h("p", { className: "eyebrow" }, `Mapa ${map.id}`),
-        h("h3", { id: `cancel-conference-${map.id}` }, "Deseja realmente cancelar esta conferÃªncia?"),
+        h("h3", { id: `cancel-conference-${map.id}` }, "Deseja realmente cancelar esta conferÃƒÂªncia?"),
         h("p", null, "Escolha se o progresso deve ser mantido para continuar depois ou apagado definitivamente.")
       ),
       h("div", { className: "modal-actions stacked" },
         h("button", { className: "danger-action", onClick: onCancel }, "Cancelar e apagar tudo"),
         h("button", { className: "secondary-action", onClick: onPause }, "Salvar progresso e sair"),
-        h("button", { className: "ghost-action", onClick: onContinue }, "Continuar conferÃªncia")
+        h("button", { className: "ghost-action", onClick: onContinue }, "Continuar conferÃƒÂªncia")
       )
     )
   );
@@ -1087,8 +1080,8 @@ function ConferenceCancelDialog({ map, onClose, onContinue, onPause, onCancel })
 function NotificationPanel({ notifications, onClose, onRead, onOpenMap }) {
   return h("aside", { className: "notification-panel" },
     h("div", { className: "notification-panel-head" },
-      h("div", null, h("strong", null, "NotificaÃ§Ãµes"), h("span", null, "DivergÃªncias operacionais")),
-      h("button", { className: "dialog-close", onClick: onClose, "aria-label": "Fechar notificaÃ§Ãµes" }, "Ã—")
+      h("div", null, h("strong", null, "NotificaÃƒÂ§ÃƒÂµes"), h("span", null, "DivergÃƒÂªncias operacionais")),
+      h("button", { className: "dialog-close", onClick: onClose, "aria-label": "Fechar notificaÃƒÂ§ÃƒÂµes" }, "Ãƒâ€”")
     ),
     h("div", { className: "notification-list" },
       notifications.length
@@ -1109,7 +1102,7 @@ function NotificationPanel({ notifications, onClose, onRead, onOpenMap }) {
               }, "Marcar como lida")
             )
           ))
-        : empty("Nenhuma notificaÃ§Ã£o.")
+        : empty("Nenhuma notificaÃƒÂ§ÃƒÂ£o.")
     )
   );
 }
@@ -1166,11 +1159,11 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
   function useCamera() {
     const values = metadata();
     if (!values.mapNumber) {
-      setError("Informe o nÃºmero do mapa.");
+      setError("Informe o nÃƒÂºmero do mapa.");
       return;
     }
     if (!values.orderNumbers.length) {
-      setError("Informe pelo menos um nÃºmero de pedido.");
+      setError("Informe pelo menos um nÃƒÂºmero de pedido.");
       return;
     }
     setError("");
@@ -1245,10 +1238,10 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
           h("p", { className: "eyebrow" }, "entrada de documento"),
           h("h3", { id: "new-map-title" }, "Como deseja inserir o novo mapa?")
         ),
-        h("button", { className: "dialog-close", disabled: busy, onClick: onClose, "aria-label": "Fechar" }, "Ã—")
+        h("button", { className: "dialog-close", disabled: busy, onClick: onClose, "aria-label": "Fechar" }, "Ãƒâ€”")
       ),
       h("div", { className: "map-manual-fields" },
-        h("label", null, "NÃºmero do mapa",
+        h("label", null, "NÃƒÂºmero do mapa",
           h("input", {
             inputMode: "numeric",
             placeholder: "Ex.: 15728",
@@ -1257,7 +1250,7 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
             onChange: (event) => setMapNumber(event.target.value)
           })
         ),
-        h("label", null, "NÃºmeros dos pedidos",
+        h("label", null, "NÃƒÂºmeros dos pedidos",
           h("div", { className: "order-entry-row" },
             h("input", {
               inputMode: "numeric",
@@ -1282,14 +1275,14 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
             disabled: busy,
             onChange: (event) => setOrdersText(event.target.value)
           }),
-          h("small", null, "No iPhone, digite um pedido e toque em Adicionar. TambÃ©m funciona um pedido por linha.")
+          h("small", null, "No iPhone, digite um pedido e toque em Adicionar. TambÃƒÂ©m funciona um pedido por linha.")
         )
       ),
       error && h("div", { className: "form-error" }, error),
       h("div", { className: "map-source-grid" },
         h("button", { className: "map-source-option", disabled: busy, onClick: useCamera },
-          h("strong", null, "CÃ¢mera"),
-          h("span", null, "Usa os nÃºmeros informados e lÃª somente os itens da foto")
+          h("strong", null, "CÃƒÂ¢mera"),
+          h("span", null, "Usa os nÃƒÂºmeros informados e lÃƒÂª somente os itens da foto")
         ),
         h("button", { className: "map-source-option", disabled: busy, onClick: () => onFile(metadata()) },
           h("strong", null, "Arquivo ou imagem"),
@@ -1343,10 +1336,10 @@ function Settings({
         )
       ),
       h("dl", { className: "account-details" },
-        h("div", null, h("dt", null, "UsuÃ¡rio"), h("dd", null, user.username)),
-        h("div", null, h("dt", null, "PermissÃ£o"), h("dd", null, user.label)),
-        h("div", null, h("dt", null, "ConexÃ£o"), h("dd", { className: online ? "text-success" : "text-warning" }, online ? "Online" : "Modo offline")),
-        h("div", null, h("dt", null, "VersÃ£o"), h("dd", null, appVersion))
+        h("div", null, h("dt", null, "UsuÃƒÂ¡rio"), h("dd", null, user.username)),
+        h("div", null, h("dt", null, "PermissÃƒÂ£o"), h("dd", null, user.label)),
+        h("div", null, h("dt", null, "ConexÃƒÂ£o"), h("dd", { className: online ? "text-success" : "text-warning" }, online ? "Online" : "Modo offline")),
+        h("div", null, h("dt", null, "VersÃƒÂ£o"), h("dd", null, appVersion))
       ),
       h("button", { className: "secondary-action settings-password-action", onClick: onPassword },
         h(Icon, { name: "key", size: 18 }),
@@ -1355,13 +1348,13 @@ function Settings({
     ),
     h("article", { className: "panel settings-preferences" },
       h("div", { className: "panel-header" },
-        h("div", null, h("p", { className: "eyebrow" }, "preferÃªncias"), h("h3", null, "AparÃªncia e navegaÃ§Ã£o")),
+        h("div", null, h("p", { className: "eyebrow" }, "preferÃƒÂªncias"), h("h3", null, "AparÃƒÂªncia e navegaÃƒÂ§ÃƒÂ£o")),
         h("span", null, "salvo neste aparelho")
       ),
       h("div", { className: "preference-list" },
         h(PreferenceRow, {
           title: "Tema da interface",
-          description: "Escolha o contraste mais confortÃ¡vel para o ambiente de trabalho."
+          description: "Escolha o contraste mais confortÃƒÂ¡vel para o ambiente de trabalho."
         },
           h("div", { className: "segmented-control", role: "group", "aria-label": "Tema da interface" },
             h("button", {
@@ -1376,13 +1369,13 @@ function Settings({
         ),
         h(PreferenceRow, {
           title: "Densidade das telas",
-          description: "Ajusta o espaÃ§amento sem alterar nenhuma informaÃ§Ã£o."
+          description: "Ajusta o espaÃƒÂ§amento sem alterar nenhuma informaÃƒÂ§ÃƒÂ£o."
         },
           h("div", { className: "segmented-control", role: "group", "aria-label": "Densidade das telas" },
             h("button", {
               className: density === "comfortable" ? "active" : "",
               onClick: () => onDensityChange("comfortable")
-            }, "ConfortÃ¡vel"),
+            }, "ConfortÃƒÂ¡vel"),
             h("button", {
               className: density === "compact" ? "active" : "",
               onClick: () => onDensityChange("compact")
@@ -1391,7 +1384,7 @@ function Settings({
         ),
         h(PreferenceRow, {
           title: "Menu lateral",
-          description: "Define como a navegaÃ§Ã£o deve iniciar no desktop."
+          description: "Define como a navegaÃƒÂ§ÃƒÂ£o deve iniciar no desktop."
         },
           h("label", { className: "setting-switch" },
             h("input", {
@@ -1407,9 +1400,9 @@ function Settings({
     ),
     h("article", { className: "panel settings-session" },
       h("div", null,
-        h("p", { className: "eyebrow" }, "sessÃ£o"),
+        h("p", { className: "eyebrow" }, "sessÃƒÂ£o"),
         h("h3", null, "Encerrar acesso"),
-        h("p", null, "Use esta opÃ§Ã£o ao terminar o trabalho neste aparelho.")
+        h("p", null, "Use esta opÃƒÂ§ÃƒÂ£o ao terminar o trabalho neste aparelho.")
       ),
       h("button", { className: "logout-action", onClick: onLogout },
         h(Icon, { name: "logout", size: 18 }),
@@ -1446,9 +1439,9 @@ function Overview({ data }) {
 
   return h(React.Fragment, null,
     h("div", { className: "metric-grid" },
-      metric("ConferÃªncias ativas", activeConferences),
+      metric("ConferÃƒÂªncias ativas", activeConferences),
       metric("Itens conferidos hoje", checkedToday),
-      metric("DivergÃªncias", metrics.errorCount || 0),
+      metric("DivergÃƒÂªncias", metrics.errorCount || 0),
       metric("Finalizados", metrics.perfect || 0)
     ),
     h("div", { className: "content-grid" },
@@ -1456,15 +1449,15 @@ function Overview({ data }) {
         h("div", { className: "panel-header" }, h("h3", null, "Mapa operacional"), h("span", null, "tempo real")),
         h("div", { className: "flow-board" },
           flow("Filial", "281"),
-          flow("Setor", "expediÃ§Ã£o central"),
-          flow("SeparaÃ§Ã£o", plural(metrics.separating || 0, "mapa", "mapas")),
-          flow("ConferÃªncia", plural(metrics.waiting || 0, "mapa", "mapas")),
+          flow("Setor", "expediÃƒÂ§ÃƒÂ£o central"),
+          flow("SeparaÃƒÂ§ÃƒÂ£o", plural(metrics.separating || 0, "mapa", "mapas")),
+          flow("ConferÃƒÂªncia", plural(metrics.waiting || 0, "mapa", "mapas")),
           flow("Conferidos", plural(metrics.perfect || 0, "mapa", "mapas")),
-          flow("HistÃ³rico de erros", `${metrics.errorCount || 0} registros`)
+          flow("HistÃƒÂ³rico de erros", `${metrics.errorCount || 0} registros`)
         )
       ),
       h("article", { className: "panel" },
-        h("div", { className: "panel-header" }, h("h3", null, "Progresso das conferÃªncias"), h("span", null, "dados reais")),
+        h("div", { className: "panel-header" }, h("h3", null, "Progresso das conferÃƒÂªncias"), h("span", null, "dados reais")),
         conferenceProgress.length
           ? h("div", { className: "bars" }, conferenceProgress.map((entry) =>
           h("div", { key: entry.id },
@@ -1477,100 +1470,8 @@ function Overview({ data }) {
             )
           )
         ))
-          : empty("Nenhuma conferÃªncia em andamento.")
+          : empty("Nenhuma conferÃƒÂªncia em andamento.")
       )
-    )
-  );
-}
-
-function Carriers({ maps }) {
-  const carriers = Object.values((maps || []).reduce((index, map) => {
-    const name = String(map.carrier || "NÃ£o informada").trim() || "NÃ£o informada";
-    if (!index[name]) index[name] = { name, maps: 0, active: 0, completed: 0 };
-    index[name].maps++;
-    if (["separacao", "aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status)) {
-      index[name].active++;
-    }
-    if (["conferido", "perfeito"].includes(map.status)) index[name].completed++;
-    return index;
-  }, {})).sort((left, right) => right.maps - left.maps);
-
-  return h("div", { className: "workspace-section" },
-    h("article", { className: "panel" },
-      h("div", { className: "panel-header" },
-        h("h3", null, "Transportadoras"),
-        h("span", null, "atividade por mapas")
-      ),
-      carriers.length
-        ? h("div", { className: "entity-grid" }, carriers.map((carrier) =>
-            h("div", { className: "entity-card", key: carrier.name },
-              h("div", { className: "entity-card-icon" }, h(Icon, { name: "carriers" })),
-              h("div", null,
-                h("strong", null, carrier.name),
-                h("span", null, `${carrier.maps} mapas registrados`)
-              ),
-              h("dl", null,
-                h("div", null, h("dt", null, "Ativos"), h("dd", null, carrier.active)),
-                h("div", null, h("dt", null, "ConcluÃ­dos"), h("dd", null, carrier.completed))
-              )
-            )
-          ))
-        : empty("Nenhuma transportadora registrada nos mapas.")
-    )
-  );
-}
-
-function Reports({ data }) {
-  const maps = data.maps || [];
-  const totalUnits = maps.reduce((sum, map) =>
-    sum + map.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0), 0);
-  const checkedUnits = maps.reduce((sum, map) =>
-    sum + map.items.reduce((itemSum, item) => itemSum + Number(item.checkedQuantity || 0), 0), 0);
-  const divergences = (data.errors || []).length;
-  const completion = totalUnits ? Math.round((checkedUnits / totalUnits) * 100) : 0;
-  const inventory = data.inventoryMetrics || {};
-  const balanceHistory = data.balanceHistory || [];
-
-  return h("div", { className: "workspace-section" },
-    h("div", { className: "metric-grid" },
-      metric("Unidades previstas", totalUnits),
-      metric("Unidades conferidas", checkedUnits),
-      metric("Progresso operacional", `${completion}%`),
-      metric("DivergÃªncias", divergences),
-      metric("Produtos ativos", inventory.active || 0),
-      metric("Produtos inativos", inventory.inactive || 0)
-    ),
-    h("article", { className: "panel" },
-      h("div", { className: "panel-header" },
-        h("h3", null, "Resumo operacional"),
-        h("span", null, "dados persistidos")
-      ),
-      h("div", { className: "report-progress" },
-        h("div", { className: "report-progress-copy" },
-          h("strong", null, `${checkedUnits} de ${totalUnits} unidades`),
-          h("span", null, "ConferÃªncia acumulada dos mapas disponÃ­veis")
-        ),
-        h("div", { className: "bar-track" },
-          h("div", { className: "bar-fill", style: { width: `${completion}%` } })
-        )
-      )
-    ),
-    h("article", { className: "panel" },
-      h("div", { className: "panel-header" },
-        h("h3", null, "VersÃµes de saldo"),
-        h("span", null, "Ãºltimas importaÃ§Ãµes")
-      ),
-      balanceHistory.length
-        ? h("div", { className: "timeline-list" }, balanceHistory.map((item) =>
-            h("div", { className: "list-item", key: item.id },
-              h("div", null,
-                h("strong", null, item.fileName),
-                h("span", null, `${item.importedBy} Â· ${formatDate(item.updatedAt)}`)
-              ),
-              h("span", null, `${item.skuCount} SKUs Â· ${item.changedItems} alterados Â· ${item.removedItems || 0} inativos`)
-            )
-          ))
-        : empty("Nenhuma versÃ£o de saldo registrada.")
     )
   );
 }
@@ -1579,10 +1480,10 @@ function Separation({ maps, onToggle, onSend, onDelete }) {
   const separationMaps = maps.filter((map) => map.status === "separacao");
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "SeparaÃ§Ã£o de mapas"), h("span", null, "marque os itens separados")),
+      h("div", { className: "panel-header" }, h("h3", null, "SeparaÃƒÂ§ÃƒÂ£o de mapas"), h("span", null, "marque os itens separados")),
       h("div", { className: "stack" }, separationMaps.length
         ? separationMaps.map((map) => h(MapCard, { key: map.id, map, onToggle, onSend, onDelete }))
-        : empty("Nenhum mapa em separaÃ§Ã£o."))
+        : empty("Nenhum mapa em separaÃƒÂ§ÃƒÂ£o."))
     ),
     h(QueueSummary, { maps: separationMaps, mode: "separation" })
   );
@@ -1594,7 +1495,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
   );
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "ReconferÃªncia da expediÃ§Ã£o"), h("span", null, "mapas jÃ¡ separados")),
+      h("div", { className: "panel-header" }, h("h3", null, "ReconferÃƒÂªncia da expediÃƒÂ§ÃƒÂ£o"), h("span", null, "mapas jÃƒÂ¡ separados")),
       h("div", { className: "stack" }, conferenceMaps.length ? conferenceMaps.map((map, index) => h(ConferenceCard, {
         key: map.id,
         map,
@@ -1605,7 +1506,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
         onPause,
         onResume,
         onCancel
-      })) : empty("Nenhum mapa aguardando conferÃªncia."))
+      })) : empty("Nenhum mapa aguardando conferÃƒÂªncia."))
     ),
     h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
   );
@@ -1696,7 +1597,7 @@ function Counting({
       return;
     }
     if (file.size > 25 * 1024 * 1024) {
-      window.alert("O PDF deve ter no mÃ¡ximo 25 MB.");
+      window.alert("O PDF deve ter no mÃƒÂ¡ximo 25 MB.");
       return;
     }
 
@@ -1746,7 +1647,7 @@ function Counting({
       return;
     }
     if ([system, counted, damaged, other].some((value) => value < 0 || Number.isNaN(value))) {
-      window.alert("Informe quantidades vÃ¡lidas.");
+      window.alert("Informe quantidades vÃƒÂ¡lidas.");
       return;
     }
     setSavingManual(true);
@@ -1770,7 +1671,7 @@ function Counting({
     }
     const match = draft.find((item) => String(item.sku).replace(/\D/g, "") === digits);
     if (!match) {
-      setSearchMessage(`CÃ³digo ${value} nÃ£o encontrado na lista de saldo.`);
+      setSearchMessage(`CÃƒÂ³digo ${value} nÃƒÂ£o encontrado na lista de saldo.`);
       playFeedback(false);
       return null;
     }
@@ -1826,11 +1727,11 @@ function Counting({
     h("article", { className: "panel" },
       h("div", { className: "panel-header" },
         h("h3", null, "Contagem de estoque"),
-        h("span", null, updatedAt ? `Saldo atualizado em ${formatDate(updatedAt)}` : "Saldo ainda nÃ£o importado")
+        h("span", null, updatedAt ? `Saldo atualizado em ${formatDate(updatedAt)}` : "Saldo ainda nÃƒÂ£o importado")
       ),
       updatedAt && h("div", { className: "count-import-summary" },
         h("div", null,
-          h("span", { className: "count-import-label" }, "Ãšltima importaÃ§Ã£o"),
+          h("span", { className: "count-import-label" }, "ÃƒÅ¡ltima importaÃƒÂ§ÃƒÂ£o"),
           h("strong", null, sourceName || "PDF de saldo")
         ),
         h("div", null,
@@ -1848,13 +1749,13 @@ function Counting({
         h("div", null, h("span", null, "Tempo"), h("strong", null, `${importMetrics.elapsedMs || 0} ms`))
       ),
       warnings.length > 0 && h("div", { className: "count-import-warnings" },
-        h("strong", null, "Avisos da importaÃ§Ã£o"),
+        h("strong", null, "Avisos da importaÃƒÂ§ÃƒÂ£o"),
         h("ul", null, warnings.map((warning) => h("li", { key: warning }, warning)))
       ),
       updatedAt && h("div", { className: "count-import-diagnostics" },
         h("div", { className: "count-import-diagnostics-head" },
           h("div", null,
-            h("strong", null, "DiagnÃ³stico da importaÃ§Ã£o"),
+            h("strong", null, "DiagnÃƒÂ³stico da importaÃƒÂ§ÃƒÂ£o"),
             h("span", null, `${ignoredProducts.length} linhas detalhadas`)
           ),
           h("button", {
@@ -1881,8 +1782,8 @@ function Counting({
       offlinePending && h("div", { className: "offline-count-pending" },
         h("strong", null, "Contagem salva no aparelho"),
         h("span", null, online
-          ? "Aguardando confirmaÃ§Ã£o do servidor."
-          : "SerÃ¡ enviada automaticamente quando a internet voltar.")
+          ? "Aguardando confirmaÃƒÂ§ÃƒÂ£o do servidor."
+          : "SerÃƒÂ¡ enviada automaticamente quando a internet voltar.")
       ),
       h("input", {
         className: "hidden",
@@ -1917,7 +1818,7 @@ function Counting({
       draft.length && h("section", { className: "count-status-filter" },
         h("div", { className: "count-status-filter-head" },
           h("strong", null, "Acompanhamento da contagem"),
-          h("span", null, `${compliantItems.length} corretos Â· ${divergentItems} divergentes Â· ${pendingItems.length} pendentes`)
+          h("span", null, `${compliantItems.length} corretos Ã‚Â· ${divergentItems} divergentes Ã‚Â· ${pendingItems.length} pendentes`)
         ),
         h("div", { className: "count-total-strip" },
           h("span", null, `Sistema ${totalSystem}`),
@@ -1929,7 +1830,7 @@ function Counting({
         h("div", { className: "count-filter-grid" },
           [
             ["all", "Todos", draft.length],
-            ["counted", "JÃ¡ contados", countedItems.length],
+            ["counted", "JÃƒÂ¡ contados", countedItems.length],
             ["ok", "Conformes", compliantItems.length],
             ["divergent", "Divergentes", divergentItems],
             ["pending", "Pendentes", pendingItems.length]
@@ -1940,7 +1841,7 @@ function Counting({
           }, h("span", null, label), h("strong", null, amount)))
         ),
         h("label", { className: "print-scope-control" },
-          h("span", null, "ImpressÃ£o"),
+          h("span", null, "ImpressÃƒÂ£o"),
           h("select", {
             value: printFilter,
             onChange: (event) => setPrintFilter(event.target.value)
@@ -1954,7 +1855,7 @@ function Counting({
         h("div", { className: "balance-search-head" },
           h("div", null,
             h("strong", null, "Localizar produto no saldo"),
-            h("span", null, "Use o coletor/bipador ou digite o cÃ³digo")
+            h("span", null, "Use o coletor/bipador ou digite o cÃƒÂ³digo")
           ),
           h("b", null, `${visibleDraft.length}/${draft.length} SKUs`)
         ),
@@ -1963,7 +1864,7 @@ function Counting({
             inputMode: "numeric",
             autoFocus: true,
             autoComplete: "off",
-            placeholder: "CÃ³digo da etiqueta ou SKU",
+            placeholder: "CÃƒÂ³digo da etiqueta ou SKU",
             value: searchCode,
             onChange: (event) => {
               setSearchCode(event.target.value);
@@ -2000,7 +1901,7 @@ function Counting({
             h("th", null, "Contado"),
             h("th", null, "Avaria"),
             h("th", null, "Outros"),
-            h("th", null, "Diferença")
+            h("th", null, "DiferenÃ§a")
           )),
           h("tbody", null, visibleDraft.map((item) => h("tr", {
             key: item.sku,
@@ -2040,7 +1941,7 @@ function Counting({
           )))
         )
       ) : draft.length
-        ? empty("Nenhum SKU corresponde Ã  pesquisa.")
+        ? empty("Nenhum SKU corresponde ÃƒÂ  pesquisa.")
         : empty("Selecione um PDF para carregar os saldos.")
     ),
     manualOpen && h("div", { className: "modal-backdrop", role: "presentation" },
@@ -2055,10 +1956,10 @@ function Counting({
             className: "icon-button",
             onClick: () => setManualOpen(false),
             "aria-label": "Fechar"
-          }, "Ã—")
+          }, "Ãƒâ€”")
         ),
         h("p", { className: "modal-text" },
-          "Use esta opÃ§Ã£o quando o PDF nÃ£o trouxe um item corretamente. O produto serÃ¡ salvo no PostgreSQL e aparecerÃ¡ para todos."
+          "Use esta opÃƒÂ§ÃƒÂ£o quando o PDF nÃƒÂ£o trouxe um item corretamente. O produto serÃƒÂ¡ salvo no PostgreSQL e aparecerÃƒÂ¡ para todos."
         ),
         h("label", null,
           h("span", null, "SKU"),
@@ -2122,7 +2023,7 @@ function Counting({
       )
     ),
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "DivergÃªncias"), h("span", null, "por SKU")),
+      h("div", { className: "panel-header" }, h("h3", null, "DivergÃƒÂªncias"), h("span", null, "por SKU")),
       h("div", { className: "stack" }, divergentRows.length
         ? divergentRows.map((item) =>
           h("div", { className: "list-item", key: item.sku },
@@ -2130,21 +2031,21 @@ function Counting({
             h("span", null, `${countDifference(item) > 0 ? "+" : ""}${countDifference(item)} un.`)
           )
         )
-        : empty("Nenhuma divergÃªncia informada."))
+        : empty("Nenhuma divergÃƒÂªncia informada."))
     ),
     printMode && h("section", { className: "count-print-sheet", "aria-hidden": "true" },
       h("header", { className: "count-print-header" },
         h("div", null,
           h("span", null, "MN - Check"),
-          h("h1", null, "RelatÃ³rio de contagem de estoque"),
-          h("p", null, "Resultado da contagem fÃ­sica comparado ao saldo do sistema")
+          h("h1", null, "RelatÃƒÂ³rio de contagem de estoque"),
+          h("p", null, "Resultado da contagem fÃƒÂ­sica comparado ao saldo do sistema")
         ),
-        h("strong", null, `VersÃ£o ${APP_VERSION}`)
+        h("strong", null, `VersÃƒÂ£o ${APP_VERSION}`)
       ),
       h("div", { className: "count-print-meta" },
-        h("div", null, h("span", null, "Arquivo de saldo"), h("strong", null, sourceName || "NÃ£o informado")),
-        h("div", null, h("span", null, "Saldo importado em"), h("strong", null, updatedAt ? formatDate(updatedAt) : "NÃ£o informado")),
-        h("div", null, h("span", null, "RelatÃ³rio emitido em"), h("strong", null, formatDate(printGeneratedAt)))
+        h("div", null, h("span", null, "Arquivo de saldo"), h("strong", null, sourceName || "NÃƒÂ£o informado")),
+        h("div", null, h("span", null, "Saldo importado em"), h("strong", null, updatedAt ? formatDate(updatedAt) : "NÃƒÂ£o informado")),
+        h("div", null, h("span", null, "RelatÃƒÂ³rio emitido em"), h("strong", null, formatDate(printGeneratedAt)))
       ),
       h("div", { className: "count-print-totals" },
         h("div", null, h("span", null, "SKUs"), h("strong", null, printableDraft.length)),
@@ -2164,7 +2065,7 @@ function Counting({
             h("th", null, "Avaria"),
             h("th", null, "Outros"),
             h("th", null, "Apurado"),
-            h("th", null, "DiferenÃ§a"),
+            h("th", null, "DiferenÃƒÂ§a"),
             h("th", null, "Resultado")
           )
         ),
@@ -2184,8 +2085,8 @@ function Counting({
         }))
       ),
       h("footer", { className: "count-print-signatures" },
-        h("div", null, h("span", null, "ResponsÃ¡vel pela contagem")),
-        h("div", null, h("span", null, "ResponsÃ¡vel pela validaÃ§Ã£o"))
+        h("div", null, h("span", null, "ResponsÃƒÂ¡vel pela contagem")),
+        h("div", null, h("span", null, "ResponsÃƒÂ¡vel pela validaÃƒÂ§ÃƒÂ£o"))
       )
     )
   );
@@ -2197,7 +2098,7 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
       h("div", { className: "panel-header" }, h("h3", null, "Cadastrar login"), h("span", null, "admin")),
       h("form", { className: "stack", onSubmit: createUser },
         h("div", { className: "form-row" },
-          h("input", { placeholder: "UsuÃ¡rio", value: newUser.username, onChange: (e) => setNewUser({ ...newUser, username: e.target.value }) }),
+          h("input", { placeholder: "UsuÃƒÂ¡rio", value: newUser.username, onChange: (e) => setNewUser({ ...newUser, username: e.target.value }) }),
           h("input", { placeholder: "Nome", value: newUser.name, onChange: (e) => setNewUser({ ...newUser, name: e.target.value }) })
         ),
         h("div", { className: "form-row" },
@@ -2206,11 +2107,11 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
           ),
           h("input", { placeholder: "Senha", type: "password", value: newUser.password, onChange: (e) => setNewUser({ ...newUser, password: e.target.value }) })
         ),
-        h("button", { className: "primary-action compact", type: "submit" }, "Cadastrar usuÃ¡rio")
+        h("button", { className: "primary-action compact", type: "submit" }, "Cadastrar usuÃƒÂ¡rio")
       )
     ),
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "UsuÃ¡rios cadastrados"), h("span", null, `${users.length} ativos`)),
+      h("div", { className: "panel-header" }, h("h3", null, "UsuÃƒÂ¡rios cadastrados"), h("span", null, `${users.length} ativos`)),
       h("div", { className: "stack" }, users.map((user) =>
         h("div", { className: "user-card", key: user.id },
           h("div", { className: "user-card-info" },
@@ -2227,7 +2128,7 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
               : h("button", {
                   className: "remove-user-action",
                   onClick: () => removeUser(user)
-                }, "Remover usuÃ¡rio")
+                }, "Remover usuÃƒÂ¡rio")
           )
         )
       ))
@@ -2244,23 +2145,23 @@ function History({ data }) {
 
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "DivergÃªncias e correÃ§Ãµes"), h("span", null, "histÃ³rico")),
+      h("div", { className: "panel-header" }, h("h3", null, "DivergÃƒÂªncias e correÃƒÂ§ÃƒÂµes"), h("span", null, "histÃƒÂ³rico")),
       h("div", { className: "stack" }, data.errors.length ? data.errors.map((item) =>
         h("div", { className: "list-item", key: `${item.order}-${item.issue}` }, h("strong", null, `Mapa ${item.order}`), h("span", null, `${item.issue} - ${item.owner}`))
       ) : empty("Nenhum erro registrado."))
     ),
     h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "HistÃ³rico de mapas"), h("span", null, `${mapHistory.length} registros`)),
+      h("div", { className: "panel-header" }, h("h3", null, "HistÃƒÂ³rico de mapas"), h("span", null, `${mapHistory.length} registros`)),
       h("div", { className: "stack" }, mapHistory.length ? mapHistory.map((map) =>
         h("div", { className: "list-item", key: map.id },
           h("strong", null, `Mapa ${map.id} - ${map.client}`),
           h("span", null, `${status(map.status)} - Rota ${map.route}`)
         )
-      ) : empty("Nenhum mapa no histÃ³rico."))
+      ) : empty("Nenhum mapa no histÃƒÂ³rico."))
     ),
     h("article", { className: "panel history-events-panel" },
       h("div", { className: "panel-header" },
-        h("h3", null, "MovimentaÃ§Ãµes"),
+        h("h3", null, "MovimentaÃƒÂ§ÃƒÂµes"),
         h("span", null, `${events.length} registros`)
       ),
       h("div", { className: "stack" }, events.length ? events.map((event, index) =>
@@ -2268,7 +2169,7 @@ function History({ data }) {
           h("strong", null, event.description),
           h("span", null, `${event.userName} - ${formatDate(event.at)}`)
         )
-      ) : empty("Nenhuma movimentaÃ§Ã£o registrada."))
+      ) : empty("Nenhuma movimentaÃƒÂ§ÃƒÂ£o registrada."))
     )
   );
 }
@@ -2302,14 +2203,14 @@ function MapCard({ map, onToggle, onSend, onDelete }) {
               className: "primary-action compact",
               key: "send",
               onClick: () => onSend(map.id)
-            }, "Enviar para conferÃªncia"),
+            }, "Enviar para conferÃƒÂªncia"),
             h("button", {
               className: "danger-action",
               key: "delete",
               onClick: () => onDelete(map)
             }, "Apagar mapa")
           ]
-        : h("span", { className: "status-note" }, "Mapa mantido no histÃ³rico desta tela.")
+        : h("span", { className: "status-note" }, "Mapa mantido no histÃƒÂ³rico desta tela.")
     )
   );
 }
@@ -2332,7 +2233,7 @@ function ConferenceCard({ map, onApprove, onProblem, onCorrected, onScan, onPaus
     session.status && h("div", { className: `conference-session-banner ${paused ? "paused" : ""}` },
       h("div", null,
         h("strong", null, conferenceStatusLabel(session.status)),
-        h("span", null, `${session.operator || "Operador"} Â· atualizado ${formatDate(session.updatedAt)}`)
+        h("span", null, `${session.operator || "Operador"} Ã‚Â· atualizado ${formatDate(session.updatedAt)}`)
       ),
       h("b", null, `${session.progress || 0}%`)
     ),
@@ -2457,13 +2358,13 @@ function BarcodeScanner({
 
   async function validate(code, source = "manual") {
     if (paused) {
-      setResult({ type: "error", title: "ConferÃªncia pausada", text: "Retome a conferÃªncia antes de bipar novas etiquetas." });
+      setResult({ type: "error", title: "ConferÃƒÂªncia pausada", text: "Retome a conferÃƒÂªncia antes de bipar novas etiquetas." });
       return;
     }
     const cleanCode = String(code || "").replace(/\D/g, "");
     if (!cleanCode || validatingRef.current) {
       if (!cleanCode) {
-        setResult({ type: "error", title: "CÃ³digo obrigatÃ³rio", text: "Digite ou escaneie um cÃ³digo para validar." });
+        setResult({ type: "error", title: "CÃƒÂ³digo obrigatÃƒÂ³rio", text: "Digite ou escaneie um cÃƒÂ³digo para validar." });
       }
       return;
     }
@@ -2485,12 +2386,12 @@ function BarcodeScanner({
         type: approved ? "success" : "error",
         title: approved
           ? (response.offline
-              ? (completedOffline ? "ConferÃªncia concluÃ­da offline" : "APROVADO OFFLINE")
-              : (response.allChecked ? "ConferÃªncia concluÃ­da" : "APROVADO"))
+              ? (completedOffline ? "ConferÃƒÂªncia concluÃƒÂ­da offline" : "APROVADO OFFLINE")
+              : (response.allChecked ? "ConferÃƒÂªncia concluÃƒÂ­da" : "APROVADO"))
           : "BLOQUEADO",
         text: approved
           ? (response.offline
-              ? "Etiqueta validada no aparelho. A leitura serÃ¡ sincronizada quando a internet voltar."
+              ? "Etiqueta validada no aparelho. A leitura serÃƒÂ¡ sincronizada quando a internet voltar."
               : response.allChecked
               ? "Todas as unidades foram lidas. Toque em OK para finalizar."
               : `${response.item.name}: ${response.item.checkedQuantity}/${response.item.quantity} unidades.`)
@@ -2499,7 +2400,7 @@ function BarcodeScanner({
       setHistory((current) => [{
         code: response.scanned || cleanCode,
         name: response.offline
-          ? `${response.reason} - aguardando sincronizaÃ§Ã£o`
+          ? `${response.reason} - aguardando sincronizaÃƒÂ§ÃƒÂ£o`
           : approved ? response.reason : `${response.reason} - esperado ${response.expected}`,
         ok: approved,
         source,
@@ -2509,7 +2410,7 @@ function BarcodeScanner({
       playFeedback(approved);
       window.setTimeout(() => codeInputRef.current?.focus(), 80);
     } catch (error) {
-      setResult({ type: "error", title: "CÃ³digo nÃ£o confere", text: error.message });
+      setResult({ type: "error", title: "CÃƒÂ³digo nÃƒÂ£o confere", text: error.message });
       setHistory((current) => [{
         code: cleanCode,
         name: error.message,
@@ -2525,7 +2426,7 @@ function BarcodeScanner({
   }
 
   const resultTitle = allChecked
-    ? "ConferÃªncia concluÃ­da"
+    ? "ConferÃƒÂªncia concluÃƒÂ­da"
     : result?.title || "Aguardando leitura";
   const resultType = allChecked ? "success" : result?.type || "waiting";
 
@@ -2535,7 +2436,7 @@ function BarcodeScanner({
         h("span", null, "1"),
         h("div", null,
           h("strong", null, "Leitura da etiqueta"),
-          h("small", null, "Use o coletor/bipador ou digite o cÃ³digo")
+          h("small", null, "Use o coletor/bipador ou digite o cÃƒÂ³digo")
         )
       ),
       h("div", { className: "manual-validation" },
@@ -2546,7 +2447,7 @@ function BarcodeScanner({
           autoComplete: "off",
           enterKeyHint: "done",
           spellCheck: false,
-          placeholder: "Bipe com o coletor ou digite o cÃ³digo",
+          placeholder: "Bipe com o coletor ou digite o cÃƒÂ³digo",
           value: manualCode,
           disabled: needsCorrection || paused,
           onChange: (event) => {
@@ -2567,27 +2468,27 @@ function BarcodeScanner({
         }, validating ? "Validando..." : "Validar")
       ),
       h("p", { className: "scanner-help" },
-        "O coletor USB ou Bluetooth funciona como teclado: bipar a etiqueta preenche o cÃ³digo e envia com Enter."
+        "O coletor USB ou Bluetooth funciona como teclado: bipar a etiqueta preenche o cÃƒÂ³digo e envia com Enter."
       )
     ),
     h("section", { className: "conference-step result-step" },
       h("div", { className: "conference-step-title" },
         h("span", null, "2"),
         h("div", null,
-          h("strong", null, "Resultado da conferÃªncia"),
+          h("strong", null, "Resultado da conferÃƒÂªncia"),
           h("small", null, `${checkedQuantity} de ${totalQuantity} unidades conferidas`)
         )
       ),
       h("div", { className: `conference-result ${resultType}` },
         h("strong", null, resultTitle),
-        h("span", null, allChecked ? "Tudo pronto para finalizar" : result?.text || "Bipe a etiqueta com o coletor ou digite o cÃ³digo.")
+        h("span", null, allChecked ? "Tudo pronto para finalizar" : result?.text || "Bipe a etiqueta com o coletor ou digite o cÃƒÂ³digo.")
       ),
       h("div", { className: "conference-progress" },
         h("div", { style: { width: `${totalQuantity ? Math.round((checkedQuantity / totalQuantity) * 100) : 0}%` } })
       ),
       expectedItem && h("div", { className: "expected-details" },
         detailRow(
-          allChecked ? "Ãšltimo cÃ³digo esperado" : "PrÃ³ximo cÃ³digo esperado",
+          allChecked ? "ÃƒÅ¡ltimo cÃƒÂ³digo esperado" : "PrÃƒÂ³ximo cÃƒÂ³digo esperado",
           normalizeProductCode(expectedItem.sku)
         ),
         detailRow("Produto", expectedItem.name),
@@ -2600,7 +2501,7 @@ function BarcodeScanner({
         paused && h("button", {
           className: "primary-action",
           onClick: onResume
-        }, "Retomar conferÃªncia"),
+        }, "Retomar conferÃƒÂªncia"),
         actionable && !paused && checkedQuantity > 0 && h("button", {
           className: "secondary-action",
           onClick: onPause
@@ -2608,18 +2509,18 @@ function BarcodeScanner({
         actionable && h("button", {
           className: "ghost-action",
           onClick: onCancel
-        }, "Cancelar conferÃªncia"),
+        }, "Cancelar conferÃƒÂªncia"),
         actionable && h("button", {
           className: "primary-action finish-conference",
           disabled: paused || !allChecked || offlineProgress > 0,
           onClick: () => onApprove(map.id)
         }, offlineProgress > 0
           ? "Aguardando internet para finalizar"
-          : allChecked ? "OK - Finalizar conferÃªncia" : `Faltam ${remainingQuantity} unidades`),
+          : allChecked ? "OK - Finalizar conferÃƒÂªncia" : `Faltam ${remainingQuantity} unidades`),
         actionable && !paused && h("button", {
           className: "danger-action",
           onClick: () => onProblem(map.id)
-        }, "Informar divergÃªncia"),
+        }, "Informar divergÃƒÂªncia"),
         needsCorrection && h("button", {
           className: "primary-action finish-conference",
           onClick: () => onCorrected(map.id)
@@ -2629,7 +2530,7 @@ function BarcodeScanner({
     h("section", { className: "conference-step history-step" },
       h("div", { className: "conference-step-title simple" },
         h("div", null,
-          h("strong", null, "HistÃ³rico"),
+          h("strong", null, "HistÃƒÂ³rico"),
           h("small", null, `${history.length} leituras registradas`)
         )
       ),
@@ -2644,7 +2545,7 @@ function BarcodeScanner({
               h("time", null, new Date(entry.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }))
             )
           ))
-        : h("p", { className: "empty-history" }, "Nenhuma conferÃªncia realizada ainda.")
+        : h("p", { className: "empty-history" }, "Nenhuma conferÃƒÂªncia realizada ainda.")
     )
   );
 }
@@ -2664,7 +2565,7 @@ function voltageFromSku(sku) {
     "2": "220V",
     "3": "127V",
     "4": "Bivolt",
-  }[gradeY] || "NÃ£o informado";
+  }[gradeY] || "NÃƒÂ£o informado";
 }
 
 function normalizeProductCode(value) {
@@ -2690,7 +2591,7 @@ function validateBarcodeLocally(expectedValue, scannedValue) {
     return {
       approved: false,
       status: "BLOQUEADO",
-      reason: "O cÃ³digo deve conter SKU de 5 dÃ­gitos, cor e voltagem.",
+      reason: "O cÃƒÂ³digo deve conter SKU de 5 dÃƒÂ­gitos, cor e voltagem.",
       expected: normalizeProductCode(expectedValue),
       scanned: normalizeProductCode(scannedValue)
     };
@@ -2747,7 +2648,7 @@ function isNetworkFailure(error) {
 function scanSourceLabel(source) {
   return {
     scanner: "coletor/bipador",
-    manual: "digitaÃ§Ã£o manual"
+    manual: "digitaÃƒÂ§ÃƒÂ£o manual"
   }[source] || "leitura";
 }
 
@@ -2766,7 +2667,7 @@ async function authorizedJson(path) {
     headers: token ? { Authorization: `Bearer ${token}` } : {}
   });
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "NÃ£o foi possÃ­vel carregar os dados.");
+  if (!response.ok) throw new Error(body.error || "NÃƒÂ£o foi possÃƒÂ­vel carregar os dados.");
   return body;
 }
 
@@ -2800,7 +2701,7 @@ function QueueSummary({ maps, mode }) {
 
   return h("article", { className: "panel" },
     h("div", { className: "panel-header" },
-      h("h3", null, mode === "separation" ? "Fila de separaÃ§Ã£o" : "Fila de conferÃªncia"),
+      h("h3", null, mode === "separation" ? "Fila de separaÃƒÂ§ÃƒÂ£o" : "Fila de conferÃƒÂªncia"),
       h("span", null, `${queue.length} ${queue.length === 1 ? "mapa ativo" : "mapas ativos"}`)
     ),
     queue.length
@@ -2820,11 +2721,11 @@ function QueueSummary({ maps, mode }) {
             h("div", { className: "queue-progress" }, h("div", { style: { width: `${percent}%` } })),
             h("div", { className: "queue-meta" },
               h("span", null, status(map.status)),
-              h("span", null, `${percent}% concluÃ­do`)
+              h("span", null, `${percent}% concluÃƒÂ­do`)
             )
           );
         }))
-      : empty(mode === "separation" ? "Nenhum mapa aguardando separaÃ§Ã£o." : "Nenhum mapa aguardando conferÃªncia.")
+      : empty(mode === "separation" ? "Nenhum mapa aguardando separaÃƒÂ§ÃƒÂ£o." : "Nenhum mapa aguardando conferÃƒÂªncia.")
   );
 }
 
@@ -2837,14 +2738,14 @@ function flow(title, meta) {
 }
 
 function empty(message) {
-  return h("div", { className: "list-item" }, h("strong", null, message), h("span", null, "Os registros aparecerÃ£o aqui."));
+  return h("div", { className: "list-item" }, h("strong", null, message), h("span", null, "Os registros aparecerÃƒÂ£o aqui."));
 }
 
 function status(value) {
   return {
-    separacao: "separaÃ§Ã£o",
-    "aguardando conferencia": "aguardando conferÃªncia",
-    conferencia: "conferÃªncia",
+    separacao: "separaÃƒÂ§ÃƒÂ£o",
+    "aguardando conferencia": "aguardando conferÃƒÂªncia",
+    conferencia: "conferÃƒÂªncia",
     perfeito: "conferido",
     conferido: "conferido",
     "corrigir problema": "corrigir problema",
@@ -2864,11 +2765,11 @@ function statusClass(value) {
 
 function conferenceStatusLabel(value) {
   return {
-    EM_ANDAMENTO: "ConferÃªncia em andamento",
-    PAUSADA: "ConferÃªncia pausada",
-    FINALIZADA: "ConferÃªncia finalizada",
-    CANCELADA: "ConferÃªncia cancelada"
-  }[value] || "ConferÃªncia";
+    EM_ANDAMENTO: "ConferÃƒÂªncia em andamento",
+    PAUSADA: "ConferÃƒÂªncia pausada",
+    FINALIZADA: "ConferÃƒÂªncia finalizada",
+    CANCELADA: "ConferÃƒÂªncia cancelada"
+  }[value] || "ConferÃƒÂªncia";
 }
 
 function plural(value, singular, pluralText) {
@@ -2904,7 +2805,7 @@ function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("NÃ£o foi possÃ­vel ler o arquivo."));
+    reader.onerror = () => reject(new Error("NÃƒÂ£o foi possÃƒÂ­vel ler o arquivo."));
     reader.readAsDataURL(file);
   });
 }
@@ -2946,10 +2847,10 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=184", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=185", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
-      h("h1", null, "NÃ£o foi possÃ­vel concluir esta operaÃ§Ã£o"),
-      h("p", null, "Seus dados persistidos nÃ£o foram apagados. Recarregue a tela para continuar."),
+      h("h1", null, "NÃƒÂ£o foi possÃƒÂ­vel concluir esta operaÃƒÂ§ÃƒÂ£o"),
+      h("p", null, "Seus dados persistidos nÃƒÂ£o foram apagados. Recarregue a tela para continuar."),
       h("button", { className: "primary-action", onClick: () => window.location.reload() }, "Recarregar sistema")
     );
   }

@@ -35,7 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MmCheckServer {
-  private static final String APP_VERSION = "1.8.4";
+  public static final String APP_VERSION = AppInfo.VERSION;
   private static final int MAX_BALANCE_PDF_BYTES = 25 * 1024 * 1024;
   private static final int PORT = Integer.parseInt(
       System.getProperty("mmcheck.legacy.port", System.getenv().getOrDefault("PORT", "4173"))
@@ -127,7 +127,7 @@ public class MmCheckServer {
       json(exchange, 200, Map.of(
           "status", "ok",
           "app", "MN - Check",
-          "version", APP_VERSION,
+          "version", AppInfo.VERSION,
           "database", persistence.description(),
           "connection", relationalDatabase.testConnection()
       ));
@@ -135,7 +135,7 @@ public class MmCheckServer {
     }
 
     if ("GET".equals(method) && "/api/version".equals(path)) {
-      json(exchange, 200, Map.of("app", "MN - Check", "version", APP_VERSION));
+      json(exchange, 200, AppInfo.versionPayload());
       return;
     }
 

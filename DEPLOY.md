@@ -18,6 +18,8 @@ Remova `MMCHECK_DB_PATH` e `MMCHECK_UPLOAD_DIR` caso ainda existam. O sistema n�
 
 ## 3. Deploy
 
+Para seguir o fluxo normal do GitHub, deixe **Settings > Auto-Deploy** ligado no Render. O `render.yaml` tambÃ©m declara `autoDeploy: true`.
+
 Execute:
 
 ```text
@@ -34,7 +36,7 @@ https://mm-check.onrender.com/api/health
 Versão esperada:
 
 ```json
-{"app":"MN - Check","version":"1.8.4"}
+{"app":"MN - Check","version":"1.8.5"}
 ```
 
 O primeiro boot cria automaticamente todas as tabelas. Uma falha de conexão impede a inicialização, evitando perda silenciosa de dados.
