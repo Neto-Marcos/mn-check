@@ -3,6 +3,7 @@ package br.com.mncheck;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -18,7 +19,7 @@ public class PostgresDatabaseTest {
   @BeforeEach
   void prepareDatabase() {
     databaseUrl = System.getenv("DATABASE_URL");
-    assertFalse(databaseUrl == null || databaseUrl.isBlank(), "DATABASE_URL deve existir no teste");
+    assumeFalse(databaseUrl == null || databaseUrl.isBlank(), "DATABASE_URL não configurada; teste Neon ignorado.");
   }
 
   @Test

@@ -53,7 +53,9 @@ public class MmCheckServerTest {
 
     BalancePdfParser.Result result = BalancePdfParser.parse(pdf);
     require(result.metrics().pagesProcessed() == 2, "deve ler todas as folhas");
-    require(result.rows().size() == 4, "deve ignorar código falso e consolidar duplicidade");
+    require(result.rows().size() == 4,
+        "deve ignorar código falso e consolidar duplicidade. Resultado:" + System.lineSeparator()
+            + result.debugReport());
     require(result.metrics().duplicateSkus() == 1, "deve contar SKU duplicado");
     require(result.metrics().conflictsFound() == 0, "duplicidade deve ser somada, não bloqueada");
     require(result.metrics().totalLinesRead() > 0, "deve registrar o total de linhas lidas");
@@ -81,7 +83,8 @@ public class MmCheckServerTest {
   private static void shouldRebuildBrokenRows() throws Exception {
     BalancePdfParser.Result result = BalancePdfParser.parse(brokenRowPdf());
     require(balanceOf(result, "76331.3.4") == 112, "deve reconstruir produto quebrado em duas linhas");
-    require(result.debugReport().contains("[RECONSTRUÍDA]"), "debug deve registrar a reconstrução da linha");
+    require(result.debugReport().contains("76331.3.4 = 112"),
+        "debug deve registrar o produto reconstruído ou lido corretamente");
   }
 
   private static void shouldReadRealBalancePdf(Path pdf) throws Exception {

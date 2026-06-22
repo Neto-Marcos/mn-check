@@ -278,7 +278,9 @@ final class BalancePdfParser {
   ) {
     if (!columns.looksLikeDataRow()) return "Linha sem todas as colunas de Produto, Grade X e Grade Y.";
     if (!isValidProduct(product, 10)) return "Código de produto ausente ou inválido.";
-    if ("9999999".equals(product)) return "Código 9999999 bloqueado como cabeçalho/lixo.";
+    if (product.startsWith("9999999") || isBlockedProductCode(product)) {
+      return "Código " + product + " bloqueado como cabeçalho/lixo.";
+    }
     if (!isValidGrade(gradeX, 10)) return "Grade X ausente ou inválida.";
     if (!isValidVoltageGrade(gradeY)) return "Grade Y ausente ou fora do intervalo aceito (0 a 4).";
     if (balance == null) return "Saldo numérico não pôde ser identificado.";
@@ -319,6 +321,11 @@ final class BalancePdfParser {
     return !value.isBlank()
         && value.length() <= maxLength
         && !"0".equals(value);
+  }
+
+  private static boolean isBlockedProductCode(String value) {
+    String digits = onlyDigits(value);
+    return digits.length() >= 7 && digits.chars().allMatch(character -> character == '9');
   }
 
   private static boolean isValidGrade(String value, int maxLength) {
