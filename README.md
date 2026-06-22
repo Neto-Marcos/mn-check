@@ -127,6 +127,12 @@ Detalhes adicionais ficam em [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 mvn test
 ```
 
+No Windows, se o Maven estiver instalado no perfil do usuario:
+
+```powershell
+.\scripts\test-local.ps1
+```
+
 Os testes cobrem parser de PDF, normalizacao de SKU, validacao de codigo de barras e persistencia quando `DATABASE_URL` esta disponivel.
 
 ## Autor
