@@ -1621,6 +1621,38 @@ function Counting({
     }
   }
 
+  async function resetCount() {
+    if (!draft.length || savingCount) return;
+    const hasValues = draft.some((item) => countAccounted(item) > 0);
+    if (!hasValues) {
+      window.alert("A contagem já está zerada.");
+      return;
+    }
+    if (!window.confirm("Reiniciar a contagem? Tudo que foi contado, avaria e outros será zerado.")) return;
+
+    const resetDraft = draft.map((item) => ({
+      ...item,
+      counted: 0,
+      damaged: 0,
+      other: 0
+    }));
+    setDraft(resetDraft);
+    setSearchCode("");
+    setSearchMessage("");
+    setCountFilter("all");
+    setSavingCount(true);
+    try {
+      const result = await onUpdate(resetDraft);
+      setOfflinePending(Boolean(result?.offline));
+    } catch (error) {
+      onOfflineDraft(resetDraft);
+      setOfflinePending(true);
+      window.alert(error.message || "A contagem foi zerada no aparelho e será sincronizada quando possível.");
+    } finally {
+      setSavingCount(false);
+    }
+  }
+
   async function submitManualProduct(event) {
     event.preventDefault();
     const sku = normalizeInventorySku(manualProduct.sku);
@@ -1795,6 +1827,11 @@ function Counting({
         }, savingCount
           ? "Salvando..."
           : online ? "Atualizar contagem" : "Salvar contagem off-line"),
+        h("button", {
+          className: "secondary-action compact",
+          disabled: !draft.length || savingCount,
+          onClick: resetCount
+        }, "Reiniciar contagem"),
         h("button", {
           className: "secondary-action compact",
           disabled: !draft.length,
