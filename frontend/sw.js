@@ -1,4 +1,4 @@
-const CACHE_NAME = "mn-check-1.9.4";
+const CACHE_NAME = "mn-check-1.9.5";
 const APP_ASSETS = [
   "/",
   "/index.html",
