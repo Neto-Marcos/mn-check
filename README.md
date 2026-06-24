@@ -4,7 +4,7 @@
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-Backend-16a34a?style=for-the-badge)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL%2FNeon-Persistence-2563eb?style=for-the-badge)
 ![PDFBox](https://img.shields.io/badge/PDFBox-PDF%20Parser-f97316?style=for-the-badge)
-![Render](https://img.shields.io/badge/Render-Deploy-111827?style=for-the-badge)
+![Railway](https://img.shields.io/badge/Railway-Deploy-111827?style=for-the-badge)
 
 O **MN Check** e um sistema operacional para mapas de carga, separacao por coletor, conferencia de expedicao e contagem de estoque. Ele foi criado para reduzir erro humano em SKU, cor, voltagem, quantidade e saldo em um fluxo logistico real.
 
@@ -40,7 +40,7 @@ O **MN Check** e um sistema operacional para mapas de carga, separacao por colet
 - HTML, CSS e JavaScript
 - React via bundle local
 - Docker
-- Render
+- Railway / Render
 
 ## Estrutura
 
@@ -95,6 +95,16 @@ GEMINI_API_KEY=sua-chave-do-gemini
 GEMINI_MODEL=gemini-2.5-flash
 PORT=4173
 ```
+
+## Deploy no Railway
+
+1. Crie um projeto no Railway usando o repositorio `Neto-Marcos/mn-check`.
+2. O Railway usa `Dockerfile` e `railway.json`.
+3. Configure `DATABASE_URL` e `MMCHECK_ADMIN_PASSWORD`.
+4. Opcionalmente configure `GEMINI_API_KEY` e `GEMINI_MODEL`.
+5. Confira o healthcheck em `/api/health`.
+
+Detalhes adicionais ficam em [`RAILWAY.md`](RAILWAY.md).
 
 ## Deploy no Render
 
