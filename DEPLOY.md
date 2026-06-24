@@ -1,48 +1,55 @@
-# Deploy com Neon e Render
+# Deploy com Neon e Railway
 
 ## 1. Neon
 
-Crie o projeto em [neon.tech](https://neon.tech/), abra **Connection Details**, escolha a conexÃ£o agrupada e copie a URL PostgreSQL com `sslmode=require`.
+Crie o banco em https://neon.tech e copie a connection string PostgreSQL com `sslmode=require`.
 
-## 2. Render
-
-No serviço `mn-check`, abra **Environment** e configure:
+Exemplo:
 
 ```text
-DATABASE_URL=postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+postgresql://usuario:senha@host/neondb?sslmode=require
+```
+
+Nao copie comandos `psql`, `npx neonctl` ou textos adicionais.
+
+## 2. Railway
+
+No Railway, crie um projeto a partir do repositorio:
+
+```text
+Neto-Marcos/mn-check
+```
+
+O projeto usa:
+
+- `Dockerfile`
+- `railway.json`
+- healthcheck em `/api/health`
+
+## 3. Variaveis
+
+Configure em **Variables**:
+
+```text
+DATABASE_URL=postgresql://usuario:senha@host/neondb?sslmode=require
 MMCHECK_ADMIN_PASSWORD=uma-senha-segura
 GEMINI_API_KEY=opcional-apenas-para-mapas
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
-Remova `MMCHECK_DB_PATH` e `MMCHECK_UPLOAD_DIR` caso ainda existam. O sistema nÃ£o usa armazenamento local.
+Nao configure `PORT` manualmente. O Railway injeta essa variavel.
 
-## 3. Deploy
+## 4. Validacao
 
-Para seguir o fluxo normal do GitHub, deixe **Settings > Auto-Deploy** ligado no Render. O `render.yaml` tambÃƒÂ©m declara `autoDeploy: true`.
-
-Execute:
+Depois do deploy, valide:
 
 ```text
-Manual Deploy > Deploy latest commit
+https://seu-app.up.railway.app/api/version
+https://seu-app.up.railway.app/api/health
 ```
 
-Depois valide:
+O primeiro boot cria automaticamente as tabelas no PostgreSQL. Se `DATABASE_URL` estiver incorreta, o app falha ao iniciar para evitar perda silenciosa de dados.
 
-```text
-https://mn-check.onrender.com/api/version
-https://mn-check.onrender.com/api/health
-```
+## 5. Vercel
 
-VersÃ£o esperada:
-
-```json
-{"app":"MN - Check","version":"1.8.6"}
-```
-
-O primeiro boot cria automaticamente todas as tabelas. Uma falha de conexÃ£o impede a inicializaÃ§Ã£o, evitando perda silenciosa de dados.
-
-## CÃ¢mera no celular
-
-O navegador exige HTTPS para `getUserMedia`. O endereÃ§o pÃºblico do Render jÃ¡ usa HTTPS, portanto basta autorizar a cÃ¢mera no Chrome Android ou Safari do iPhone.
-
-O serviÃ§o precisa expor somente a porta pÃºblica definida por `PORT`. O nÃºcleo de compatibilidade roda internamente na porta `4174`.
+A Vercel fica reservada para o portfolio ou frontend estatico. O backend Java do MN Check deve ficar no Railway.

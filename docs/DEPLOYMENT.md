@@ -10,23 +10,25 @@
 postgresql://usuario:senha@host/neondb?sslmode=require
 ```
 
-Não use comandos como `psql`, `npx neonctl` ou texto adicional na variável.
+Nao use comandos como `psql`, `npx neonctl` ou texto adicional na variavel.
 
-## Render
+## Railway
 
-1. Crie um Web Service.
-2. Conecte o repositório do GitHub.
-3. Use o `Dockerfile`.
-4. Configure as variáveis:
+1. Crie um projeto no Railway.
+2. Conecte o repositorio `Neto-Marcos/mn-check`.
+3. O Railway usa `Dockerfile` e `railway.json`.
+4. Configure as variaveis:
 
 ```text
 DATABASE_URL=postgresql://...
 MMCHECK_ADMIN_PASSWORD=...
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
-5. Faça deploy.
+5. Faca deploy.
 
-## Verificação
+## Verificacao
 
 Depois do deploy:
 
@@ -35,4 +37,8 @@ Depois do deploy:
 /api/version
 ```
 
-O health deve retornar `status: ok` e a identificação do banco.
+O health deve retornar `status: ok` e a identificacao do banco.
+
+## Vercel
+
+Use a Vercel apenas para portfolio ou frontend estatico. O backend Java do MN Check deve ficar no Railway.

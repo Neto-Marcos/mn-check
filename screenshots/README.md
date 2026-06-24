@@ -7,4 +7,4 @@ Adicione aqui as capturas profissionais usadas no README:
 - `contagem.png`
 - `mobile.png`
 
-Sugestão: gere as imagens após o deploy no Render ou com o servidor local aberto em `http://localhost:4173`.
+Sugestao: gere as imagens apos o deploy no Railway ou com o servidor local aberto em `http://localhost:4173`.

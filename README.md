@@ -40,7 +40,7 @@ O **MN Check** e um sistema operacional para mapas de carga, separacao por colet
 - HTML, CSS e JavaScript
 - React via bundle local
 - Docker
-- Railway / Render
+- Railway
 
 ## Estrutura
 
@@ -106,15 +106,9 @@ PORT=4173
 
 Detalhes adicionais ficam em [`RAILWAY.md`](RAILWAY.md).
 
-## Deploy no Render
+## Vercel
 
-1. Crie um banco PostgreSQL no Neon.
-2. Copie a connection string sem comandos `psql` ou `npx`.
-3. No Render, configure `DATABASE_URL`, `MMCHECK_ADMIN_PASSWORD` e `GEMINI_API_KEY`.
-4. Use o Dockerfile do projeto.
-5. Faca push para o GitHub.
-
-Detalhes adicionais ficam em [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+A Vercel fica reservada para o portfolio ou frontend estatico. O backend Java do MN Check deve ficar no Railway.
 
 ## Endpoints principais
 

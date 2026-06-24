@@ -39,7 +39,7 @@ Nao fixe `PORT` manualmente no Railway. Ele injeta a porta em runtime, e o app l
 
 ## Reducao de shutdown
 
-O Railway tende a ser melhor que Render Free para evitar o "sleep" por inatividade, mas o servico ainda depende de plano, creditos, limites e saude do deploy.
+O Railway tende a reduzir problemas de "sleep" por inatividade, mas o servico ainda depende de plano, creditos, limites e saude do deploy.
 
 Para reduzir indisponibilidade:
 

@@ -23,10 +23,10 @@ $env:MM_CHECK_SMOKE_PASSWORD="sua-senha"
 node scripts/smoke-test.mjs
 ```
 
-Contra o Render:
+Contra o Railway:
 
 ```powershell
-$env:MM_CHECK_BASE_URL="https://mn-check.onrender.com"
+$env:MM_CHECK_BASE_URL="https://seu-app.up.railway.app"
 $env:MM_CHECK_SMOKE_USER="Marcos"
 $env:MM_CHECK_SMOKE_PASSWORD="sua-senha"
 node scripts/smoke-test.mjs
