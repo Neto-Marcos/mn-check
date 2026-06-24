@@ -37,7 +37,13 @@ GEMINI_API_KEY=opcional-apenas-para-mapas
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
-Nao configure `PORT` manualmente. O Railway injeta essa variavel.
+Nao configure `PORT` manualmente. O container usa `8080` por padrao e tambem respeita a variavel `PORT` quando o Railway injeta.
+
+Ao gerar dominio em **Networking**, use a porta:
+
+```text
+8080
+```
 
 ## 4. Validacao
 
