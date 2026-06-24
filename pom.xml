@@ -13,7 +13,7 @@
 
   <groupId>br.com.mncheck</groupId>
   <artifactId>mn-check</artifactId>
-  <version>1.9.5</version>
+  <version>1.9.6</version>
   <name>MN - Check</name>
 
   <properties>

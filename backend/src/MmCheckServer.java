@@ -662,7 +662,7 @@ public class MmCheckServer {
           db.recordHistory(user, "resume_conference", "ConferÃªncia do mapa " + map.id + " retomada");
         } else if ("cancel-conference".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
-          map.items.forEach(item -> item.checkedQuantity = 0);
+          resetMapConferenceProgress(map);
           map.status = "aguardando conferencia";
           relationalDatabase.cancelConferenceAndClear(map.id, user.name);
           db.recordHistory(user, "cancel_conference", "ConferÃªncia do mapa " + map.id + " cancelada e zerada");
@@ -691,9 +691,11 @@ public class MmCheckServer {
         } else if ("corrected".equals(action)) {
           if (!List.of("admin", "expedition").contains(user.role)) throw new ApiException(403, "AÃ§Ã£o nÃ£o permitida.");
           if (!"corrigir problema".equals(map.status)) throw new ApiException(403, "Mapa fora da etapa de correÃ§Ã£o.");
-          map.status = "conferido";
-          relationalDatabase.changeConferenceStatus(map.id, user.name, "FINALIZADA");
-          db.recordHistory(user, "corrected_map", "Mapa " + map.id + " corrigido e conferido");
+          resetMapConferenceProgress(map);
+          map.status = "conferencia";
+          relationalDatabase.cancelConferenceAndClear(map.id, user.name);
+          relationalDatabase.changeConferenceStatus(map.id, user.name, "EM_ANDAMENTO");
+          db.recordHistory(user, "corrected_map", "Mapa " + map.id + " corrigido e reiniciado para conferencia");
         } else {
           throw new ApiException(404, "Rota nÃ£o encontrada.");
         }
@@ -777,6 +779,13 @@ public class MmCheckServer {
         item.checkedQuantity = Math.min(item.quantity, checkedByLine.get(item.sku));
       }
     }
+  }
+
+  private static void resetMapConferenceProgress(CargoMap map) {
+    map.items.forEach(item -> {
+      item.checkedQuantity = 0;
+      item.ok = false;
+    });
   }
 
   private static MapItem findPendingScanItem(CargoMap map, String lineId, String code, String completedLabel) {

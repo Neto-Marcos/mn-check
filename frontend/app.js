@@ -883,7 +883,7 @@ function App() {
         maps: data.maps,
         onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
         onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
-        onCorrected: (id) => mapAction(id, "corrected", "Mapa corrigido e conferido."),
+        onCorrected: (id) => mapAction(id, "corrected", "Divergência corrigida. Conferência reiniciada."),
         onScan: scanBarcode,
         onPause: (id) => mapAction(id, "pause-conference", "Conferência pausada com o progresso salvo."),
         onResume: (id) => mapAction(id, "resume-conference", "Conferência retomada."),
@@ -2750,7 +2750,7 @@ function BarcodeScanner({
         needsCorrection && h("button", {
           className: "primary-action finish-conference",
           onClick: () => onCorrected(map.id)
-        }, "OK - Problema corrigido")
+        }, "Já corrigido, reiniciar conferência")
       )
     ),
     h("section", { className: "conference-step history-step" },
