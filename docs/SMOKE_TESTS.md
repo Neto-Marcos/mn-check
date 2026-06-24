@@ -1,4 +1,4 @@
-# Smoke tests do MM Check
+# Smoke tests do MN Check
 
 Estes testes validam rapidamente os fluxos principais por HTTP, sem refatorar regra de negócio.
 
@@ -14,7 +14,7 @@ Estes testes validam rapidamente os fluxos principais por HTTP, sem refatorar re
 
 ## Como rodar
 
-Com o MM Check já ligado localmente:
+Com o MN Check já ligado localmente:
 
 ```powershell
 $env:MM_CHECK_BASE_URL="http://127.0.0.1:4173"
@@ -26,7 +26,7 @@ node scripts/smoke-test.mjs
 Contra o Render:
 
 ```powershell
-$env:MM_CHECK_BASE_URL="https://mm-check.onrender.com"
+$env:MM_CHECK_BASE_URL="https://mn-check.onrender.com"
 $env:MM_CHECK_SMOKE_USER="Marcos"
 $env:MM_CHECK_SMOKE_PASSWORD="sua-senha"
 node scripts/smoke-test.mjs

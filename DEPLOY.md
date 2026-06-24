@@ -6,7 +6,7 @@ Crie o projeto em [neon.tech](https://neon.tech/), abra **Connection Details**, 
 
 ## 2. Render
 
-No serviÃ§o `mm-check`, abra **Environment** e configure:
+No serviço `mn-check`, abra **Environment** e configure:
 
 ```text
 DATABASE_URL=postgresql://usuario:senha@ep-xxxxx.us-east-2.aws.neon.tech/neondb?sslmode=require
@@ -29,8 +29,8 @@ Manual Deploy > Deploy latest commit
 Depois valide:
 
 ```text
-https://mm-check.onrender.com/api/version
-https://mm-check.onrender.com/api/health
+https://mn-check.onrender.com/api/version
+https://mn-check.onrender.com/api/health
 ```
 
 VersÃ£o esperada:

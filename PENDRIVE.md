@@ -1,6 +1,6 @@
 # MN - Check no pendrive
 
-Copie a pasta inteira do projeto para o pendrive e abra `iniciar-mm-check.bat`. O computador precisa ter Java 17 ou superior.
+Copie a pasta inteira do projeto para o pendrive e abra `iniciar-mn-check.bat`. O computador precisa ter Java 17 ou superior.
 
 O servidor abre em `http://127.0.0.1:4173/`. Mantenha a janela do servidor aberta e só remova o pendrive depois de encerrá-la.
 

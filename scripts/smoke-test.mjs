@@ -25,7 +25,7 @@ const steps = [
   ["conferencia por codigo", testBarcodeConference]
 ];
 
-console.log(`MM Check smoke test -> ${BASE_URL}`);
+console.log(`MN Check smoke test -> ${BASE_URL}`);
 
 for (const [name, test] of steps) {
   const started = Date.now();

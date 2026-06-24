@@ -1,4 +1,4 @@
-# MM Check - Sistema de separacao, conferencia e contagem
+# MN Check - Sistema de separacao, conferencia e contagem
 
 ![Java](https://img.shields.io/badge/Java-21-ef4444?style=for-the-badge)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-Backend-16a34a?style=for-the-badge)
@@ -6,7 +6,7 @@
 ![PDFBox](https://img.shields.io/badge/PDFBox-PDF%20Parser-f97316?style=for-the-badge)
 ![Render](https://img.shields.io/badge/Render-Deploy-111827?style=for-the-badge)
 
-O **MM Check** e um sistema operacional para mapas de carga, separacao por coletor, conferencia de expedicao e contagem de estoque. Ele foi criado para reduzir erro humano em SKU, cor, voltagem, quantidade e saldo em um fluxo logistico real.
+O **MN Check** e um sistema operacional para mapas de carga, separacao por coletor, conferencia de expedicao e contagem de estoque. Ele foi criado para reduzir erro humano em SKU, cor, voltagem, quantidade e saldo em um fluxo logistico real.
 
 ## Principais recursos
 

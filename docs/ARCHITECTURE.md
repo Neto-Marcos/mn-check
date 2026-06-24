@@ -1,6 +1,6 @@
-# Arquitetura do MM Check
+# Arquitetura do MN Check
 
-O MM Check foi construído como um sistema operacional de logística com backend Java, interface web responsiva e persistência PostgreSQL.
+O MN Check foi construído como um sistema operacional de logística com backend Java, interface web responsiva e persistência PostgreSQL.
 
 ## Camadas Atuais
 

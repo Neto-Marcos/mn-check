@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: mm-check
+    name: mn-check
     runtime: docker
     plan: free
     autoDeploy: true
