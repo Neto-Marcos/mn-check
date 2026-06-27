@@ -98,11 +98,13 @@ function App() {
   const [authenticating, setAuthenticating] = React.useState(false);
   const [viewLoading, setViewLoading] = React.useState(false);
   const [appVersion, setAppVersion] = React.useState(APP_VERSION);
+  const [deployInfo, setDeployInfo] = React.useState({ version: APP_VERSION, buildAt: "", commit: "" });
   const [online, setOnline] = React.useState(navigator.onLine);
   const [user, setUser] = React.useState(null);
   const [data, setData] = React.useState(emptyData());
   const [view, setView] = React.useState("overview");
   const [toast, setToast] = React.useState("");
+  const [waitingWorker, setWaitingWorker] = React.useState(null);
   const [mapImportOpen, setMapImportOpen] = React.useState(false);
   const [mapImporting, setMapImporting] = React.useState(false);
   const [mapDraft, setMapDraft] = React.useState(null);
@@ -118,13 +120,40 @@ function App() {
 
   React.useEffect(() => {
     request("/api/version")
-      .then((body) => setAppVersion(body.version || APP_VERSION))
-      .catch(() => setAppVersion(APP_VERSION));
+      .then((body) => {
+        setAppVersion(body.version || APP_VERSION);
+        setDeployInfo({ version: body.version || APP_VERSION, buildAt: body.buildAt || "", commit: body.commit || "" });
+      })
+      .catch(() => {
+        setAppVersion(APP_VERSION);
+        setDeployInfo({ version: APP_VERSION, buildAt: "", commit: "" });
+      });
   }, []);
 
   React.useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=194").catch(() => {});
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+      navigator.serviceWorker.register("/sw.js?v=194")
+        .then((registration) => {
+          if (registration.waiting && navigator.serviceWorker.controller) {
+            setWaitingWorker(registration.waiting);
+          }
+          registration.addEventListener("updatefound", () => {
+            const worker = registration.installing;
+            if (!worker) return;
+            worker.addEventListener("statechange", () => {
+              if (worker.state === "installed" && navigator.serviceWorker.controller) {
+                setWaitingWorker(worker);
+              }
+            });
+          });
+        })
+        .catch(() => {});
     }
     const updateConnection = () => {
       const connected = navigator.onLine;
@@ -141,6 +170,11 @@ function App() {
       window.removeEventListener("offline", updateConnection);
     };
   }, []);
+
+  function applyPwaUpdate() {
+    if (!waitingWorker) return;
+    waitingWorker.postMessage({ type: "SKIP_WAITING" });
+  }
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -164,6 +198,7 @@ function App() {
         setUser(cached.user);
         setData(cached);
         setAppVersion(cached.version || APP_VERSION);
+        setDeployInfo({ version: cached.version || APP_VERSION, buildAt: cached.buildAt || "", commit: cached.commit || "" });
         setView(cached.user.allowedViews?.[0] || "overview");
         return;
       }
@@ -252,6 +287,7 @@ function App() {
     setUser(body.user);
     setData(body);
     setAppVersion(body.version || APP_VERSION);
+    setDeployInfo({ version: body.version || APP_VERSION, buildAt: body.buildAt || "", commit: body.commit || "" });
     setView(preferredView === "settings" || body.user.allowedViews.includes(preferredView)
       ? preferredView
       : body.user.allowedViews[0]);
@@ -748,6 +784,13 @@ function App() {
           disabled: authenticating
         }, authenticating ? "Entrando..." : "Entrar")
       ),
+      waitingWorker && h("div", { className: "pwa-update-banner", role: "status" },
+        h("div", null,
+          h("strong", null, "Nova versão disponível"),
+          h("span", null, "Atualize para carregar os botões e melhorias mais recentes.")
+        ),
+        h("button", { className: "primary-action compact", onClick: applyPwaUpdate }, "Atualizar agora")
+      ),
       toast && h("div", { className: "toast" }, toast)
     );
   }
@@ -915,6 +958,7 @@ function App() {
       view === "settings" && h(Settings, {
         user,
         appVersion,
+        deployInfo,
         theme,
         density,
         sidebarCollapsed,
@@ -965,6 +1009,13 @@ function App() {
       onClose: () => setPasswordTarget(null),
       onSave: changePassword
     }),
+    waitingWorker && h("div", { className: "pwa-update-banner", role: "status" },
+      h("div", null,
+        h("strong", null, "Nova versão disponível"),
+        h("span", null, "Atualize para carregar os botões e melhorias mais recentes.")
+      ),
+      h("button", { className: "primary-action compact", onClick: applyPwaUpdate }, "Atualizar agora")
+    ),
     toast && h("div", { className: "toast" }, toast)
   );
 }
@@ -1317,6 +1368,7 @@ function ThemeToggle({ theme, onToggle, className = "" }) {
 function Settings({
   user,
   appVersion,
+  deployInfo,
   theme,
   density,
   sidebarCollapsed,
@@ -1327,6 +1379,13 @@ function Settings({
   onPassword,
   onLogout
 }) {
+  const commit = deployInfo.commit && deployInfo.commit !== "local"
+    ? deployInfo.commit.slice(0, 7)
+    : deployInfo.commit || "local";
+  const buildAt = deployInfo.buildAt && deployInfo.buildAt !== "local"
+    ? formatDate(deployInfo.buildAt)
+    : deployInfo.buildAt || "local";
+
   return h("div", { className: "settings-layout" },
     h("article", { className: "panel settings-profile" },
       h("div", { className: "settings-profile-head" },
@@ -1398,6 +1457,20 @@ function Settings({
             h("b", null, sidebarCollapsed ? "Minimizado" : "Expandido")
           )
         )
+      )
+    ),
+    h("article", { className: "panel deploy-log-panel" },
+      h("div", { className: "panel-header" },
+        h("div", null,
+          h("p", { className: "eyebrow" }, "deploy"),
+          h("h3", null, "Versão publicada")
+        ),
+        h("span", null, "ambiente atual")
+      ),
+      h("dl", { className: "account-details deploy-details" },
+        h("div", null, h("dt", null, "Versão atual"), h("dd", null, deployInfo.version || appVersion)),
+        h("div", null, h("dt", null, "Data do build"), h("dd", null, buildAt)),
+        h("div", null, h("dt", null, "Último commit"), h("dd", null, commit))
       )
     ),
     h("article", { className: "panel settings-session" },
@@ -1540,7 +1613,7 @@ function Counting({
   const [manualOpen, setManualOpen] = React.useState(false);
   const [manualProduct, setManualProduct] = React.useState({ sku: "", system: "", counted: "", damaged: "", other: "" });
   const [savingManual, setSavingManual] = React.useState(false);
-  const [printMode, setPrintMode] = React.useState(false);
+  const [printMode, setPrintMode] = React.useState(null);
   const [printGeneratedAt, setPrintGeneratedAt] = React.useState(new Date());
   const fileInputRef = React.useRef(null);
   const countInputRefs = React.useRef({});
@@ -1569,7 +1642,7 @@ function Counting({
   }, []);
 
   React.useEffect(() => {
-    const finishPrint = () => setPrintMode(false);
+    const finishPrint = () => setPrintMode(null);
     window.addEventListener("afterprint", finishPrint);
     return () => window.removeEventListener("afterprint", finishPrint);
   }, []);
@@ -1653,6 +1726,47 @@ function Counting({
     }
   }
 
+  async function recountDivergent() {
+    if (!divergentRows.length || savingCount) return;
+    if (!window.confirm(`Recontar ${divergentRows.length} itens divergentes? Os valores desses itens serão zerados.`)) return;
+    const divergentSkus = new Set(divergentRows.map((item) => item.sku));
+    const nextDraft = draft.map((item) => divergentSkus.has(item.sku)
+      ? { ...item, counted: 0, damaged: 0, other: 0 }
+      : item);
+    setDraft(nextDraft);
+    setCountFilter("pending");
+    setSearchCode("");
+    setSearchMessage("");
+    setSavingCount(true);
+    try {
+      const result = await onUpdate(nextDraft);
+      setOfflinePending(Boolean(result?.offline));
+    } catch (error) {
+      onOfflineDraft(nextDraft);
+      setOfflinePending(true);
+      window.alert(error.message || "A recontagem foi salva no aparelho e será sincronizada quando possível.");
+    } finally {
+      setSavingCount(false);
+    }
+  }
+
+  async function closeCount() {
+    if (!draft.length || savingCount) return;
+    if (pendingItems.length && !window.confirm(`Ainda existem ${pendingItems.length} itens não contados. Fechar mesmo assim?`)) return;
+    setSavingCount(true);
+    try {
+      const result = await onUpdate(draft);
+      setOfflinePending(Boolean(result?.offline));
+      setPrintFilter("visible");
+      setCountFilter("all");
+      window.setTimeout(printCountReport, 120);
+    } catch (_) {
+      // The parent already presents validation and server errors.
+    } finally {
+      setSavingCount(false);
+    }
+  }
+
   async function submitManualProduct(event) {
     event.preventDefault();
     const sku = normalizeInventorySku(manualProduct.sku);
@@ -1707,9 +1821,89 @@ function Counting({
 
   function printCountReport() {
     setPrintGeneratedAt(new Date());
-    setPrintMode(true);
+    setPrintMode("count");
     window.setTimeout(() => window.print(), 80);
-    window.setTimeout(() => setPrintMode(false), 2_000);
+    window.setTimeout(() => setPrintMode(null), 2_000);
+  }
+
+  function printBalanceReport() {
+    setPrintGeneratedAt(new Date());
+    setPrintMode("balance");
+    window.setTimeout(() => window.print(), 80);
+    window.setTimeout(() => setPrintMode(null), 2_000);
+  }
+
+  function exportBalanceExcel() {
+    const generatedAt = new Date();
+    const escapeCell = (value) => String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    const rows = draft.map((item) => {
+      const accounted = countAccounted(item);
+      const difference = countDifference(item);
+      const statusLabel = difference === 0 ? "Conforme" : accounted > 0 ? "Divergente" : "Pendente";
+      return `
+        <tr>
+          <td>${escapeCell(item.sku)}</td>
+          <td>${item.system}</td>
+          <td>${item.counted}</td>
+          <td>${item.damaged}</td>
+          <td>${item.other}</td>
+          <td>${accounted}</td>
+          <td>${difference}</td>
+          <td>${statusLabel}</td>
+        </tr>`;
+    }).join("");
+    const html = `<!doctype html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; }
+          table { border-collapse: collapse; width: 100%; }
+          th { background: #761b1d; color: #fff; }
+          th, td { border: 1px solid #d8ced0; padding: 8px; text-align: left; }
+          .meta td { font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <h1>MN - Check - Lista de saldo de estoque</h1>
+        <table class="meta">
+          <tr><td>Arquivo de origem</td><td>${escapeCell(sourceName || "Não informado")}</td></tr>
+          <tr><td>Saldo atualizado em</td><td>${escapeCell(updatedAt ? formatDate(updatedAt) : "Não informado")}</td></tr>
+          <tr><td>Relatório emitido em</td><td>${escapeCell(formatDate(generatedAt))}</td></tr>
+          <tr><td>Total de SKUs</td><td>${draft.length}</td></tr>
+          <tr><td>Saldo total</td><td>${totalSystem}</td></tr>
+        </table>
+        <br>
+        <table>
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Sistema</th>
+              <th>Contado</th>
+              <th>Avaria</th>
+              <th>Outros</th>
+              <th>Apurado</th>
+              <th>Diferença</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </body>
+      </html>`;
+    const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `saldo-mn-check-${new Date().toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   const countedItems = draft.filter(hasCountMovement);
@@ -1733,7 +1927,7 @@ function Counting({
   const visibleDraft = searchDigits
     ? filteredDraft.filter((item) => String(item.sku).replace(/\D/g, "").includes(searchDigits))
     : filteredDraft;
-  const printableDraft = printFilter === "counted" ? countedItems : visibleDraft;
+  const printableDraft = printMode === "balance" ? draft : printFilter === "counted" ? countedItems : visibleDraft;
   const printTotalSystem = printableDraft.reduce((sum, item) => sum + item.system, 0);
   const printTotalCounted = printableDraft.reduce((sum, item) => sum + item.counted, 0);
   const printTotalDamaged = printableDraft.reduce((sum, item) => sum + item.damaged, 0);
@@ -1834,29 +2028,49 @@ function Counting({
         }, "Reiniciar contagem"),
         h("button", {
           className: "secondary-action compact",
+          disabled: !divergentRows.length || savingCount,
+          onClick: recountDivergent
+        }, "Recontar divergentes"),
+        h("button", {
+          className: "primary-action compact",
+          disabled: !draft.length || savingCount,
+          onClick: closeCount
+        }, "Fechar contagem"),
+        h("button", {
+          className: "secondary-action compact",
           disabled: !draft.length,
           onClick: printCountReport
-        }, printFilter === "counted" ? "Imprimir contados" : "Imprimir filtro")
+        }, printFilter === "counted" ? "Imprimir contados" : "Imprimir filtro"),
+        h("button", {
+          className: "secondary-action compact",
+          disabled: !draft.length,
+          onClick: printBalanceReport
+        }, "Exportar saldo PDF"),
+        h("button", {
+          className: "secondary-action compact",
+          disabled: !draft.length,
+          onClick: exportBalanceExcel
+        }, "Exportar saldo Excel")
       ),
       draft.length && h("section", { className: "count-status-filter" },
         h("div", { className: "count-status-filter-head" },
           h("strong", null, "Acompanhamento da contagem"),
           h("span", null, `${compliantItems.length} corretos · ${divergentItems} divergentes · ${pendingItems.length} pendentes`)
         ),
-        h("div", { className: "count-total-strip" },
-          h("div", { className: "count-total-card" }, h("span", null, "Sistema"), h("strong", null, totalSystem)),
-          h("div", { className: "count-total-card" }, h("span", null, "Contado"), h("strong", null, totalCounted)),
-          h("div", { className: "count-total-card" }, h("span", null, "Avaria"), h("strong", null, totalDamaged)),
-          h("div", { className: "count-total-card" }, h("span", null, "Outros"), h("strong", null, totalOther)),
-          h("div", { className: "count-total-card emphasis" }, h("span", null, "Apurado"), h("strong", null, totalAccounted))
+        h("div", { className: "count-total-summary" },
+          h("span", null, "Sistema ", h("strong", null, totalSystem)),
+          h("span", null, "Contado ", h("strong", null, totalCounted)),
+          h("span", null, "Avaria ", h("strong", null, totalDamaged)),
+          h("span", null, "Outros ", h("strong", null, totalOther)),
+          h("span", { className: "summary-emphasis" }, "Apurado ", h("strong", null, totalAccounted))
         ),
         h("div", { className: "count-filter-grid" },
           [
             ["all", "Todos", draft.length],
             ["counted", "Já contados", countedItems.length],
             ["ok", "Conformes", compliantItems.length],
-            ["divergent", "Divergentes", divergentItems],
-            ["pending", "Pendentes", pendingItems.length]
+            ["divergent", "Somente divergentes", divergentItems],
+            ["pending", "Somente não contados", pendingItems.length]
           ].map(([value, label, amount]) => h("button", {
             key: value,
             className: `count-filter-chip ${countFilter === value ? "active" : ""}`,
@@ -2067,13 +2281,15 @@ function Counting({
       h("header", { className: "count-print-header" },
         h("div", null,
           h("span", null, "MN - Check"),
-          h("h1", null, "Relatório de contagem de estoque"),
-          h("p", null, "Resultado da contagem física comparado ao saldo do sistema")
+          h("h1", null, printMode === "balance" ? "Lista de saldo de estoque" : "Relatório de contagem de estoque"),
+          h("p", null, printMode === "balance"
+            ? "Relação importada para consulta e contagem operacional"
+            : "Resultado da contagem física comparado ao saldo do sistema")
         ),
         h("strong", null, `Versão ${APP_VERSION}`)
       ),
       h("div", { className: "count-print-meta" },
-        h("div", null, h("span", null, "Arquivo de saldo"), h("strong", null, sourceName || "Não informado")),
+        h("div", null, h("span", null, printMode === "balance" ? "Arquivo de origem" : "Arquivo de saldo"), h("strong", null, sourceName || "Não informado")),
         h("div", null, h("span", null, "Saldo importado em"), h("strong", null, updatedAt ? formatDate(updatedAt) : "Não informado")),
         h("div", null, h("span", null, "Relatório emitido em"), h("strong", null, formatDate(printGeneratedAt)))
       ),
@@ -2120,7 +2336,7 @@ function Counting({
             h("td", null, item.other),
             h("td", null, accounted),
             h("td", null, difference > 0 ? `+${difference}` : difference),
-            h("td", null, difference === 0 ? "Conforme" : "Divergente")
+            h("td", null, difference === 0 ? "Conforme" : accounted > 0 ? "Divergente" : "Pendente")
           );
         }))
       ),

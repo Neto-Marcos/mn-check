@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public final class PostgresDatabase {
@@ -210,10 +211,10 @@ public final class PostgresDatabase {
     }
   }
 
-  public long saveCount(String operator, List<CountRow> rows) {
+  public long saveCount(String operator, List<CountRow> rows, String status) {
     String insertCount = """
         INSERT INTO contagens (criado_em, operador, importacao_id, status)
-        VALUES (now(), ?, (SELECT id FROM importacoes_saldo ORDER BY atualizado_em DESC, id DESC LIMIT 1), 'FINALIZADA')
+        VALUES (now(), ?, (SELECT id FROM importacoes_saldo ORDER BY atualizado_em DESC, id DESC LIMIT 1), ?)
         RETURNING id
         """;
     String insertItem = """
@@ -227,6 +228,7 @@ public final class PostgresDatabase {
         long countId;
         try (PreparedStatement statement = connection.prepareStatement(insertCount)) {
           statement.setString(1, operator);
+          statement.setString(2, normalizeCountStatus(status));
           try (ResultSet result = statement.executeQuery()) {
             if (!result.next()) throw new SQLException("A contagem não retornou um identificador.");
             countId = result.getLong(1);
@@ -275,6 +277,38 @@ public final class PostgresDatabase {
     } catch (SQLException error) {
       throw new DatabaseException("Não foi possível salvar a contagem.", error);
     }
+  }
+
+  public long saveCount(String operator, List<CountRow> rows) {
+    return saveCount(operator, rows, "FINALIZADA");
+  }
+
+  public CountCycle loadLatestCountCycle() {
+    String sql = """
+        SELECT id, criado_em, operador, status
+        FROM contagens
+        ORDER BY criado_em DESC, id DESC
+        LIMIT 1
+        """;
+    try (Connection connection = connect();
+         PreparedStatement statement = connection.prepareStatement(sql);
+         ResultSet result = statement.executeQuery()) {
+      if (!result.next()) return CountCycle.open();
+      return new CountCycle(
+          result.getLong("id"),
+          result.getString("status"),
+          result.getString("operador"),
+          result.getTimestamp("criado_em").toInstant()
+      );
+    } catch (SQLException error) {
+      throw new DatabaseException("Não foi possível carregar o ciclo da contagem.", error);
+    }
+  }
+
+  private static String normalizeCountStatus(String status) {
+    String normalized = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
+    if (List.of("ABERTA", "EM_ANDAMENTO", "FINALIZADA", "CANCELADA").contains(normalized)) return normalized;
+    return "EM_ANDAMENTO";
   }
 
   public BalanceSnapshot loadLatestBalances() {
@@ -910,11 +944,12 @@ public final class PostgresDatabase {
           criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
           operador TEXT NOT NULL,
           importacao_id BIGINT REFERENCES importacoes_saldo(id),
-          status VARCHAR(24) NOT NULL DEFAULT 'FINALIZADA'
+          status VARCHAR(24) NOT NULL DEFAULT 'ABERTA'
         )
         """,
         "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS importacao_id BIGINT REFERENCES importacoes_saldo(id)",
-        "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS status VARCHAR(24) NOT NULL DEFAULT 'FINALIZADA'",
+        "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS status VARCHAR(24) NOT NULL DEFAULT 'ABERTA'",
+        "ALTER TABLE contagens ALTER COLUMN status SET DEFAULT 'ABERTA'",
         """
         CREATE TABLE IF NOT EXISTS itens_contagem (
           id BIGSERIAL PRIMARY KEY,
@@ -1079,6 +1114,20 @@ public final class PostgresDatabase {
   public record BalanceSnapshot(ImportSummary importSummary, List<CountRow> rows) {
     static BalanceSnapshot empty() {
       return new BalanceSnapshot(null, List.of());
+    }
+  }
+  public record CountCycle(long id, String status, String operator, Instant createdAt) {
+    static CountCycle open() {
+      return new CountCycle(0, "ABERTA", "", null);
+    }
+
+    public Map<String, Object> toMap() {
+      return Map.of(
+          "id", id,
+          "status", status,
+          "operator", operator == null ? "" : operator,
+          "createdAt", createdAt == null ? "" : createdAt.toString()
+      );
     }
   }
   public record HistoryEntry(Instant at, String operator, String action, String description) {}

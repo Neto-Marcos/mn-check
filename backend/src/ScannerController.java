@@ -52,9 +52,9 @@ public class ScannerController {
     ExpectedItem expectedItem = loadExpectedItem(authorization, request.mapId(), request.lineId(), request.expectedCode());
     BarcodeValidationService.ValidationResult validation;
     try {
-      validation = validationService.validate(expectedItem.sku(), request.scannedCode());
+      validation = validationService.validate(expectedItem.expectedCode(), request.scannedCode());
     } catch (BarcodeParser.InvalidBarcodeException error) {
-      String expected = BarcodeParser.parse(expectedItem.sku()).normalized();
+      String expected = BarcodeParser.parse(expectedItem.expectedCode()).normalized();
       String scanned = request.scannedCode() == null ? "" : request.scannedCode().trim();
       PostgresDatabase.ScanHistoryEntry saved = database.saveScanHistory(
           request.mapId(),
@@ -196,7 +196,8 @@ public class ScannerController {
       return new ExpectedItem(
           String.valueOf(lineItem.getOrDefault("lineId", "")),
           String.valueOf(lineItem.getOrDefault("sku", "")),
-          String.valueOf(lineItem.getOrDefault("name", "Produto"))
+          String.valueOf(lineItem.getOrDefault("name", "Produto")),
+          expectedCodeFor(lineItem)
       );
     }
     Map<String, Object> pending = items.stream()
@@ -210,8 +211,15 @@ public class ScannerController {
     return new ExpectedItem(
         String.valueOf(pending.getOrDefault("lineId", "")),
         String.valueOf(pending.getOrDefault("sku", "")),
-        String.valueOf(pending.getOrDefault("name", "Produto"))
+        String.valueOf(pending.getOrDefault("name", "Produto")),
+        expectedCodeFor(pending)
     );
+  }
+
+  private String expectedCodeFor(Map<String, Object> item) {
+    String barcode = String.valueOf(item.getOrDefault("barcode", "")).trim();
+    if (!barcode.isBlank()) return barcode;
+    return String.valueOf(item.getOrDefault("sku", ""));
   }
 
   private boolean matchesLine(Map<String, Object> item, String lineId) {
@@ -294,7 +302,7 @@ public class ScannerController {
       String lineId
   ) {}
 
-  private record ExpectedItem(String lineId, String sku, String name) {}
+  private record ExpectedItem(String lineId, String sku, String name, String expectedCode) {}
 
   private static final class ScannerApiException extends RuntimeException {
     final int status;

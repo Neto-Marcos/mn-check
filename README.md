@@ -103,7 +103,7 @@ PORT=4173
 3. Configure `DATABASE_URL` e `MMCHECK_ADMIN_PASSWORD`.
 4. Opcionalmente configure `GEMINI_API_KEY` e `GEMINI_MODEL`.
 5. Confira o healthcheck em `/api/health`.
-6. Ao gerar dominio no Railway, use a porta `8080`.
+6. Ao gerar dominio no Railway, use a porta `4137`.
 
 Detalhes adicionais ficam em [`RAILWAY.md`](RAILWAY.md).
 

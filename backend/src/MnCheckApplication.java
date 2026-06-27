@@ -10,7 +10,7 @@ public class MnCheckApplication {
   static final int LEGACY_PORT = 4174;
 
   public static void main(String[] args) {
-    int publicPort = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
+    int publicPort = Integer.parseInt(System.getenv().getOrDefault("PORT", "4137"));
     System.setProperty("server.port", String.valueOf(publicPort));
     System.setProperty("mmcheck.legacy.port", String.valueOf(LEGACY_PORT));
     startLegacyServer();

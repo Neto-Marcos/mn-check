@@ -11,7 +11,7 @@ WORKDIR /app
 COPY --from=build /app/target/mn-check-1.9.6.jar app.jar
 COPY frontend frontend
 
-ENV PORT=8080
+ENV PORT=4137
 
-EXPOSE 8080
+EXPOSE 4137
 CMD ["java", "-jar", "app.jar"]

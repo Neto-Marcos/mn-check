@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS contagens (
   criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
   operador TEXT NOT NULL,
   importacao_id BIGINT REFERENCES importacoes_saldo(id),
-  status VARCHAR(24) NOT NULL DEFAULT 'FINALIZADA'
+  status VARCHAR(24) NOT NULL DEFAULT 'ABERTA'
 );
 
 CREATE TABLE IF NOT EXISTS itens_contagem (

@@ -35,12 +35,12 @@ GEMINI_MODEL=gemini-2.5-flash
 
 ## Porta
 
-Nao fixe `PORT` manualmente no Railway. O container usa `8080` por padrao e tambem respeita a variavel `PORT` quando o Railway injeta.
+Nao fixe `PORT` manualmente no Railway. O container usa `4137` por padrao e tambem respeita a variavel `PORT` quando o Railway injeta.
 
 Ao gerar dominio publico em **Networking**, use a porta:
 
 ```text
-8080
+4137
 ```
 
 ## Reducao de shutdown
