@@ -960,11 +960,9 @@ function App() {
         appVersion,
         deployInfo,
         theme,
-        density,
         sidebarCollapsed,
         online,
         onThemeChange: setTheme,
-        onDensityChange: setDensity,
         onSidebarPreference: setSidebarCollapsed,
         onPassword: () => setPasswordTarget(user),
         onLogout: logout
@@ -1370,11 +1368,9 @@ function Settings({
   appVersion,
   deployInfo,
   theme,
-  density,
   sidebarCollapsed,
   online,
   onThemeChange,
-  onDensityChange,
   onSidebarPreference,
   onPassword,
   onLogout
@@ -1426,21 +1422,6 @@ function Settings({
               className: theme === "light" ? "active" : "",
               onClick: () => onThemeChange("light")
             }, h(Icon, { name: "sun", size: 17 }), h("span", null, "Claro"))
-          )
-        ),
-        h(PreferenceRow, {
-          title: "Densidade das telas",
-          description: "Ajusta o espaçamento sem alterar nenhuma informação."
-        },
-          h("div", { className: "segmented-control", role: "group", "aria-label": "Densidade das telas" },
-            h("button", {
-              className: density === "comfortable" ? "active" : "",
-              onClick: () => onDensityChange("comfortable")
-            }, "Confortável"),
-            h("button", {
-              className: density === "compact" ? "active" : "",
-              onClick: () => onDensityChange("compact")
-            }, "Compacta")
           )
         ),
         h(PreferenceRow, {
