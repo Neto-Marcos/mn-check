@@ -138,7 +138,7 @@ function App() {
         refreshing = true;
         window.location.reload();
       });
-      navigator.serviceWorker.register("/sw.js?v=198")
+      navigator.serviceWorker.register("/sw.js?v=199")
         .then((registration) => {
           if (registration.waiting && navigator.serviceWorker.controller) {
             setWaitingWorker(registration.waiting);
@@ -753,7 +753,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=198", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=199", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -814,7 +814,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=198", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=199", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -1592,6 +1592,7 @@ function Counting({
   const [countFilter, setCountFilter] = React.useState("all");
   const [printFilter, setPrintFilter] = React.useState("counted");
   const [exportOpen, setExportOpen] = React.useState(false);
+  const [resetOpen, setResetOpen] = React.useState(false);
   const [manualOpen, setManualOpen] = React.useState(false);
   const [manualProduct, setManualProduct] = React.useState({ sku: "", system: "", counted: "", damaged: "", other: "" });
   const [savingManual, setSavingManual] = React.useState(false);
@@ -1677,6 +1678,7 @@ function Counting({
   }
 
   async function resetCount() {
+    setResetOpen(false);
     if (!draft.length || savingCount) return;
     const hasValues = draft.some((item) => countAccounted(item) > 0);
     if (!hasValues) {
@@ -1709,6 +1711,7 @@ function Counting({
   }
 
   async function recountDivergent() {
+    setResetOpen(false);
     if (!divergentRows.length || savingCount) return;
     if (!window.confirm(`Recontar ${divergentRows.length} itens divergentes? Os valores desses itens serão zerados.`)) return;
     const divergentSkus = new Set(divergentRows.map((item) => item.sku));
@@ -2009,13 +2012,20 @@ function Counting({
         h("button", {
           className: "secondary-action compact",
           disabled: !draft.length || savingCount,
-          onClick: resetCount
+          onClick: () => setResetOpen((current) => !current)
         }, "Reiniciar contagem"),
-        h("button", {
-          className: "secondary-action compact",
-          disabled: !divergentRows.length || savingCount,
-          onClick: recountDivergent
-        }, "Recontar divergentes"),
+        resetOpen && h("div", { className: "export-options" },
+          h("button", {
+            className: "secondary-action compact",
+            disabled: !draft.length || savingCount,
+            onClick: resetCount
+          }, "Apagar tudo"),
+          h("button", {
+            className: "secondary-action compact",
+            disabled: !divergentRows.length || savingCount,
+            onClick: recountDivergent
+          }, "Apagar divergentes")
+        ),
         h("button", {
           className: "secondary-action compact",
           disabled: !draft.length,
@@ -3042,7 +3052,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=198", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=199", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),
