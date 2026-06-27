@@ -92,7 +92,6 @@ function App() {
     if (saved === "dark" || saved === "light") return saved;
     return "dark";
   });
-  const [density, setDensity] = React.useState(() => localStorage.getItem("mnCheckDensity") || "comfortable");
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() => localStorage.getItem("mnCheckSidebar") === "collapsed");
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [authenticating, setAuthenticating] = React.useState(false);
@@ -138,7 +137,7 @@ function App() {
         refreshing = true;
         window.location.reload();
       });
-      navigator.serviceWorker.register("/sw.js?v=199")
+      navigator.serviceWorker.register("/sw.js?v=1999")
         .then((registration) => {
           if (registration.waiting && navigator.serviceWorker.controller) {
             setWaitingWorker(registration.waiting);
@@ -180,11 +179,6 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("mnCheckTheme", theme);
   }, [theme]);
-
-  React.useEffect(() => {
-    document.documentElement.dataset.density = density;
-    localStorage.setItem("mnCheckDensity", density);
-  }, [density]);
 
   React.useEffect(() => {
     localStorage.setItem("mnCheckSidebar", sidebarCollapsed ? "collapsed" : "expanded");
@@ -753,7 +747,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=199", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=1999", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -814,7 +808,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=199", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=1999", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -1735,23 +1729,6 @@ function Counting({
     }
   }
 
-  async function closeCount() {
-    if (!draft.length || savingCount) return;
-    if (pendingItems.length && !window.confirm(`Ainda existem ${pendingItems.length} itens não contados. Fechar mesmo assim?`)) return;
-    setSavingCount(true);
-    try {
-      const result = await onUpdate(draft);
-      setOfflinePending(Boolean(result?.offline));
-      setPrintFilter("visible");
-      setCountFilter("all");
-      window.setTimeout(printCountReport, 120);
-    } catch (_) {
-      // The parent already presents validation and server errors.
-    } finally {
-      setSavingCount(false);
-    }
-  }
-
   async function submitManualProduct(event) {
     event.preventDefault();
     const sku = normalizeInventorySku(manualProduct.sku);
@@ -1899,10 +1876,6 @@ function Counting({
   const divergentRows = draft.filter((item) => countDifference(item) !== 0);
   const pendingItems = draft.filter((item) => !hasCountMovement(item));
   const totalSystem = draft.reduce((sum, item) => sum + item.system, 0);
-  const totalCounted = draft.reduce((sum, item) => sum + item.counted, 0);
-  const totalDamaged = draft.reduce((sum, item) => sum + item.damaged, 0);
-  const totalOther = draft.reduce((sum, item) => sum + item.other, 0);
-  const totalAccounted = draft.reduce((sum, item) => sum + countAccounted(item), 0);
   const divergentItems = divergentRows.length;
   const searchDigits = searchCode.replace(/\D/g, "");
   const filteredDraft = draft.filter((item) => {
@@ -3052,7 +3025,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=199", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=1999", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),

@@ -4,7 +4,7 @@ import java.util.Map;
 
 public final class AppInfo {
   public static final String NAME = "MN - Check";
-  public static final String VERSION = "1.9.7";
+  public static final String VERSION = "1.9.9";
   public static final String BUILD_AT = env("RAILWAY_DEPLOYMENT_CREATED_AT", env("BUILD_DATE", "local"));
   public static final String COMMIT = env("RAILWAY_GIT_COMMIT_SHA", env("GIT_COMMIT", "local"));
 
