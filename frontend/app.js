@@ -805,7 +805,7 @@ function App() {
   const unreadNotifications = notifications.filter((item) => !item.read).length;
 
   return h("main", {
-    className: `dashboard-view ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`
+    className: `dashboard-view view-${view} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`
   },
     h("button", {
       className: "mobile-nav-backdrop",

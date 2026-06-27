@@ -183,6 +183,14 @@
     animation: bottomNavIn 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
+  .view-counting .mobile-bottom-nav {
+    position: sticky;
+    left: auto;
+    right: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    margin: 18px 14px max(12px, env(safe-area-inset-bottom));
+  }
+
   .bottom-nav-item {
     position: relative;
     min-width: 0;
