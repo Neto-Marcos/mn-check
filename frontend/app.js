@@ -2053,17 +2053,6 @@ function Counting({
         }, "Exportar saldo Excel")
       ),
       draft.length && h("section", { className: "count-status-filter" },
-        h("div", { className: "count-status-filter-head" },
-          h("strong", null, "Acompanhamento da contagem"),
-          h("span", null, `${compliantItems.length} corretos · ${divergentItems} divergentes · ${pendingItems.length} pendentes`)
-        ),
-        h("div", { className: "count-total-summary" },
-          h("span", null, "Sistema ", h("strong", null, totalSystem)),
-          h("span", null, "Contado ", h("strong", null, totalCounted)),
-          h("span", null, "Avaria ", h("strong", null, totalDamaged)),
-          h("span", null, "Outros ", h("strong", null, totalOther)),
-          h("span", { className: "summary-emphasis" }, "Apurado ", h("strong", null, totalAccounted))
-        ),
         h("div", { className: "count-filter-grid" },
           [
             ["all", "Todos", draft.length],
