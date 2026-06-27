@@ -13,3 +13,5 @@ debug-importacao-saldo.txt
 node_modules/
 .DS_Store
 Thumbs.db
+
+.vercel
