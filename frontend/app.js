@@ -2032,11 +2032,6 @@ function Counting({
           onClick: recountDivergent
         }, "Recontar divergentes"),
         h("button", {
-          className: "primary-action compact",
-          disabled: !draft.length || savingCount,
-          onClick: closeCount
-        }, "Fechar contagem"),
-        h("button", {
           className: "secondary-action compact",
           disabled: !draft.length,
           onClick: printCountReport
