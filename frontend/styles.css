@@ -1167,6 +1167,12 @@ select {
   margin-bottom: 16px;
 }
 
+.export-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .count-import-summary {
   margin-bottom: 16px;
   padding: 14px 16px;
@@ -4887,8 +4893,13 @@ th + th {
     min-height: 40px;
   }
 
-  .count-actions .compact {
+  .count-actions .compact,
+  .export-options {
     width: 100%;
     min-width: 0;
+  }
+
+  .export-options {
+    gap: 8px;
   }
 }
