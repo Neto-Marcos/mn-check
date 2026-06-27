@@ -4296,7 +4296,7 @@ th + th {
 
   @media (max-width: 680px) {
     .workspace {
-      padding: 14px 12px 28px;
+      padding: 14px 12px calc(124px + env(safe-area-inset-bottom));
       overflow: visible;
     }
 
