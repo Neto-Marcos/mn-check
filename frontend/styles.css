@@ -18,7 +18,7 @@
   --shadow-lg: 0 26px 90px rgba(91, 16, 24, 0.2);
 }
 
-/* Interface 1.9.9: mobile-first navigation and lighter app motion. */
+/* Interface 2.0.0: mobile-first navigation and lighter app motion. */
 .mobile-bottom-nav {
   display: none;
 }

@@ -8,7 +8,7 @@ RUN mvn --batch-mode --no-transfer-progress -DskipTests package
 FROM eclipse-temurin:21-jre
 
 WORKDIR /app
-COPY --from=build /app/target/mn-check-1.9.9.jar app.jar
+COPY --from=build /app/target/mn-check-2.0.0.jar app.jar
 COPY frontend frontend
 
 ENV PORT=4137
