@@ -1690,6 +1690,16 @@ select {
   text-align: center;
 }
 
+.danger-panel {
+  border-color: #efb8bf;
+}
+
+.danger-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .account-action {
   margin-top: auto;
 }
@@ -2838,7 +2848,8 @@ th + th {
 
   .remove-user-action,
   .password-user-action,
-  .protected-user {
+  .protected-user,
+  .danger-panel .danger-action {
     width: 100%;
   }
 

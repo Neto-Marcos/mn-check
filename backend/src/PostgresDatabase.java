@@ -756,6 +756,30 @@ public final class PostgresDatabase {
     }
   }
 
+  public void resetOperationalData() {
+    List<String> statements = List.of(
+        "DELETE FROM historico_scanner",
+        "DELETE FROM conferencias",
+        "DELETE FROM estoque_produtos",
+        "DELETE FROM contagens",
+        "DELETE FROM importacoes_saldo"
+    );
+    try (Connection connection = connect(); Statement statement = connection.createStatement()) {
+      connection.setAutoCommit(false);
+      try {
+        for (String sql : statements) statement.executeUpdate(sql);
+        connection.commit();
+      } catch (SQLException error) {
+        connection.rollback();
+        throw error;
+      } finally {
+        connection.setAutoCommit(true);
+      }
+    } catch (SQLException error) {
+      throw new DatabaseException("NÃ£o foi possÃ­vel redefinir os dados operacionais.", error);
+    }
+  }
+
   public ConferenceSession loadConferenceSession(String mapId) {
     String sql = """
         SELECT id, mapa_id, operador, status, iniciado_em, atualizado_em, finalizado_em

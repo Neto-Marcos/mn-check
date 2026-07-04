@@ -395,6 +395,17 @@ function App() {
     }
   }
 
+  async function resetOperationalData() {
+    if (!window.confirm("Executar reset geral? Usuários serão mantidos, mas mapas, conferências, contagens e históricos serão apagados.")) return;
+    if (!window.confirm("Confirme novamente: esta ação não pode ser desfeita.")) return;
+    try {
+      await request("/api/admin/reset-operational-data", { method: "POST" });
+      await refresh("Reset geral concluído.", "overview");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
   async function markNotificationRead(notificationId) {
     try {
       const body = await request(`/api/notifications/${notificationId}/read`, { method: "POST" });
@@ -942,12 +953,14 @@ function App() {
       }),
       view === "history" && h(History, { data }),
       view === "users" && h(Users, {
+        currentUser: user,
         users: data.users,
         newUser,
         setNewUser,
         createUser,
         removeUser,
-        changeUserPassword: setPasswordTarget
+        changeUserPassword: setPasswordTarget,
+        resetOperationalData
       }),
       view === "settings" && h(Settings, {
         user,
@@ -2302,7 +2315,8 @@ function Counting({
   );
 }
 
-function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserPassword }) {
+function Users({ currentUser, users, newUser, setNewUser, createUser, removeUser, changeUserPassword, resetOperationalData }) {
+  const principalAdmin = currentUser?.username?.toLowerCase() === "marcos";
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Cadastrar login"), h("span", null, "admin")),
@@ -2342,6 +2356,16 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
           )
         )
       ))
+    ),
+    principalAdmin && h("article", { className: "panel danger-panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Reset geral"), h("span", null, "Marcos")),
+      h("div", { className: "stack" },
+        h("p", { className: "danger-copy" }, "Apaga mapas, conferências, contagens, divergências, notificações e histórico. Usuários cadastrados continuam ativos."),
+        h("button", {
+          className: "danger-action compact",
+          onClick: resetOperationalData
+        }, "Executar reset geral")
+      )
     )
   );
 }

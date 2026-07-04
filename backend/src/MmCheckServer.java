@@ -288,6 +288,29 @@ public class MmCheckServer {
       return;
     }
 
+    if ("POST".equals(method) && "/api/admin/reset-operational-data".equals(path)) {
+      requireAdmin(user);
+      if (!"Marcos".equalsIgnoreCase(user.username)) {
+        throw new ApiException(403, "Somente Marcos pode executar o reset geral.");
+      }
+      db.maps.forEach(map -> deleteUpload(map.attachmentPath));
+      db.maps.clear();
+      db.counts.clear();
+      db.countsUpdatedAt = "";
+      db.countsSourceName = "";
+      db.countsImportWarnings.clear();
+      db.countsImportMetrics = BalancePdfParser.Metrics.empty();
+      db.countsImportIgnored.clear();
+      db.errors.clear();
+      db.notifications.clear();
+      db.historyEvents.clear();
+      relationalDatabase.resetOperationalData();
+      db.recordHistory(user, "reset_operational_data", "Reset geral executado por Marcos");
+      db.save();
+      json(exchange, 200, visibleData(user));
+      return;
+    }
+
     if ("POST".equals(method) && "/api/maps/analyze".equals(path)) {
       if (!List.of("admin", "separation").contains(user.role)) {
         throw new ApiException(403, "Ação permitida apenas para administradores e conferentes de separação.");
@@ -1039,9 +1062,10 @@ public class MmCheckServer {
 
   private static void deleteUpload(String attachmentPath) {
     if (attachmentPath == null || attachmentPath.isBlank()) return;
-    Path fileName = Path.of(attachmentPath).getFileName();
-    if (fileName == null) return;
-    persistence.deleteFile(fileName.toString());
+    for (String path : attachmentPath.split(",")) {
+      Path fileName = Path.of(path.trim()).getFileName();
+      if (fileName != null) persistence.deleteFile(fileName.toString());
+    }
   }
 
   private static String digits(String value) {
