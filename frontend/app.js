@@ -1577,56 +1577,116 @@ function AdminPanel({ data, deployInfo, online, onOpenView, onReset }) {
 
 function Overview({ data }) {
   const metrics = data.metrics || {};
+  const maps = data.maps || [];
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayEvents = (data.historyEvents || []).filter((event) =>
     String(event.at || "").slice(0, 10) === todayKey);
-  const checkedToday = todayEvents.filter((event) =>
-    ["scan_item", "approve_map", "corrected_map"].includes(event.action)).length;
-  const activeConferences = (data.maps || []).filter((map) =>
-    ["EM_ANDAMENTO", "PAUSADA"].includes(map.conferenceSession?.status)).length;
-  const conferenceProgress = (data.maps || [])
-    .filter((map) => ["aguardando conferencia", "conferencia", "corrigir problema"].includes(map.status))
-    .slice(0, 5)
+  const scanEventsToday = todayEvents.filter((event) => ["scan_item", "separation_scan"].includes(event.action)).length;
+  const finishedToday = todayEvents.filter((event) => event.action === "approve_map").length;
+  const totalUnits = maps.reduce((sum, map) => sum + map.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0);
+  const checkedUnits = maps.reduce((sum, map) => sum + map.items.reduce((itemSum, item) => itemSum + Math.min(item.quantity, item.checkedQuantity || 0), 0), 0);
+  const pendingUnits = Math.max(0, totalUnits - checkedUnits);
+  const activeMaps = maps.filter((map) => !["perfeito", "conferido"].includes(map.status)).length;
+  const waitingCorrection = maps.filter((map) => map.status === "corrigir problema").length;
+  const pausedConferences = maps.filter((map) => map.conferenceSession?.status === "PAUSADA").length;
+  const completionRate = totalUnits ? Math.round((checkedUnits / totalUnits) * 100) : 0;
+  const stages = [
+    { label: "Separação", value: metrics.separating || 0, tone: "separation" },
+    { label: "Conferência", value: metrics.waiting || 0, tone: "conference" },
+    { label: "Divergência", value: waitingCorrection, tone: "danger" },
+    { label: "Finalizados", value: metrics.perfect || 0, tone: "done" }
+  ];
+  const stageTotal = Math.max(1, stages.reduce((sum, item) => sum + item.value, 0));
+  const recentDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - index));
+    const key = date.toISOString().slice(0, 10);
+    const count = (data.historyEvents || []).filter((event) =>
+      String(event.at || "").slice(0, 10) === key
+      && ["scan_item", "separation_scan", "approve_map"].includes(event.action)).length;
+    return {
+      key,
+      label: date.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", ""),
+      count
+    };
+  });
+  const maxDaily = Math.max(1, ...recentDays.map((day) => day.count));
+  const bottlenecks = maps
+    .filter((map) => !["perfeito", "conferido"].includes(map.status))
     .map((map) => {
       const checked = map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
       const total = map.items.reduce((sum, item) => sum + item.quantity, 0);
-      return { id: map.id, checked, total, percent: total ? Math.round((checked / total) * 100) : 0 };
-    });
+      const percent = total ? Math.round((checked / total) * 100) : 0;
+      return { id: map.id, client: map.client, status: map.status, checked, total, percent, remaining: Math.max(0, total - checked) };
+    })
+    .sort((left, right) => right.remaining - left.remaining)
+    .slice(0, 6);
 
   return h(React.Fragment, null,
     h("div", { className: "metric-grid" },
-      metric("Conferências ativas", activeConferences),
-      metric("Itens conferidos hoje", checkedToday),
-      metric("Divergências", metrics.errorCount || 0),
-      metric("Finalizados", metrics.perfect || 0)
+      metric("Mapas ativos", activeMaps),
+      metric("Unidades pendentes", pendingUnits),
+      metric("Leituras hoje", scanEventsToday),
+      metric("Finalizados hoje", finishedToday)
     ),
-    h("div", { className: "content-grid" },
+    h("div", { className: "overview-layout" },
       h("article", { className: "panel" },
-        h("div", { className: "panel-header" }, h("h3", null, "Mapa operacional"), h("span", null, "tempo real")),
-        h("div", { className: "flow-board" },
-          flow("Filial", "281"),
-          flow("Setor", "expedição central"),
-          flow("Separação", plural(metrics.separating || 0, "mapa", "mapas")),
-          flow("Conferência", plural(metrics.waiting || 0, "mapa", "mapas")),
-          flow("Conferidos", plural(metrics.perfect || 0, "mapa", "mapas")),
-          flow("Histórico de erros", `${metrics.errorCount || 0} registros`)
+        h("div", { className: "panel-header" }, h("h3", null, "Eficiência operacional"), h("span", null, `${completionRate}% concluído`)),
+        h("div", { className: "overview-gauge" },
+          h("div", { className: "overview-gauge-ring", style: { "--progress": `${completionRate}%` } },
+            h("strong", null, `${completionRate}%`),
+            h("span", null, "concluído")
+          ),
+          h("div", { className: "overview-kpi-list" },
+            flow("Unidades totais", totalUnits),
+            flow("Unidades lidas", checkedUnits),
+            flow("Pausadas", pausedConferences),
+            flow("Divergências", metrics.errorCount || 0)
+          )
         )
       ),
       h("article", { className: "panel" },
-        h("div", { className: "panel-header" }, h("h3", null, "Progresso das conferências"), h("span", null, "dados reais")),
-        conferenceProgress.length
-          ? h("div", { className: "bars" }, conferenceProgress.map((entry) =>
-          h("div", { key: entry.id },
-            h("div", { className: "bar-label" },
-              h("span", null, `Mapa ${entry.id}`),
-              h("strong", null, `${entry.checked}/${entry.total} - ${entry.percent}%`)
+        h("div", { className: "panel-header" }, h("h3", null, "Etapas dos mapas"), h("span", null, `${maps.length} mapas`)),
+        h("div", { className: "stage-chart" }, stages.map((entry) =>
+          h("div", { className: `stage-row ${entry.tone}`, key: entry.label },
+            h("div", { className: "stage-label" },
+              h("span", null, entry.label),
+              h("strong", null, entry.value)
             ),
             h("div", { className: "bar-track" },
-              h("div", { className: "bar-fill", style: { width: `${entry.percent}%` } })
+              h("div", { className: "bar-fill", style: { width: `${Math.round((entry.value / stageTotal) * 100)}%` } })
             )
           )
         ))
-          : empty("Nenhuma conferência em andamento.")
+      ),
+      h("article", { className: "panel" },
+        h("div", { className: "panel-header" }, h("h3", null, "Produtividade semanal"), h("span", null, "leituras e finalizações")),
+        h("div", { className: "daily-chart" }, recentDays.map((day) =>
+          h("div", { className: "daily-column", key: day.key },
+            h("div", { className: "daily-bar-wrap" },
+              h("div", { className: "daily-bar", style: { height: `${Math.max(8, Math.round((day.count / maxDaily) * 100))}%` } })
+            ),
+            h("strong", null, day.count),
+            h("span", null, day.label)
+          )
+        ))
+      ),
+      h("article", { className: "panel" },
+        h("div", { className: "panel-header" }, h("h3", null, "Gargalos da fila"), h("span", null, "maior pendência")),
+        bottlenecks.length
+          ? h("div", { className: "bars" }, bottlenecks.map((entry) =>
+              h("div", { className: "bottleneck-row", key: entry.id },
+                h("div", { className: "bar-label" },
+                  h("span", null, `Mapa ${entry.id} - ${status(entry.status)}`),
+                  h("strong", null, `${entry.remaining} pendentes`)
+                ),
+                h("small", null, entry.client),
+                h("div", { className: "bar-track" },
+                  h("div", { className: "bar-fill", style: { width: `${entry.percent}%` } })
+                )
+              )
+            ))
+          : empty("Nenhum gargalo operacional.")
       )
     )
   );
