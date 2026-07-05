@@ -1578,15 +1578,16 @@ function AdminPanel({ data, deployInfo, online, onOpenView, onReset }) {
 function Overview({ data }) {
   const metrics = data.metrics || {};
   const maps = data.maps || [];
+  const activeOperationalMaps = maps.filter((map) => !["perfeito", "conferido"].includes(map.status));
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayEvents = (data.historyEvents || []).filter((event) =>
     String(event.at || "").slice(0, 10) === todayKey);
   const scanEventsToday = todayEvents.filter((event) => ["scan_item", "separation_scan"].includes(event.action)).length;
   const finishedToday = todayEvents.filter((event) => event.action === "approve_map").length;
-  const totalUnits = maps.reduce((sum, map) => sum + map.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0);
-  const checkedUnits = maps.reduce((sum, map) => sum + map.items.reduce((itemSum, item) => itemSum + Math.min(item.quantity, item.checkedQuantity || 0), 0), 0);
+  const totalUnits = activeOperationalMaps.reduce((sum, map) => sum + map.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0);
+  const checkedUnits = activeOperationalMaps.reduce((sum, map) => sum + map.items.reduce((itemSum, item) => itemSum + Math.min(item.quantity, item.checkedQuantity || 0), 0), 0);
   const pendingUnits = Math.max(0, totalUnits - checkedUnits);
-  const activeMaps = maps.filter((map) => !["perfeito", "conferido"].includes(map.status)).length;
+  const activeMaps = activeOperationalMaps.length;
   const waitingCorrection = maps.filter((map) => map.status === "corrigir problema").length;
   const pausedConferences = maps.filter((map) => map.conferenceSession?.status === "PAUSADA").length;
   const completionRate = totalUnits ? Math.round((checkedUnits / totalUnits) * 100) : 0;
@@ -1611,9 +1612,7 @@ function Overview({ data }) {
     };
   });
   const maxDaily = Math.max(1, ...recentDays.map((day) => day.count));
-  const bottlenecks = maps
-    .filter((map) => !["perfeito", "conferido"].includes(map.status))
-    .map((map) => {
+  const bottlenecks = activeOperationalMaps.map((map) => {
       const checked = map.items.reduce((sum, item) => sum + (item.checkedQuantity || 0), 0);
       const total = map.items.reduce((sum, item) => sum + item.quantity, 0);
       const percent = total ? Math.round((checked / total) * 100) : 0;
