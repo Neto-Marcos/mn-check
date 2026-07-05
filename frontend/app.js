@@ -42,6 +42,7 @@ const ICON_PATHS = {
   overview: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
   separation: ["M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"],
   conference: ["M20 6 9 17l-5-5"],
+  admin: ["M12 2 20 6v6c0 5-3.4 8.7-8 10-4.6-1.3-8-5-8-10V6l8-4Z", "M9 12l2 2 4-5"],
   counting: ["M3 3v18h18", "M7 16h2", "M11 12h2", "M15 8h2", "M19 5h2"],
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
   users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
@@ -919,6 +920,13 @@ function App() {
           }, mapImporting ? "Lendo mapa..." : "Novo mapa")
         )
       ),
+      view === "admin" && h(AdminPanel, {
+        data,
+        deployInfo,
+        online,
+        onOpenView: selectView,
+        onReset: resetOperationalData
+      }),
       view === "overview" && h(Overview, { data }),
       view === "separation" && h(Separation, {
         maps: data.maps,
@@ -953,14 +961,12 @@ function App() {
       }),
       view === "history" && h(History, { data }),
       view === "users" && h(Users, {
-        currentUser: user,
         users: data.users,
         newUser,
         setNewUser,
         createUser,
         removeUser,
-        changeUserPassword: setPasswordTarget,
-        resetOperationalData
+        changeUserPassword: setPasswordTarget
       }),
       view === "settings" && h(Settings, {
         user,
@@ -1479,6 +1485,93 @@ function PreferenceRow({ title, description, children }) {
   return h("div", { className: "preference-row" },
     h("div", null, h("strong", null, title), h("span", null, description)),
     children
+  );
+}
+
+function AdminPanel({ data, deployInfo, online, onOpenView, onReset }) {
+  const metrics = data.metrics || {};
+  const maps = data.maps || [];
+  const users = data.users || [];
+  const notifications = data.notifications || [];
+  const historyEvents = data.historyEvents || [];
+  const activeMaps = maps.filter((map) => !["perfeito", "conferido"].includes(map.status)).length;
+  const pausedConferences = maps.filter((map) => map.conferenceSession?.status === "PAUSADA").length;
+  const unreadNotifications = notifications.filter((item) => !item.read).length;
+  const usersByRole = ROLE_OPTIONS.map(([role, label]) => ({
+    role,
+    label,
+    count: users.filter((user) => user.role === role).length
+  }));
+  const lastEvents = historyEvents.slice()
+    .sort((left, right) => String(right.at || "").localeCompare(String(left.at || "")))
+    .slice(0, 5);
+  const commit = deployInfo.commit && deployInfo.commit !== "local"
+    ? deployInfo.commit.slice(0, 7)
+    : "local";
+
+  function action(title, description, viewName, className = "secondary-action") {
+    return h("button", {
+      className: `admin-action ${className}`,
+      onClick: () => onOpenView(viewName)
+    },
+      h("strong", null, title),
+      h("span", null, description)
+    );
+  }
+
+  return h("div", { className: "admin-dashboard" },
+    h("div", { className: "metric-grid" },
+      metric("Sistema", online ? "Online" : "Offline"),
+      metric("Mapas ativos", activeMaps),
+      metric("Divergências", metrics.errorCount || 0),
+      metric("Alertas não lidos", unreadNotifications)
+    ),
+    h("div", { className: "content-grid" },
+      h("article", { className: "panel" },
+        h("div", { className: "panel-header" }, h("h3", null, "Saúde do sistema"), h("span", null, data.database || "PostgreSQL")),
+        h("dl", { className: "account-details deploy-details" },
+          h("div", null, h("dt", null, "Versão"), h("dd", null, deployInfo.version || data.version || APP_VERSION)),
+          h("div", null, h("dt", null, "Commit"), h("dd", null, commit)),
+          h("div", null, h("dt", null, "Conexão"), h("dd", null, online ? "Ativa" : "Offline")),
+          h("div", null, h("dt", null, "Conferências pausadas"), h("dd", null, pausedConferences))
+        )
+      ),
+      h("article", { className: "panel" },
+        h("div", { className: "panel-header" }, h("h3", null, "Equipe"), h("span", null, `${users.length} usuários`)),
+        h("div", { className: "admin-status-grid" }, usersByRole.map((entry) =>
+          h("div", { className: "admin-status-item", key: entry.role },
+            h("span", null, entry.label),
+            h("strong", null, entry.count)
+          )
+        ))
+      ),
+      h("article", { className: "panel" },
+        h("div", { className: "panel-header" }, h("h3", null, "Atalhos críticos"), h("span", null, "admin")),
+        h("div", { className: "admin-action-grid" },
+          action("Usuários", "acessos e senhas", "users"),
+          action("Histórico", "erros e movimentações", "history"),
+          action("Contagem", "saldo e estoque", "counting"),
+          action("Separação", "mapas em preparação", "separation"),
+          action("Conferência", "expedição e divergências", "conference"),
+          h("button", {
+            className: "admin-action danger-action",
+            onClick: onReset
+          },
+            h("strong", null, "Reset geral"),
+            h("span", null, "limpar operação")
+          )
+        )
+      ),
+      h("article", { className: "panel" },
+        h("div", { className: "panel-header" }, h("h3", null, "Últimas movimentações"), h("span", null, `${historyEvents.length} registros`)),
+        h("div", { className: "stack" }, lastEvents.length ? lastEvents.map((event, index) =>
+          h("div", { className: "list-item", key: `${event.at}-${index}` },
+            h("strong", null, event.description),
+            h("span", null, `${event.userName} - ${formatDate(event.at)}`)
+          )
+        ) : empty("Nenhuma movimentação registrada."))
+      )
+    )
   );
 }
 
@@ -2315,8 +2408,7 @@ function Counting({
   );
 }
 
-function Users({ currentUser, users, newUser, setNewUser, createUser, removeUser, changeUserPassword, resetOperationalData }) {
-  const principalAdmin = currentUser?.username?.toLowerCase() === "marcos";
+function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserPassword }) {
   return h("div", { className: "section-grid" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Cadastrar login"), h("span", null, "admin")),
@@ -2356,16 +2448,6 @@ function Users({ currentUser, users, newUser, setNewUser, createUser, removeUser
           )
         )
       ))
-    ),
-    principalAdmin && h("article", { className: "panel danger-panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Reset geral"), h("span", null, "Marcos")),
-      h("div", { className: "stack" },
-        h("p", { className: "danger-copy" }, "Apaga mapas, conferências, contagens, divergências, notificações e histórico. Usuários cadastrados continuam ativos."),
-        h("button", {
-          className: "danger-action compact",
-          onClick: resetOperationalData
-        }, "Executar reset geral")
-      )
     )
   );
 }

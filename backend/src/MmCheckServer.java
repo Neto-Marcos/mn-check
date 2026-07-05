@@ -1524,19 +1524,23 @@ public class MmCheckServer {
     }
 
     Map<String, Object> publicMap() {
+      List<String> allowedViews = "admin".equals(role)
+          ? ("Marcos".equalsIgnoreCase(username)
+              ? List.of("admin", "overview", "separation", "conference", "counting", "history", "users")
+              : List.of("overview", "separation", "conference", "counting", "history", "users"))
+          : switch (role) {
+            case "separation" -> List.of("separation");
+            case "expedition" -> List.of("conference");
+            case "stock" -> List.of("counting");
+            default -> List.of();
+          };
       return Map.of(
           "id", id,
           "username", username,
           "name", name,
           "role", role,
           "label", label,
-          "allowedViews", switch (role) {
-            case "admin" -> List.of("overview", "separation", "conference", "counting", "history", "users");
-            case "separation" -> List.of("separation");
-            case "expedition" -> List.of("conference");
-            case "stock" -> List.of("counting");
-            default -> List.of();
-          }
+          "allowedViews", allowedViews
       );
     }
 

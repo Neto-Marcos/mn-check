@@ -22,6 +22,7 @@ export const ROLE_OPTIONS = [
 ];
 
 export const TITLES = {
+  admin: ["controle", "Admin Marcos"],
   overview: ["painel", "Visão geral"],
   separation: ["operação", "Separação"],
   counting: ["estoque", "Contagem"],
@@ -31,7 +32,7 @@ export const TITLES = {
   settings: ["conta", "Configurações"],
 };
 
-export const BOTTOM_NAV_PRIORITY = ["overview", "separation", "conference", "counting", "history", "settings"];
+export const BOTTOM_NAV_PRIORITY = ["admin", "overview", "separation", "conference", "counting", "history", "settings"];
 
 export function readStoredJson(key, fallback) {
   try {

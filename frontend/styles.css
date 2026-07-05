@@ -1700,6 +1700,58 @@ select {
   line-height: 1.5;
 }
 
+.admin-dashboard {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-status-grid,
+.admin-action-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-status-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-status-item,
+.admin-action {
+  min-width: 0;
+  min-height: 68px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.admin-status-item {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-status-item span,
+.admin-action span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.admin-status-item strong {
+  font-size: 1.25rem;
+}
+
+.admin-action {
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+  text-align: left;
+  font-weight: 900;
+}
+
+.admin-action:hover {
+  border-color: color-mix(in srgb, var(--red-600) 45%, var(--line));
+}
+
 .account-action {
   margin-top: auto;
 }
