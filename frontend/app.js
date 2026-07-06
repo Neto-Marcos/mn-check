@@ -1820,16 +1820,6 @@ function Routes({ maps, routes, draft, setDraft, onCreate, onStatus, onNewMap })
   }
 
   return h("div", { className: "section-grid routes-grid" },
-    h("article", { className: "panel route-upload-panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Upload do mapa"), h("span", null, "vai para separação")),
-      h("div", { className: "route-upload-flow" },
-        h("strong", null, "Rota"),
-        h("span", null, "→"),
-        h("button", { className: "primary-action compact", onClick: onNewMap }, "Adicionar mapa"),
-        h("span", null, "→"),
-        h("strong", null, "Separação")
-      )
-    ),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Criar rota"), h("span", null, "caminhões da casa")),
       h("form", { className: "stack route-form", onSubmit: onCreate },
@@ -1853,7 +1843,10 @@ function Routes({ maps, routes, draft, setDraft, onCreate, onStatus, onNewMap })
         h("div", { className: "route-map-picker" },
           h("div", { className: "route-picker-head" },
             h("strong", null, "Mapas da rota"),
-            h("span", null, `${draft.mapIds.length} selecionado(s)`)
+            h("div", { className: "route-picker-actions" },
+              h("span", null, `${draft.mapIds.length} selecionado(s)`),
+              h("button", { type: "button", className: "secondary-action compact", onClick: onNewMap }, "Adicionar mapa")
+            )
           ),
           eligibleMaps.length
             ? eligibleMaps.map((map) => h("label", { className: "route-map-option", key: map.id },
