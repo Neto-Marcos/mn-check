@@ -1392,22 +1392,16 @@ function NewMapDialog({ busy, draft, pendingFiles, metadataRef, onClose, onCamer
           })
         ),
         h("label", null, "Número do pedido",
-          h("div", { className: "order-entry-row" },
-            h("input", {
-              inputMode: "numeric",
-              placeholder: "Digite um pedido",
-              value: orderInput,
-              disabled: busy,
-              onChange: (event) => setOrderInput(event.target.value),
-              onKeyDown: (event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  useCamera();
-                }
-              }
-            }),
-            h("button", { type: "button", className: "secondary-action compact", disabled: busy, onClick: useCamera }, "Tirar foto")
-          )
+          h("input", {
+            inputMode: "numeric",
+            placeholder: "Digite um pedido",
+            value: orderInput,
+            disabled: busy,
+            onChange: (event) => setOrderInput(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === "Enter") event.preventDefault();
+            }
+          })
         )
       ),
       error && h("div", { className: "form-error" }, error),
@@ -1418,11 +1412,11 @@ function NewMapDialog({ busy, draft, pendingFiles, metadataRef, onClose, onCamer
       ),
       h("div", { className: "map-source-grid" },
         h("button", { className: "map-source-option", disabled: busy, onClick: useCamera },
-          h("strong", null, "Câmera"),
+          h("strong", null, "Tirar foto"),
           h("span", null, "Tirar foto do pedido informado")
         ),
         h("button", { className: "map-source-option", disabled: busy, onClick: useFile },
-          h("strong", null, "Arquivo ou imagem"),
+          h("strong", null, "Enviar arquivo"),
           h("span", null, "Enviar foto, PDF, PNG ou JPG")
         )
       ),
