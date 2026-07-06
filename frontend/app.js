@@ -1420,10 +1420,10 @@ function NewMapDialog({ busy, draft, pendingFiles, metadataRef, onClose, onCamer
           h("span", null, "Enviar foto, PDF, PNG ou JPG")
         )
       ),
-      h("div", { className: "modal-actions" },
+      h("div", { className: "modal-actions map-entry-actions" },
         h("button", { className: "secondary-action compact", disabled: busy, onClick: onClose }, "Cancelar"),
         h("button", { className: "primary-action compact", disabled: busy || !pendingFiles.length, onClick: onAnalyze },
-          busy ? "Processando com IA..." : "Finalizar mapa")
+          busy ? "Processando com IA..." : "OK - finalizar mapa")
       )
     )
   );

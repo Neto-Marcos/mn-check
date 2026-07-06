@@ -670,6 +670,7 @@ select {
   padding: 20px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   background: rgba(33, 25, 27, 0.58);
   animation: fadeIn 180ms ease both;
 }
@@ -750,6 +751,16 @@ select {
   flex-wrap: wrap;
 }
 
+.map-entry-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 18px -22px -22px;
+  padding: 12px 22px calc(22px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel, #fff);
+  border-top: 1px solid var(--line);
+}
+
 .manual-product-modal .ghost-action {
   color: var(--text);
   border-color: var(--line);
@@ -757,6 +768,9 @@ select {
 
 .new-map-dialog {
   width: min(520px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 22px;
   border: 1px solid var(--line);
   border-radius: 8px;
