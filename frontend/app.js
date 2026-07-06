@@ -1018,7 +1018,8 @@ function App() {
         draft: newRoute,
         setDraft: setNewRoute,
         onCreate: createRoute,
-        onStatus: updateRouteStatus
+        onStatus: updateRouteStatus,
+        onNewMap: () => setMapImportOpen(true)
       }),
       view === "counting" && h(Counting, {
         counts: data.counts,
@@ -1804,7 +1805,7 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
   );
 }
 
-function Routes({ maps, routes, draft, setDraft, onCreate, onStatus }) {
+function Routes({ maps, routes, draft, setDraft, onCreate, onStatus, onNewMap }) {
   const openRouteMapIds = new Set(routes
     .filter((route) => route.status !== "finalizada")
     .flatMap((route) => route.mapIds || []));
@@ -1825,6 +1826,16 @@ function Routes({ maps, routes, draft, setDraft, onCreate, onStatus }) {
   }
 
   return h("div", { className: "section-grid routes-grid" },
+    h("article", { className: "panel route-upload-panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Upload do mapa"), h("span", null, "vai para separação")),
+      h("div", { className: "route-upload-flow" },
+        h("strong", null, "Rota"),
+        h("span", null, "→"),
+        h("button", { className: "primary-action compact", onClick: onNewMap }, "Adicionar mapa"),
+        h("span", null, "→"),
+        h("strong", null, "Separação")
+      )
+    ),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Criar rota"), h("span", null, "caminhões da casa")),
       h("form", { className: "stack route-form", onSubmit: onCreate },
