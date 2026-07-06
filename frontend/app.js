@@ -43,6 +43,7 @@ const ICON_PATHS = {
   separation: ["M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"],
   conference: ["M20 6 9 17l-5-5"],
   admin: ["M12 2 20 6v6c0 5-3.4 8.7-8 10-4.6-1.3-8-5-8-10V6l8-4Z", "M9 12l2 2 4-5"],
+  routes: ["M10 17h4V5H2v12h3", "M14 17h8v-6h-8", "M6 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M18 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"],
   counting: ["M3 3v18h18", "M7 16h2", "M11 12h2", "M15 8h2", "M19 5h2"],
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
   users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
@@ -113,6 +114,7 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
+  const [newRoute, setNewRoute] = React.useState({ name: "", truck: "", driver: "", mapIds: [] });
   const mapFileInputRef = React.useRef(null);
   const mapCameraInputRef = React.useRef(null);
   const mapUploadMetadataRef = React.useRef({ mapNumber: "", orderNumbers: [] });
@@ -657,6 +659,29 @@ function App() {
     }
   }
 
+  async function createRoute(event) {
+    event.preventDefault();
+    try {
+      await request("/api/routes", { method: "POST", body: newRoute });
+      setNewRoute({ name: "", truck: "", driver: "", mapIds: [] });
+      await refresh("Rota criada com sucesso.", "routes");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  async function updateRouteStatus(routeId, nextStatus) {
+    try {
+      await request(`/api/routes/${encodeURIComponent(routeId)}/status`, {
+        method: "PATCH",
+        body: { status: nextStatus }
+      });
+      await refresh("Status da rota atualizado.", "routes");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
   async function countUpload(file) {
     try {
       const dataUrl = await readFileAsDataUrl(file);
@@ -944,6 +969,14 @@ function App() {
         onPause: (id) => mapAction(id, "pause-conference", "Conferência pausada com o progresso salvo."),
         onResume: (id) => mapAction(id, "resume-conference", "Conferência retomada."),
         onCancel: (id) => mapAction(id, "cancel-conference", "Conferência cancelada e progresso apagado.")
+      }),
+      view === "routes" && h(Routes, {
+        maps: data.maps,
+        routes: data.routes || [],
+        draft: newRoute,
+        setDraft: setNewRoute,
+        onCreate: createRoute,
+        onStatus: updateRouteStatus
       }),
       view === "counting" && h(Counting, {
         counts: data.counts,
@@ -1553,6 +1586,7 @@ function AdminPanel({ data, deployInfo, online, onOpenView, onReset }) {
           action("Contagem", "saldo e estoque", "counting"),
           action("Separação", "mapas em preparação", "separation"),
           action("Conferência", "expedição e divergências", "conference"),
+          action("Rotas", "caminhões e entregas", "routes"),
           h("button", {
             className: "admin-action danger-action",
             onClick: onReset
@@ -1725,6 +1759,129 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
     ),
     h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
   );
+}
+
+function Routes({ maps, routes, draft, setDraft, onCreate, onStatus }) {
+  const openRouteMapIds = new Set(routes
+    .filter((route) => route.status !== "finalizada")
+    .flatMap((route) => route.mapIds || []));
+  const eligibleMaps = maps
+    .filter((map) => map.status !== "corrigir problema")
+    .filter((map) => !openRouteMapIds.has(map.id) || draft.mapIds.includes(map.id))
+    .sort((left, right) => Number(left.id) - Number(right.id));
+  const activeRoutes = routes.filter((route) => route.status !== "finalizada");
+  const finishedRoutes = routes.filter((route) => route.status === "finalizada");
+
+  function toggleMap(mapId) {
+    setDraft({
+      ...draft,
+      mapIds: draft.mapIds.includes(mapId)
+        ? draft.mapIds.filter((id) => id !== mapId)
+        : [...draft.mapIds, mapId]
+    });
+  }
+
+  return h("div", { className: "section-grid routes-grid" },
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Criar rota"), h("span", null, "caminhões da casa")),
+      h("form", { className: "stack route-form", onSubmit: onCreate },
+        h("div", { className: "form-row" },
+          h("input", {
+            placeholder: "Nome da rota",
+            value: draft.name,
+            onChange: (event) => setDraft({ ...draft, name: event.target.value })
+          }),
+          h("input", {
+            placeholder: "Caminhão / placa",
+            value: draft.truck,
+            onChange: (event) => setDraft({ ...draft, truck: event.target.value })
+          })
+        ),
+        h("input", {
+          placeholder: "Motorista",
+          value: draft.driver,
+          onChange: (event) => setDraft({ ...draft, driver: event.target.value })
+        }),
+        h("div", { className: "route-map-picker" },
+          h("div", { className: "route-picker-head" },
+            h("strong", null, "Mapas da rota"),
+            h("span", null, `${draft.mapIds.length} selecionado(s)`)
+          ),
+          eligibleMaps.length
+            ? eligibleMaps.map((map) => h("label", { className: "route-map-option", key: map.id },
+                h("input", {
+                  type: "checkbox",
+                  checked: draft.mapIds.includes(map.id),
+                  onChange: () => toggleMap(map.id)
+                }),
+                h("span", null, `Mapa ${map.id}`),
+                h("small", null, `${status(map.status)} - ${map.client}`)
+              ))
+            : empty("Nenhum mapa disponível para nova rota.")
+        ),
+        h("button", {
+          className: "primary-action compact",
+          type: "submit",
+          disabled: !draft.name.trim() || !draft.truck.trim() || !draft.driver.trim() || !draft.mapIds.length
+        }, "Criar rota")
+      )
+    ),
+    h("article", { className: "panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Rotas abertas"), h("span", null, `${activeRoutes.length} ativas`)),
+      h("div", { className: "stack" }, activeRoutes.length
+        ? activeRoutes.map((route) => h(RouteCard, { key: route.id, route, maps, onStatus }))
+        : empty("Nenhuma rota em aberto."))
+    ),
+    h("article", { className: "panel history-events-panel" },
+      h("div", { className: "panel-header" }, h("h3", null, "Rotas finalizadas"), h("span", null, `${finishedRoutes.length} concluídas`)),
+      h("div", { className: "stack" }, finishedRoutes.length
+        ? finishedRoutes.slice(0, 8).map((route) => h(RouteCard, { key: route.id, route, maps, onStatus }))
+        : empty("Nenhuma rota finalizada ainda."))
+    )
+  );
+}
+
+function RouteCard({ route, maps, onStatus }) {
+  const routeMaps = (route.mapIds || [])
+    .map((id) => maps.find((map) => map.id === id))
+    .filter(Boolean);
+  const orders = routeMaps.flatMap((map) => map.orderNumbers || []);
+  const nextStatus = route.status === "separacao"
+    ? "andamento"
+    : route.status === "andamento" ? "finalizada" : "";
+  const nextLabel = route.status === "separacao"
+    ? "Iniciar rota"
+    : route.status === "andamento" ? "Finalizar rota" : "";
+
+  return h("div", { className: "route-card" },
+    h("div", { className: "route-card-head" },
+      h("div", null,
+        h("strong", null, route.name),
+        h("span", null, `${route.truck} - ${route.driver}`)
+      ),
+      h("div", { className: `status-pill ${statusClass(route.status)}` }, routeStatusLabel(route.status))
+    ),
+    h("div", { className: "route-card-meta" },
+      h("span", null, plural(routeMaps.length, "mapa", "mapas")),
+      h("span", null, plural(orders.length, "pedido", "pedidos")),
+      h("span", null, `Atualizada ${formatDate(route.updatedAt || route.createdAt)}`)
+    ),
+    h("div", { className: "route-map-list" }, routeMaps.map((map) =>
+      h("span", { key: map.id }, `Mapa ${map.id}`)
+    )),
+    nextStatus && h("button", {
+      className: route.status === "andamento" ? "danger-action compact" : "primary-action compact",
+      onClick: () => onStatus(route.id, nextStatus)
+    }, nextLabel)
+  );
+}
+
+function routeStatusLabel(value) {
+  return {
+    separacao: "Em separação",
+    andamento: "Em andamento",
+    finalizada: "Finalizada"
+  }[value] || value;
 }
 
 function Counting({

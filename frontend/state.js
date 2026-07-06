@@ -27,12 +27,13 @@ export const TITLES = {
   separation: ["operação", "Separação"],
   counting: ["estoque", "Contagem"],
   conference: ["validação", "Conferência"],
+  routes: ["logística", "Rotas"],
   history: ["admin", "Histórico"],
   users: ["admin", "Usuários"],
   settings: ["conta", "Configurações"],
 };
 
-export const BOTTOM_NAV_PRIORITY = ["admin", "overview", "separation", "conference", "counting", "history", "settings"];
+export const BOTTOM_NAV_PRIORITY = ["admin", "overview", "separation", "conference", "routes", "counting", "history", "settings"];
 
 export function readStoredJson(key, fallback) {
   try {
@@ -59,6 +60,7 @@ export function saveOfflineCountDraft(counts, user) {
 export function emptyData() {
   return {
     maps: [],
+    routes: [],
     historyMaps: [],
     users: [],
     counts: [],

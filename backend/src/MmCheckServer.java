@@ -303,6 +303,7 @@ public class MmCheckServer {
       db.countsImportIgnored.clear();
       db.errors.clear();
       db.notifications.clear();
+      db.routes.clear();
       db.historyEvents.clear();
       relationalDatabase.resetOperationalData();
       db.recordHistory(user, "reset_operational_data", "Reset geral executado por Marcos");
@@ -575,6 +576,59 @@ public class MmCheckServer {
       return;
     }
 
+    if ("POST".equals(method) && "/api/routes".equals(path)) {
+      requireRole(user, "admin", "expedition");
+      Map<String, Object> body = readJson(exchange);
+      String name = string(body.get("name")).trim();
+      String truck = string(body.get("truck")).trim();
+      String driver = string(body.get("driver")).trim();
+      List<String> mapIds = list(body.get("mapIds")).stream()
+          .map(MmCheckServer::string)
+          .map(String::trim)
+          .filter(value -> !value.isBlank())
+          .distinct()
+          .toList();
+      if (name.isBlank() || truck.isBlank() || driver.isBlank()) {
+        throw new ApiException(400, "Preencha rota, caminhão e motorista.");
+      }
+      validateRouteMaps(mapIds, "");
+      String now = Instant.now().toString();
+      DeliveryRoute route = new DeliveryRoute(
+          UUID.randomUUID().toString(),
+          name,
+          truck,
+          driver,
+          "separacao",
+          new ArrayList<>(mapIds),
+          now,
+          now
+      );
+      db.routes.add(0, route);
+      db.recordHistory(user, "create_route", "Rota " + route.name + " criada com " + route.mapIds.size() + " mapa(s)");
+      db.save();
+      json(exchange, 201, visibleData(user));
+      return;
+    }
+
+    if ("PATCH".equals(method) && path.startsWith("/api/routes/") && path.endsWith("/status")) {
+      requireRole(user, "admin", "expedition");
+      String routeId = URLDecoder.decode(
+          path.substring("/api/routes/".length(), path.length() - "/status".length()),
+          StandardCharsets.UTF_8
+      );
+      DeliveryRoute route = db.routes.stream().filter(item -> item.id.equals(routeId)).findFirst()
+          .orElseThrow(() -> new ApiException(404, "Rota não encontrada."));
+      Map<String, Object> body = readJson(exchange);
+      String nextStatus = string(body.get("status")).trim();
+      if (!DeliveryRoute.allowedStatuses().contains(nextStatus)) throw new ApiException(400, "Status de rota inválido.");
+      route.status = nextStatus;
+      route.updatedAt = Instant.now().toString();
+      db.recordHistory(user, "update_route", "Rota " + route.name + " alterada para " + DeliveryRoute.statusLabel(nextStatus));
+      db.save();
+      json(exchange, 200, visibleData(user));
+      return;
+    }
+
     if ("DELETE".equals(method) && path.startsWith("/api/maps/")) {
       if (!List.of("admin", "separation").contains(user.role)) {
         throw new ApiException(403, "Ação permitida apenas para administradores e conferentes de separação.");
@@ -765,6 +819,9 @@ public class MmCheckServer {
       visibleMap.put("conferenceSession", session == null ? Map.of() : session.toMap());
       return visibleMap;
     }).toList());
+    result.put("routes", List.of("admin", "expedition").contains(user.role)
+        ? db.routes.stream().map(DeliveryRoute::toMap).toList()
+        : List.of());
     result.put("users", "admin".equals(user.role) ? db.users.stream().map(User::publicMap).toList() : List.of());
     result.put("counts", canSeeCounts ? db.counts.stream().map(CountItem::toMap).toList() : List.of());
     result.put("countsUpdatedAt", canSeeCounts ? db.countsUpdatedAt : "");
@@ -815,6 +872,22 @@ public class MmCheckServer {
       item.checkedQuantity = 0;
       item.ok = false;
     });
+  }
+
+  private static void validateRouteMaps(List<String> mapIds, String currentRouteId) {
+    if (mapIds.isEmpty()) throw new ApiException(400, "Selecione pelo menos um mapa para a rota.");
+    for (String mapId : mapIds) {
+      CargoMap map = db.maps.stream().filter(item -> item.id.equals(mapId)).findFirst()
+          .orElseThrow(() -> new ApiException(404, "Mapa " + mapId + " não encontrado."));
+      if ("corrigir problema".equals(map.status)) {
+        throw new ApiException(409, "Mapa " + mapId + " está com divergência e não pode entrar em rota.");
+      }
+      boolean alreadyOpen = db.routes.stream()
+          .filter(route -> !route.id.equals(currentRouteId))
+          .filter(route -> !"finalizada".equals(route.status))
+          .anyMatch(route -> route.mapIds.contains(mapId));
+      if (alreadyOpen) throw new ApiException(409, "Mapa " + mapId + " já está em uma rota aberta.");
+    }
   }
 
   private static MapItem findPendingScanItem(CargoMap map, String lineId, String code, String completedLabel) {
@@ -1526,11 +1599,11 @@ public class MmCheckServer {
     Map<String, Object> publicMap() {
       List<String> allowedViews = "admin".equals(role)
           ? ("Marcos".equalsIgnoreCase(username)
-              ? List.of("admin", "overview", "separation", "conference", "counting", "history", "users")
-              : List.of("overview", "separation", "conference", "counting", "history", "users"))
+              ? List.of("admin", "overview", "separation", "conference", "routes", "counting", "history", "users")
+              : List.of("overview", "separation", "conference", "routes", "counting", "history", "users"))
           : switch (role) {
             case "separation" -> List.of("separation");
-            case "expedition" -> List.of("conference");
+            case "expedition" -> List.of("conference", "routes");
             case "stock" -> List.of("counting");
             default -> List.of();
           };
@@ -1765,6 +1838,78 @@ public class MmCheckServer {
     }
   }
 
+  private static class DeliveryRoute {
+    final String id;
+    String name;
+    String truck;
+    String driver;
+    String status;
+    List<String> mapIds;
+    final String createdAt;
+    String updatedAt;
+
+    DeliveryRoute(
+        String id,
+        String name,
+        String truck,
+        String driver,
+        String status,
+        List<String> mapIds,
+        String createdAt,
+        String updatedAt
+    ) {
+      this.id = id;
+      this.name = name;
+      this.truck = truck;
+      this.driver = driver;
+      this.status = status;
+      this.mapIds = mapIds;
+      this.createdAt = createdAt;
+      this.updatedAt = updatedAt;
+    }
+
+    static List<String> allowedStatuses() {
+      return List.of("separacao", "andamento", "finalizada");
+    }
+
+    static String statusLabel(String value) {
+      return switch (value) {
+        case "separacao" -> "Em separação";
+        case "andamento" -> "Em andamento";
+        case "finalizada" -> "Finalizada";
+        default -> value;
+      };
+    }
+
+    Map<String, Object> toMap() {
+      return Map.of(
+          "id", id,
+          "name", name,
+          "truck", truck,
+          "driver", driver,
+          "status", status,
+          "mapIds", mapIds,
+          "createdAt", createdAt,
+          "updatedAt", updatedAt
+      );
+    }
+
+    static DeliveryRoute fromMap(Map<String, Object> map) {
+      String status = string(map.get("status"));
+      if (!allowedStatuses().contains(status)) status = "separacao";
+      return new DeliveryRoute(
+          string(map.get("id")),
+          string(map.get("name")),
+          string(map.get("truck")),
+          string(map.get("driver")),
+          status,
+          new ArrayList<>(list(map.get("mapIds")).stream().map(MmCheckServer::string).toList()),
+          string(map.get("createdAt")),
+          string(map.get("updatedAt"))
+      );
+    }
+  }
+
   private static class Database {
     List<User> users = new ArrayList<>();
     List<CargoMap> maps = new ArrayList<>();
@@ -1777,6 +1922,7 @@ public class MmCheckServer {
     List<ErrorRecord> errors = new ArrayList<>();
     List<HistoryRecord> historyEvents = new ArrayList<>();
     List<AdminNotification> notifications = new ArrayList<>();
+    List<DeliveryRoute> routes = new ArrayList<>();
 
     static Database load() throws IOException {
       Optional<String> stored = persistence.load();
@@ -1846,6 +1992,8 @@ public class MmCheckServer {
       }
       db.notifications = new ArrayList<>(list(map.get("notifications")).stream()
           .map(item -> AdminNotification.fromMap(castMap(item))).toList());
+      db.routes = new ArrayList<>(list(map.get("routes")).stream()
+          .map(item -> DeliveryRoute.fromMap(castMap(item))).toList());
       boolean removedExamples = db.maps.removeIf(Database::isLegacyExampleMap);
       removedExamples |= db.errors.removeIf(error -> "15727".equals(error.order));
       if (removedExamples || migrated) db.save();
@@ -1889,6 +2037,7 @@ public class MmCheckServer {
       map.put("errors", errors.stream().map(ErrorRecord::toMap).toList());
       map.put("historyEvents", historyEvents.stream().map(HistoryRecord::toMap).toList());
       map.put("notifications", notifications.stream().map(AdminNotification::toStoredMap).toList());
+      map.put("routes", routes.stream().map(DeliveryRoute::toMap).toList());
       persistence.save(Json.stringify(map));
     }
   }
