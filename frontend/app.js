@@ -117,7 +117,7 @@ function App() {
   const [newRoute, setNewRoute] = React.useState({ name: "", truck: "", driver: "", mapIds: [] });
   const mapFileInputRef = React.useRef(null);
   const mapCameraInputRef = React.useRef(null);
-  const mapUploadMetadataRef = React.useRef({ mapNumber: "", orderNumbers: [] });
+  const mapUploadMetadataRef = React.useRef({ mapNumber: "", orderNumbers: [], collectOnly: false });
   const unreadNotificationsRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -441,6 +441,22 @@ function App() {
           dataUrl: await readFileAsDataUrl(file),
         });
       }
+      if (mapUploadMetadataRef.current.collectOnly) {
+        setMapDraftFiles((current) => [...current, ...uploadFiles]);
+        mapUploadMetadataRef.current = {
+          ...mapUploadMetadataRef.current,
+          orderNumbers: Array.from(new Set([
+            ...(mapUploadMetadataRef.current.savedOrderNumbers || []),
+            ...mapUploadMetadataRef.current.orderNumbers
+          ])),
+          savedOrderNumbers: Array.from(new Set([
+            ...(mapUploadMetadataRef.current.savedOrderNumbers || []),
+            ...mapUploadMetadataRef.current.orderNumbers
+          ]))
+        };
+        notify("Pedido adicionado ao mapa.");
+        return;
+      }
       setMapDraftFiles(uploadFiles);
       const response = await request("/api/maps/analyze", {
         method: "POST",
@@ -467,11 +483,37 @@ function App() {
         method: "POST",
         body: { draft, files: mapDraftFiles },
       });
-      mapUploadMetadataRef.current = { mapNumber: "", orderNumbers: [] };
+      mapUploadMetadataRef.current = { mapNumber: "", orderNumbers: [], collectOnly: false };
       setMapDraft(null);
       setMapDraftFiles([]);
       setMapImportOpen(false);
       await refresh("Mapa revisado e enviado para separação.", "separation");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setMapImporting(false);
+    }
+  }
+
+  async function analyzeCollectedMap() {
+    const metadata = mapUploadMetadataRef.current;
+    if (!metadata.mapNumber || !mapDraftFiles.length || !metadata.savedOrderNumbers?.length) {
+      notify("Adicione pelo menos um pedido com foto ou arquivo.");
+      return;
+    }
+    try {
+      setMapImporting(true);
+      const response = await request("/api/maps/analyze", {
+        method: "POST",
+        timeout: 180000,
+        body: {
+          files: mapDraftFiles,
+          mapNumber: metadata.mapNumber,
+          orderNumbers: metadata.savedOrderNumbers,
+        },
+      });
+      setMapDraft(response.draft);
+      notify("IA concluiu a leitura. Revise os itens antes de salvar.");
     } catch (error) {
       notify(error.message);
     } finally {
@@ -1039,12 +1081,16 @@ function App() {
       busy: mapImporting,
       draft: mapDraft,
       onClose: () => {
+        mapUploadMetadataRef.current = { mapNumber: "", orderNumbers: [], collectOnly: false };
         setMapDraft(null);
         setMapDraftFiles([]);
         setMapImportOpen(false);
       },
+      pendingFiles: mapDraftFiles,
+      metadataRef: mapUploadMetadataRef,
       onCamera: openMapCamera,
       onFile: openMapFile,
+      onAnalyze: analyzeCollectedMap,
       onConfirm: confirmMapDraft
     }),
     passwordTarget && h(PasswordDialog, {
@@ -1190,9 +1236,8 @@ function NotificationPanel({ notifications, onClose, onRead, onOpenMap }) {
   );
 }
 
-function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
+function NewMapDialog({ busy, draft, pendingFiles, metadataRef, onClose, onCamera, onFile, onAnalyze, onConfirm }) {
   const [mapNumber, setMapNumber] = React.useState("");
-  const [ordersText, setOrdersText] = React.useState("");
   const [orderInput, setOrderInput] = React.useState("");
   const [reviewDraft, setReviewDraft] = React.useState(draft);
   const [error, setError] = React.useState("");
@@ -1201,17 +1246,13 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
 
   function metadata() {
     const cleanMapNumber = mapNumber.replace(/\D/g, "");
-    const orderNumbers = Array.from(new Set(
-      ordersText.split(/[\s,;]+/).map((value) => value.replace(/\D/g, "")).filter(Boolean)
-    ));
-    return { mapNumber: cleanMapNumber, orderNumbers };
-  }
-
-  function addOrderNumber() {
-    const clean = orderInput.replace(/\D/g, "");
-    if (!clean) return;
-    setOrdersText((current) => current ? `${current}\n${clean}` : clean);
-    setOrderInput("");
+    const cleanOrder = orderInput.replace(/\D/g, "");
+    return {
+      mapNumber: cleanMapNumber,
+      orderNumbers: cleanOrder ? [cleanOrder] : [],
+      savedOrderNumbers: metadataRef.current.savedOrderNumbers || [],
+      collectOnly: true
+    };
   }
 
   function updateDraftItem(index, field, value) {
@@ -1246,11 +1287,12 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
       return;
     }
     if (!values.orderNumbers.length) {
-      setError("Informe pelo menos um número de pedido.");
+      setError("Informe o número do pedido.");
       return;
     }
     setError("");
     onCamera(values);
+    setOrderInput("");
   }
 
   function useFile() {
@@ -1260,11 +1302,12 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
       return;
     }
     if (!values.orderNumbers.length) {
-      setError("Informe pelo menos um número de pedido.");
+      setError("Informe o número do pedido.");
       return;
     }
     setError("");
     onFile(values);
+    setOrderInput("");
   }
 
   if (reviewDraft) {
@@ -1333,7 +1376,7 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
       h("div", { className: "dialog-head" },
         h("div", null,
           h("p", { className: "eyebrow" }, "entrada de documento"),
-          h("h3", { id: "new-map-title" }, "Como deseja inserir o novo mapa?")
+          h("h3", { id: "new-map-title" }, "Adicionar mapa")
         ),
         h("button", { className: "dialog-close", disabled: busy, onClick: onClose, "aria-label": "Fechar" }, "×")
       ),
@@ -1343,11 +1386,11 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
             inputMode: "numeric",
             placeholder: "Ex.: 15728",
             value: mapNumber,
-            disabled: busy,
+            disabled: busy || pendingFiles.length > 0,
             onChange: (event) => setMapNumber(event.target.value)
           })
         ),
-        h("label", null, "Números dos pedidos",
+        h("label", null, "Número do pedido",
           h("div", { className: "order-entry-row" },
             h("input", {
               inputMode: "numeric",
@@ -1358,35 +1401,35 @@ function NewMapDialog({ busy, draft, onClose, onCamera, onFile, onConfirm }) {
               onKeyDown: (event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  addOrderNumber();
+                  useCamera();
                 }
               }
             }),
-            h("button", { type: "button", className: "secondary-action compact", disabled: busy, onClick: addOrderNumber }, "Adicionar")
-          ),
-          h("textarea", {
-            rows: 3,
-            inputMode: "text",
-            placeholder: "Um pedido por linha",
-            value: ordersText,
-            disabled: busy,
-            onChange: (event) => setOrdersText(event.target.value)
-          }),
-          h("small", null, "No iPhone, digite um pedido e toque em Adicionar. Também funciona um pedido por linha.")
+            h("button", { type: "button", className: "secondary-action compact", disabled: busy, onClick: useCamera }, "Tirar foto")
+          )
         )
       ),
       error && h("div", { className: "form-error" }, error),
+      pendingFiles.length > 0 && h("div", { className: "map-order-summary" },
+        h("strong", null, "Pedido adicionado"),
+        h("span", null, `${metadataRef.current.savedOrderNumbers?.length || 0} pedido(s), ${pendingFiles.length} arquivo(s)`),
+        h("p", null, "Adicionar novo pedido? Informe o próximo número acima e tire outra foto ou envie outro arquivo.")
+      ),
       h("div", { className: "map-source-grid" },
         h("button", { className: "map-source-option", disabled: busy, onClick: useCamera },
           h("strong", null, "Câmera"),
-          h("span", null, "Usa os números informados e lê somente os itens da foto")
+          h("span", null, "Tirar foto do pedido informado")
         ),
         h("button", { className: "map-source-option", disabled: busy, onClick: useFile },
           h("strong", null, "Arquivo ou imagem"),
-          h("span", null, "PDF, PNG, JPG, WebP, HEIC ou HEIF")
+          h("span", null, "Enviar foto, PDF, PNG ou JPG")
         )
       ),
-      h("button", { className: "secondary-action dialog-cancel", disabled: busy, onClick: onClose }, busy ? "Processando com IA..." : "Cancelar")
+      h("div", { className: "modal-actions" },
+        h("button", { className: "secondary-action compact", disabled: busy, onClick: onClose }, "Cancelar"),
+        h("button", { className: "primary-action compact", disabled: busy || !pendingFiles.length, onClick: onAnalyze },
+          busy ? "Processando com IA..." : "Finalizar mapa")
+      )
     )
   );
 }
