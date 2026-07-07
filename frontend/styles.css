@@ -1770,18 +1770,6 @@ select {
   align-content: start;
 }
 
-.route-map-picker {
-  display: grid;
-  gap: 8px;
-  max-height: 360px;
-  overflow: auto;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-.route-picker-head,
 .route-card-head,
 .route-card-meta {
   display: flex;
@@ -1790,47 +1778,11 @@ select {
   gap: 10px;
 }
 
-.route-picker-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.route-picker-head span,
 .route-card-head span,
 .route-card-meta {
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 800;
-}
-
-.route-map-option {
-  min-width: 0;
-  margin: 0;
-  padding: 10px;
-  display: grid;
-  grid-template-columns: auto minmax(82px, auto) minmax(0, 1fr);
-  align-items: center;
-  gap: 9px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: white;
-  color: var(--text);
-}
-
-.route-map-option input {
-  width: 18px;
-  min-height: 18px;
-}
-
-.route-map-option small {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .route-card {
@@ -1858,21 +1810,6 @@ select {
 .route-card-meta {
   justify-content: flex-start;
   flex-wrap: wrap;
-}
-
-.route-map-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.route-map-list span {
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--red-50);
-  color: var(--red-800);
-  font-size: 0.76rem;
-  font-weight: 900;
 }
 
 .audit-grid,

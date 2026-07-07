@@ -604,7 +604,7 @@ public class MmCheckServer {
           now
       );
       db.routes.add(0, route);
-      db.recordHistory(user, "create_route", "Rota " + route.name + " criada com " + route.mapIds.size() + " mapa(s)");
+      db.recordHistory(user, "create_route", "Rota " + route.name + " criada");
       db.save();
       json(exchange, 201, visibleData(user));
       return;

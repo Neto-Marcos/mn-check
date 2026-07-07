@@ -114,7 +114,7 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
-  const [newRoute, setNewRoute] = React.useState({ name: "", truck: "", driver: "", mapIds: [] });
+  const [newRoute, setNewRoute] = React.useState({ name: "", truck: "", driver: "" });
   const mapFileInputRef = React.useRef(null);
   const mapCameraInputRef = React.useRef(null);
   const mapUploadMetadataRef = React.useRef({ mapNumber: "", orderNumbers: [], collectOnly: false });
@@ -705,7 +705,7 @@ function App() {
     event.preventDefault();
     try {
       await request("/api/routes", { method: "POST", body: newRoute });
-      setNewRoute({ name: "", truck: "", driver: "", mapIds: [] });
+      setNewRoute({ name: "", truck: "", driver: "" });
       await refresh("Rota criada com sucesso.", "routes");
     } catch (error) {
       notify(error.message);
@@ -1013,13 +1013,11 @@ function App() {
         onCancel: (id) => mapAction(id, "cancel-conference", "Conferência cancelada e progresso apagado.")
       }),
       view === "routes" && h(Routes, {
-        maps: data.maps,
         routes: data.routes || [],
         draft: newRoute,
         setDraft: setNewRoute,
         onCreate: createRoute,
-        onStatus: updateRouteStatus,
-        onNewMap: () => setMapImportOpen(true)
+        onStatus: updateRouteStatus
       }),
       view === "counting" && h(Counting, {
         counts: data.counts,
@@ -1799,25 +1797,9 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
   );
 }
 
-function Routes({ maps, routes, draft, setDraft, onCreate, onStatus, onNewMap }) {
-  const openRouteMapIds = new Set(routes
-    .filter((route) => route.status !== "finalizada")
-    .flatMap((route) => route.mapIds || []));
-  const eligibleMaps = maps
-    .filter((map) => map.status !== "corrigir problema")
-    .filter((map) => !openRouteMapIds.has(map.id) || draft.mapIds.includes(map.id))
-    .sort((left, right) => Number(left.id) - Number(right.id));
+function Routes({ routes, draft, setDraft, onCreate, onStatus }) {
   const activeRoutes = routes.filter((route) => route.status !== "finalizada");
   const finishedRoutes = routes.filter((route) => route.status === "finalizada");
-
-  function toggleMap(mapId) {
-    setDraft({
-      ...draft,
-      mapIds: draft.mapIds.includes(mapId)
-        ? draft.mapIds.filter((id) => id !== mapId)
-        : [...draft.mapIds, mapId]
-    });
-  }
 
   return h("div", { className: "section-grid routes-grid" },
     h("article", { className: "panel" },
@@ -1840,53 +1822,29 @@ function Routes({ maps, routes, draft, setDraft, onCreate, onStatus, onNewMap })
           value: draft.driver,
           onChange: (event) => setDraft({ ...draft, driver: event.target.value })
         }),
-        h("div", { className: "route-map-picker" },
-          h("div", { className: "route-picker-head" },
-            h("strong", null, "Mapas da rota"),
-            h("div", { className: "route-picker-actions" },
-              h("span", null, `${draft.mapIds.length} selecionado(s)`),
-              h("button", { type: "button", className: "secondary-action compact", onClick: onNewMap }, "Adicionar mapa")
-            )
-          ),
-          eligibleMaps.length
-            ? eligibleMaps.map((map) => h("label", { className: "route-map-option", key: map.id },
-                h("input", {
-                  type: "checkbox",
-                  checked: draft.mapIds.includes(map.id),
-                  onChange: () => toggleMap(map.id)
-                }),
-                h("span", null, `Mapa ${map.id}`),
-                h("small", null, `${status(map.status)} - ${map.client}`)
-              ))
-            : empty("Nenhum mapa disponível para nova rota.")
-        ),
         h("button", {
           className: "primary-action compact",
           type: "submit",
-          disabled: !draft.name.trim() || !draft.truck.trim() || !draft.driver.trim() || !draft.mapIds.length
+          disabled: !draft.name.trim() || !draft.truck.trim() || !draft.driver.trim()
         }, "Criar rota")
       )
     ),
     h("article", { className: "panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Rotas abertas"), h("span", null, `${activeRoutes.length} ativas`)),
       h("div", { className: "stack" }, activeRoutes.length
-        ? activeRoutes.map((route) => h(RouteCard, { key: route.id, route, maps, onStatus }))
+        ? activeRoutes.map((route) => h(RouteCard, { key: route.id, route, onStatus }))
         : empty("Nenhuma rota em aberto."))
     ),
     h("article", { className: "panel history-events-panel" },
       h("div", { className: "panel-header" }, h("h3", null, "Rotas finalizadas"), h("span", null, `${finishedRoutes.length} concluídas`)),
       h("div", { className: "stack" }, finishedRoutes.length
-        ? finishedRoutes.slice(0, 8).map((route) => h(RouteCard, { key: route.id, route, maps, onStatus }))
+        ? finishedRoutes.slice(0, 8).map((route) => h(RouteCard, { key: route.id, route, onStatus }))
         : empty("Nenhuma rota finalizada ainda."))
     )
   );
 }
 
-function RouteCard({ route, maps, onStatus }) {
-  const routeMaps = (route.mapIds || [])
-    .map((id) => maps.find((map) => map.id === id))
-    .filter(Boolean);
-  const orders = routeMaps.flatMap((map) => map.orderNumbers || []);
+function RouteCard({ route, onStatus }) {
   const nextStatus = route.status === "separacao"
     ? "andamento"
     : route.status === "andamento" ? "finalizada" : "";
@@ -1903,13 +1861,9 @@ function RouteCard({ route, maps, onStatus }) {
       h("div", { className: `status-pill ${statusClass(route.status)}` }, routeStatusLabel(route.status))
     ),
     h("div", { className: "route-card-meta" },
-      h("span", null, plural(routeMaps.length, "mapa", "mapas")),
-      h("span", null, plural(orders.length, "pedido", "pedidos")),
+      h("span", null, `Criada ${formatDate(route.createdAt)}`),
       h("span", null, `Atualizada ${formatDate(route.updatedAt || route.createdAt)}`)
     ),
-    h("div", { className: "route-map-list" }, routeMaps.map((map) =>
-      h("span", { key: map.id }, `Mapa ${map.id}`)
-    )),
     nextStatus && h("button", {
       className: route.status === "andamento" ? "danger-action compact" : "primary-action compact",
       onClick: () => onStatus(route.id, nextStatus)
