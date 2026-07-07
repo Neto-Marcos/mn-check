@@ -872,7 +872,8 @@ function App() {
   const navigationViews = [...allowedViews, "settings"];
   const bottomNavigationViews = BOTTOM_NAV_PRIORITY
     .filter((item) => navigationViews.includes(item))
-    .slice(0, 5);
+    .slice(0, 4);
+  const bottomMoreActive = !bottomNavigationViews.includes(view);
   const [eyebrow, title] = TITLES[view] || TITLES[allowedViews[0]];
   const notifications = data.notifications || [];
   const unreadNotifications = notifications.filter((item) => !item.read).length;
@@ -1056,7 +1057,7 @@ function App() {
       })
     ),
     h("nav", { className: "mobile-bottom-nav", "aria-label": "Navegacao rapida" },
-      bottomNavigationViews.map((item) => h("button", {
+      ...bottomNavigationViews.map((item) => h("button", {
         key: `bottom-${item}`,
         className: `bottom-nav-item ${view === item ? "active" : ""}`,
         "aria-current": view === item ? "page" : undefined,
@@ -1065,7 +1066,17 @@ function App() {
       },
         h(Icon, { name: item, size: 22 }),
         h("span", null, TITLES[item][1])
-      ))
+      )),
+      h("button", {
+        key: "bottom-more",
+        className: `bottom-nav-item ${bottomMoreActive ? "active" : ""}`,
+        title: "Mais telas",
+        "aria-label": "Abrir menu completo",
+        onClick: () => setMobileNavOpen(true)
+      },
+        h(Icon, { name: "menu", size: 22 }),
+        h("span", null, "Mais")
+      )
     ),
     notificationsOpen && user.role === "admin" && h(NotificationPanel, {
       notifications,
