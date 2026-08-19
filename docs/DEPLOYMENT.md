@@ -26,7 +26,53 @@ GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
-5. Faca deploy.
+5. Gere e valide um backup antes do deploy.
+6. Faça deploy primeiro em homologação e execute `docs/HOMOLOGATION.md`.
+7. Promova para produção somente com a homologação aprovada.
+
+## Backup
+
+É necessário ter `pg_dump` e `pg_restore` do PostgreSQL instalados:
+
+```powershell
+.\scripts\backup-postgres.ps1 -DatabaseUrl $env:DATABASE_URL
+```
+
+O script gera dump no formato custom, SHA-256 e manifesto. Guarde o diretório fora do repositório.
+
+Se os executáveis não estiverem no `PATH`, informe a pasta `bin` do PostgreSQL:
+
+```powershell
+.\scripts\backup-postgres.ps1 -DatabaseUrl $env:DATABASE_URL -PostgresBin "C:\Program Files\PostgreSQL\16\bin"
+```
+
+Para verificar o conteúdo sem restaurar:
+
+```powershell
+.\scripts\verify-backup.ps1 -BackupDirectory caminho\do\backup
+```
+
+Para cumprir a validação de restauração, use exclusivamente um banco descartável vazio:
+
+```powershell
+.\scripts\verify-backup.ps1 -BackupDirectory caminho\do\backup -RestoreDatabaseUrl $env:STAGING_RESTORE_DATABASE_URL
+```
+
+## Migração 3.0
+
+- As migrações são aditivas e executadas na inicialização.
+- `filiais`, `produtos`, saldos e operações empresariais começam limpos.
+- O histórico antigo permanece no backup e nas tabelas legadas.
+- O saldo empresarial inicial é publicado por contagem física aprovada.
+- Não importe movimentos antigos para o novo livro.
+
+## Rollback
+
+1. Interrompa novas operações.
+2. Promova o deployment/tag anterior no Railway.
+3. As tabelas 3.0 podem permanecer no banco; a versão 2.3.0 não as utiliza.
+4. Se for indispensável restaurar dados, use um banco vazio de recuperação e valide o dump antes de qualquer troca de URL.
+5. Nunca restaure diretamente sobre produção sem uma janela aprovada.
 
 ## Verificacao
 

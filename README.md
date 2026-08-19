@@ -1,4 +1,4 @@
-# MN Check - Sistema de separacao, conferencia e contagem
+# MN Check 3.0 - Plataforma logística empresarial
 
 ![Java](https://img.shields.io/badge/Java-21-ef4444?style=for-the-badge)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-Backend-16a34a?style=for-the-badge)
@@ -6,10 +6,34 @@
 ![PDFBox](https://img.shields.io/badge/PDFBox-PDF%20Parser-f97316?style=for-the-badge)
 ![Railway](https://img.shields.io/badge/Railway-Deploy-111827?style=for-the-badge)
 
-O **MN Check** e um sistema operacional para mapas de carga, separacao por coletor, conferencia de expedicao e contagem de estoque. Ele foi criado para reduzir erro humano em SKU, cor, voltagem, quantidade e saldo em um fluxo logistico real.
+O **MN Check** controla o fluxo completo da mercadoria: NF-e, descarga, etiqueta interna, estoque, reserva, separação, reconferência, expedição e transferência entre filiais. A versão 3.0 mantém a contagem 2.3.0 aprovada e adiciona um livro imutável de movimentos ao PostgreSQL.
+
+A produção anterior está preservada na tag `v2.3.0-recovered`; as evidências e o hash do artefato estão em [`docs/RECOVERY-2.3.0.md`](docs/RECOVERY-2.3.0.md).
+
+## Fluxo empresarial 3.0
+
+1. Uma carga agrupa uma ou mais NF-e importadas por XML.
+2. A descarga é confirmada por EAN, SKU ou código interno.
+3. Itens confirmados entram no estoque; exceções ficam em quarentena.
+4. O PDF do mapa é extraído, revisado por uma pessoa e publicado.
+5. A publicação reduz o disponível e aumenta o reservado, sem baixar o físico.
+6. Separação e reconferência usam leituras independentes.
+7. A expedição reduz o físico e consome a reserva.
+8. Transferências controlam origem, trânsito e recebimento no destino.
+9. Ajustes e estornos geram novos movimentos; registros anteriores não são apagados.
 
 ## Principais recursos
 
+- Controle multi-filial e perfis por função.
+- Cadastro de produtos, código interno e múltiplos EANs.
+- Livro de estoque com físico, disponível, reservado, em trânsito e quarentena.
+- Importação segura e determinística de XML de NF-e.
+- Etiquetas térmicas Zebra/Argox com registro de reimpressão.
+- Impressoras e parâmetros operacionais configuráveis por filial.
+- Fila offline com idempotência para evitar leituras duplicadas.
+- Registro de avaria, autorização de faltas e quarentena supervisionada.
+- Aprovação de divergências e ajustes por supervisor.
+- Reconciliação entre o livro de movimentos e o saldo projetado.
 - Leitura de separacao por coletor USB/Bluetooth ou digitacao manual.
 - Conferencia de expedicao por codigo de barras CODE 128.
 - Validacao de SKU, cor e voltagem antes de aprovar a leitura.
@@ -49,7 +73,8 @@ MM check/
 ├── backend/
 │   └── src/                 # servidor, scanner, parser PDF, PostgreSQL e regras
 ├── database/
-│   └── postgres-schema.sql  # schema do banco
+│   ├── postgres-schema.sql   # schema legado/contagem
+│   └── enterprise-schema.sql # schema empresarial normalizado
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── DEPLOYMENT.md
@@ -58,7 +83,9 @@ MM check/
 │   ├── mapas.js             # leitura local de arquivos de mapa
 │   ├── scanner.js           # normalizacao e validacao local de codigos
 │   ├── state.js             # estado, constantes e configuracoes
-│   ├── styles.css           # design system responsivo
+│   ├── styles.css           # interface legada e contagem preservada
+│   ├── enterprise.css       # design system empresarial isolado
+│   ├── enterprise.js        # módulos empresariais
 │   └── sw.js                # cache offline
 ├── screenshots/
 ├── Dockerfile
@@ -77,7 +104,7 @@ MM check/
 
 ```bash
 mvn clean package
-java -jar target/mn-check-2.0.0.jar
+java -jar target/mn-check.jar
 ```
 
 Acesse:
@@ -103,7 +130,7 @@ PORT=4173
 3. Configure `DATABASE_URL` e `MMCHECK_ADMIN_PASSWORD`.
 4. Opcionalmente configure `GEMINI_API_KEY` e `GEMINI_MODEL`.
 5. Confira o healthcheck em `/api/health`.
-6. Ao gerar dominio no Railway, use a porta `4137`.
+6. Ao gerar domínio no Railway, mantenha a porta definida pela variável `PORT`.
 
 Detalhes adicionais ficam em [`RAILWAY.md`](RAILWAY.md).
 
@@ -125,6 +152,17 @@ A Vercel fica reservada para o portfolio ou frontend estatico. O backend Java do
 | `POST` | `/api/saldos/produto` | adicionar produto manualmente ao saldo |
 | `POST` | `/api/contagem` | salvar contagem fisica |
 | `GET` | `/api/historico` | historico operacional |
+| `GET` | `/api/v2/workspace` | painel e contexto multi-filial |
+| `POST` | `/api/v2/receipts` | abrir carga de recebimento |
+| `POST` | `/api/v2/receipts/{id}/nfe` | importar XML de NF-e |
+| `POST` | `/api/v2/receipts/{id}/damage` | registrar item avariado |
+| `POST` | `/api/v2/receipts/{id}/finalize` | publicar entradas confirmadas |
+| `POST` | `/api/v2/maps/{id}/publish` | reservar saldo para separação |
+| `POST` | `/api/v2/maps/{id}/authorize-shortage` | autorizar falta e liberar reserva |
+| `POST` | `/api/v2/maps/{id}/dispatch` | expedir e baixar saldo físico |
+| `POST` | `/api/v2/transfers/{id}/receive` | receber transferência no destino |
+| `PATCH` | `/api/v2/parameters/{chave}` | configurar operação por filial |
+| `GET` | `/api/v2/inventory/reconcile` | reconciliar livro e projeções |
 
 ## Testes
 
@@ -138,7 +176,7 @@ No Windows, se o Maven estiver instalado no perfil do usuario:
 .\scripts\test-local.ps1
 ```
 
-Os testes cobrem parser de PDF, normalizacao de SKU, validacao de codigo de barras e persistencia quando `DATABASE_URL` esta disponivel.
+Os testes cobrem parser de PDF/XML, normalização de SKU, código de barras e um fluxo empresarial completo em PostgreSQL real e descartável. Esse fluxo inclui concorrência de reservas, recebimento, avaria, quarentena, separação, expedição, transferências, contagem, estorno, idempotência, impressão, parâmetros, isolamento de filial e reconciliação.
 
 ## Autor
 

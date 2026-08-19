@@ -37,6 +37,7 @@ jobs:
       - name: Check frontend syntax
         run: |
           node --check frontend/app.js
+          node --check frontend/enterprise.js
           node --check frontend/sw.js
           test -s frontend/vendor/react.production.min.js
           test -s frontend/vendor/react-dom.production.min.js
@@ -47,7 +48,7 @@ jobs:
       - name: Smoke test API
         run: |
           APP_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          APP_JAR="target/mn-check-${APP_VERSION}.jar"
+          APP_JAR="target/mn-check.jar"
           java -jar "$APP_JAR" > /tmp/mn-check.log 2>&1 &
           SERVER_PID=$!
           trap 'cat /tmp/mn-check.log; kill $SERVER_PID 2>/dev/null || true' EXIT

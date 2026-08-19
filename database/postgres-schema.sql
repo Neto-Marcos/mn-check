@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS estoque_produtos (
   saldo_contado INTEGER NOT NULL DEFAULT 0 CHECK (saldo_contado >= 0),
   saldo_assistencia INTEGER NOT NULL DEFAULT 0 CHECK (saldo_assistencia >= 0),
   saldo_avaria INTEGER NOT NULL DEFAULT 0 CHECK (saldo_avaria >= 0),
-  saldo_outros INTEGER NOT NULL DEFAULT 0 CHECK (saldo_outros >= 0),
+  saldo_outros INTEGER NOT NULL DEFAULT 0,
   ativo BOOLEAN NOT NULL DEFAULT TRUE,
   ultima_atualizacao TIMESTAMPTZ NOT NULL DEFAULT now(),
   ultima_contagem_em TIMESTAMPTZ,
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS itens_contagem (
   quantidade_contada INTEGER NOT NULL CHECK (quantidade_contada >= 0),
   quantidade_assistencia INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_assistencia >= 0),
   quantidade_avaria INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_avaria >= 0),
-  quantidade_outros INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_outros >= 0),
+  quantidade_outros INTEGER NOT NULL DEFAULT 0,
   diferenca INTEGER NOT NULL,
   UNIQUE (contagem_id, sku)
 );

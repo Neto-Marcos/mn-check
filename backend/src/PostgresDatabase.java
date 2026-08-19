@@ -1007,13 +1007,14 @@ public final class PostgresDatabase {
           quantidade_contada INTEGER NOT NULL CHECK (quantidade_contada >= 0),
           quantidade_assistencia INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_assistencia >= 0),
           quantidade_avaria INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_avaria >= 0),
-          quantidade_outros INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_outros >= 0),
+          quantidade_outros INTEGER NOT NULL DEFAULT 0,
           diferenca INTEGER NOT NULL,
           UNIQUE (contagem_id, sku)
         )
         """,
         "ALTER TABLE itens_contagem ADD COLUMN IF NOT EXISTS quantidade_avaria INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_avaria >= 0)",
-        "ALTER TABLE itens_contagem ADD COLUMN IF NOT EXISTS quantidade_outros INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_outros >= 0)",
+        "ALTER TABLE itens_contagem ADD COLUMN IF NOT EXISTS quantidade_outros INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE itens_contagem DROP CONSTRAINT IF EXISTS itens_contagem_quantidade_outros_check",
         "ALTER TABLE itens_contagem ADD COLUMN IF NOT EXISTS quantidade_assistencia INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_assistencia >= 0)",
         """
         CREATE TABLE IF NOT EXISTS historico_scanner (
@@ -1036,7 +1037,7 @@ public final class PostgresDatabase {
           saldo_contado INTEGER NOT NULL DEFAULT 0 CHECK (saldo_contado >= 0),
           saldo_assistencia INTEGER NOT NULL DEFAULT 0 CHECK (saldo_assistencia >= 0),
           saldo_avaria INTEGER NOT NULL DEFAULT 0 CHECK (saldo_avaria >= 0),
-          saldo_outros INTEGER NOT NULL DEFAULT 0 CHECK (saldo_outros >= 0),
+          saldo_outros INTEGER NOT NULL DEFAULT 0,
           ativo BOOLEAN NOT NULL DEFAULT TRUE,
           ultima_atualizacao TIMESTAMPTZ NOT NULL DEFAULT now(),
           ultima_contagem_em TIMESTAMPTZ,
@@ -1044,7 +1045,8 @@ public final class PostgresDatabase {
         )
         """,
         "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_avaria INTEGER NOT NULL DEFAULT 0 CHECK (saldo_avaria >= 0)",
-        "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_outros INTEGER NOT NULL DEFAULT 0 CHECK (saldo_outros >= 0)",
+        "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_outros INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE estoque_produtos DROP CONSTRAINT IF EXISTS estoque_produtos_saldo_outros_check",
         "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS descricao TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_assistencia INTEGER NOT NULL DEFAULT 0 CHECK (saldo_assistencia >= 0)",
         """

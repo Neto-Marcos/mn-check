@@ -34,6 +34,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 public class MmCheckServer {
   public static final String APP_VERSION = AppInfo.VERSION;
@@ -43,7 +45,12 @@ public class MmCheckServer {
   );
   private static final Path ROOT = Path.of("").toAbsolutePath();
   private static final Path FRONTEND = ROOT.resolve("frontend");
-  private static final Map<String, String> SESSIONS = new LinkedHashMap<>();
+  private static final Duration SESSION_TTL = Duration.ofHours(12);
+  private static final Duration LOGIN_WINDOW = Duration.ofMinutes(15);
+  private static final int MAX_LOGIN_FAILURES = 5;
+  private static final Map<String, SessionRecord> SESSIONS = new ConcurrentHashMap<>();
+  private static final Map<String, LoginAttempt> LOGIN_ATTEMPTS = new ConcurrentHashMap<>();
+  private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder(12);
   private static HttpServer server;
   private static ExecutorService executor;
   private static PersistenceStore persistence;
@@ -115,12 +122,36 @@ public class MmCheckServer {
       Map<String, Object> body = readJson(exchange);
       String username = string(body.get("username")).trim();
       String password = string(body.get("password")).trim();
-      User user = db.findUserByUsername(username)
-          .filter(item -> item.passwordHash.equals(hash(password)))
-          .orElseThrow(() -> new ApiException(401, "Usuário ou senha inválidos."));
+      String attemptKey = exchange.getRemoteAddress() + "|" + username.toLowerCase(Locale.ROOT);
+      enforceLoginRateLimit(attemptKey);
+      Optional<User> candidate = db.findUserByUsername(username);
+      if (candidate.isEmpty() || !verifyPassword(password, candidate.get().passwordHash)) {
+        recordLoginFailure(attemptKey);
+        throw new ApiException(401, "Usuário ou senha inválidos.");
+      }
+      User user = candidate.get();
+      LOGIN_ATTEMPTS.remove(attemptKey);
       String token = UUID.randomUUID().toString().replace("-", "");
-      SESSIONS.put(token, user.id);
+      SESSIONS.put(token, new SessionRecord(user.id, Instant.now().plus(SESSION_TTL)));
+      db.recordHistory(user, "login", "Sessão iniciada");
+      db.save();
       json(exchange, 200, Map.of("token", token, "user", user.publicMap()));
+      return;
+    }
+
+    if ("POST".equals(method) && "/api/logout".equals(path)) {
+      String token = bearerToken(exchange.getRequestHeaders().getFirst("Authorization"));
+      SessionRecord removed = token.isBlank() ? null : SESSIONS.remove(token);
+      if (removed != null) {
+        Optional<User> loggedOutUser = db.users.stream()
+            .filter(item -> item.id.equals(removed.userId())).findFirst();
+        if (loggedOutUser.isPresent()) {
+          User user = loggedOutUser.get();
+          db.recordHistory(user, "logout", "Sessão encerrada");
+          db.save();
+        }
+      }
+      json(exchange, 200, Map.of("status", "ok"));
       return;
     }
 
@@ -235,9 +266,10 @@ public class MmCheckServer {
       if (username.isBlank() || name.isBlank() || password.isBlank()) {
         throw new ApiException(400, "Preencha usuário, nome e senha.");
       }
+      requireStrongPassword(password);
       if (!User.allowedRoles().contains(role)) throw new ApiException(400, "Função inválida.");
       if (db.findUserByUsername(username).isPresent()) throw new ApiException(409, "Usuário já cadastrado.");
-      User created = new User(UUID.randomUUID().toString(), username, name, role, User.label(role), hash(password));
+      User created = new User(UUID.randomUUID().toString(), username, name, role, User.label(role), hashPassword(password));
       db.users.add(created);
       db.recordHistory(user, "create_user", "Usuário " + username + " cadastrado");
       db.save();
@@ -254,7 +286,7 @@ public class MmCheckServer {
         throw new ApiException(403, "O administrador principal Marcos não pode ser removido.");
       }
       db.users.remove(target);
-      SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
+      SESSIONS.entrySet().removeIf(entry -> entry.getValue().userId().equals(target.id));
       db.recordHistory(user, "delete_user", "Usuário " + target.username + " removido");
       db.save();
       json(exchange, 200, visibleData(user));
@@ -277,15 +309,15 @@ public class MmCheckServer {
       Map<String, Object> body = readJson(exchange);
       String currentPassword = string(body.get("currentPassword"));
       String newPassword = string(body.get("newPassword"));
-      if (newPassword.length() < 6) throw new ApiException(400, "A nova senha deve ter pelo menos 6 caracteres.");
-      if (ownPassword && !target.passwordHash.equals(hash(currentPassword))) {
+      requireStrongPassword(newPassword);
+      if (ownPassword && !verifyPassword(currentPassword, target.passwordHash)) {
         throw new ApiException(401, "A senha atual está incorreta.");
       }
 
-      User updated = new User(target.id, target.username, target.name, target.role, target.label, hash(newPassword));
+      User updated = new User(target.id, target.username, target.name, target.role, target.label, hashPassword(newPassword));
       int index = db.users.indexOf(target);
       db.users.set(index, updated);
-      SESSIONS.entrySet().removeIf(entry -> entry.getValue().equals(target.id));
+      SESSIONS.entrySet().removeIf(entry -> entry.getValue().userId().equals(target.id));
       db.recordHistory(user, ownPassword ? "change_password" : "reset_password",
           ownPassword ? "Senha própria alterada" : "Senha de " + target.username + " redefinida");
       db.save();
@@ -1016,8 +1048,7 @@ public class MmCheckServer {
 
   private static User requireUser(HttpExchange exchange) {
     String header = exchange.getRequestHeaders().getFirst("Authorization");
-    String token = header != null && header.startsWith("Bearer ") ? header.substring(7) : "";
-    String userId = SESSIONS.get(token);
+    String userId = sessionUserId(bearerToken(header));
     if (userId == null) throw new ApiException(401, "Sessão expirada. Faça login novamente.");
     return db.users.stream().filter(user -> user.id.equals(userId)).findFirst()
         .orElseThrow(() -> new ApiException(401, "Sessão inválida."));
@@ -1131,6 +1162,81 @@ public class MmCheckServer {
       throw new IllegalStateException(error);
     }
   }
+
+  private static String hashPassword(String value) {
+    return "bcrypt:" + PASSWORD_ENCODER.encode(value);
+  }
+
+  private static boolean verifyPassword(String value, String storedHash) {
+    if (storedHash != null && storedHash.startsWith("bcrypt:")) {
+      return PASSWORD_ENCODER.matches(value, storedHash.substring("bcrypt:".length()));
+    }
+    return storedHash != null && storedHash.equals(hash(value));
+  }
+
+  private static void requireStrongPassword(String password) {
+    boolean hasLetter = password.codePoints().anyMatch(Character::isLetter);
+    boolean hasDigit = password.codePoints().anyMatch(Character::isDigit);
+    if (password.length() < 10 || !hasLetter || !hasDigit) {
+      throw new ApiException(400, "A senha deve ter ao menos 10 caracteres, com letras e números.");
+    }
+  }
+
+  private static void enforceLoginRateLimit(String key) {
+    LoginAttempt attempt = LOGIN_ATTEMPTS.get(key);
+    Instant now = Instant.now();
+    if (attempt == null) return;
+    if (attempt.blockedUntil().isAfter(now)) {
+      throw new ApiException(429, "Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.");
+    }
+    if (attempt.windowStarted().plus(LOGIN_WINDOW).isBefore(now)) LOGIN_ATTEMPTS.remove(key, attempt);
+  }
+
+  private static void recordLoginFailure(String key) {
+    Instant now = Instant.now();
+    LOGIN_ATTEMPTS.compute(key, (ignored, current) -> {
+      if (current == null || current.windowStarted().plus(LOGIN_WINDOW).isBefore(now)) {
+        return new LoginAttempt(1, now, Instant.EPOCH);
+      }
+      int failures = current.failures() + 1;
+      Instant blockedUntil = failures >= MAX_LOGIN_FAILURES ? now.plus(LOGIN_WINDOW) : current.blockedUntil();
+      return new LoginAttempt(failures, current.windowStarted(), blockedUntil);
+    });
+  }
+
+  public record SessionPrincipal(String id, String username, String name, String role) {
+    public boolean isAdmin() { return "admin".equals(role); }
+    public boolean isSupervisor() { return isAdmin() || "supervisor".equals(role); }
+  }
+
+  public static SessionPrincipal enterprisePrincipal(String authorization) {
+    if (authorization == null || !authorization.startsWith("Bearer ")) {
+      throw new EnterpriseDatabase.EnterpriseException(401, "Sessão não informada.");
+    }
+    String userId = sessionUserId(bearerToken(authorization));
+    if (userId == null || db == null) {
+      throw new EnterpriseDatabase.EnterpriseException(401, "Sessão expirada. Entre novamente.");
+    }
+    User user = db.users.stream().filter(item -> item.id.equals(userId)).findFirst()
+        .orElseThrow(() -> new EnterpriseDatabase.EnterpriseException(401, "Usuário não encontrado."));
+    return new SessionPrincipal(user.id, user.username, user.name, user.role);
+  }
+
+  private static String bearerToken(String authorization) {
+    return authorization != null && authorization.startsWith("Bearer ")
+        ? authorization.substring("Bearer ".length()).trim() : "";
+  }
+
+  private static String sessionUserId(String token) {
+    if (token == null || token.isBlank()) return null;
+    Instant now = Instant.now();
+    SessionRecord session = SESSIONS.computeIfPresent(token, (ignored, current) ->
+        current.expiresAt().isBefore(now) ? null : new SessionRecord(current.userId(), now.plus(SESSION_TTL)));
+    return session == null ? null : session.userId();
+  }
+
+  private record SessionRecord(String userId, Instant expiresAt) {}
+  private record LoginAttempt(int failures, Instant windowStarted, Instant blockedUntil) {}
 
   private static byte[] decodeDataUrl(String dataUrl) {
     try {
@@ -1597,15 +1703,18 @@ public class MmCheckServer {
 
   private record User(String id, String username, String name, String role, String label, String passwordHash) {
     static List<String> allowedRoles() {
-      return List.of("admin", "separation", "expedition", "stock");
+      return List.of("admin", "receiving", "separation", "expedition", "stock", "supervisor", "auditor");
     }
 
     static String label(String role) {
       return switch (role) {
         case "admin" -> "Administrador";
+        case "receiving" -> "Operador de recebimento";
         case "separation" -> "Conferente de separação";
         case "expedition" -> "Conferente de expedição";
         case "stock" -> "Conferente de estoque";
+        case "supervisor" -> "Supervisor de filial";
+        case "auditor" -> "Auditor";
         default -> "Usuário";
       };
     }
@@ -1616,9 +1725,12 @@ public class MmCheckServer {
               ? List.of("admin", "overview", "separation", "conference", "routes", "counting", "history", "users")
               : List.of("overview", "separation", "conference", "routes", "counting", "history", "users"))
           : switch (role) {
+            case "receiving" -> List.of("separation");
             case "separation" -> List.of("separation");
             case "expedition" -> List.of("conference", "routes");
             case "stock" -> List.of("counting");
+            case "supervisor" -> List.of("overview", "separation", "conference", "routes", "counting", "history");
+            case "auditor" -> List.of("history");
             default -> List.of();
           };
       return Map.of(
@@ -2024,7 +2136,7 @@ public class MmCheckServer {
       if (adminPassword == null || adminPassword.isBlank()) {
         throw new IOException("Defina MMCHECK_ADMIN_PASSWORD antes de criar o primeiro banco de dados.");
       }
-      db.users.add(new User(UUID.randomUUID().toString(), "Marcos", "Marcos", "admin", "Administrador", hash(adminPassword)));
+      db.users.add(new User(UUID.randomUUID().toString(), "Marcos", "Marcos", "admin", "Administrador", hashPassword(adminPassword)));
       return db;
     }
 

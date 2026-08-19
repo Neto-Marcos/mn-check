@@ -1,4 +1,5 @@
 import { authorizedJson, isNetworkFailure } from "./api.js";
+import { EnterpriseWorkspace } from "./enterprise.js";
 import { clearStoredToken, readStoredToken, storeToken } from "./auth.js";
 import { conferenceStatusLabel } from "./conferencia.js";
 import {
@@ -6,7 +7,8 @@ import {
   countDifference,
   hasCountMovement,
   normalizeCountRows,
-  safeQuantity
+  safeQuantity,
+  signedQuantity
 } from "./contagem.js";
 import { mapContentType, readFileAsDataUrl } from "./mapas.js";
 import {
@@ -55,6 +57,12 @@ const ICON_PATHS = {
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
   users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
   settings: ["M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.5 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.64 1 1.25 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.13.4-1.51 1Z"],
+  receiving: ["M3 8h18", "M5 8v12h14V8", "M9 12h6", "M12 3v5", "m9 5 3 3 3-3"],
+  inventory: ["M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"],
+  transfers: ["M7 7h11l-3-3", "m18 7-3 3 3-3", "M17 17H6l3 3", "m6 17 3-3"],
+  exceptions: ["M12 9v4", "M12 17h.01", "M10.3 2.9 1.7-.9 1.7.9 8.6 15a2 2 0 0 1-1.7 3H4a2 2 0 0 1-1.7-3Z"],
+  audit: ["M3 3v18h18", "M7 16h2", "M11 12h2", "M15 8h2", "M19 5h2"],
+  catalog: ["M4 5h16v14H4z", "M8 9h8", "M8 13h5"],
   notifications: ["M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9", "M13.73 21a2 2 0 0 1-3.46 0"],
   menu: ["M4 6h16", "M4 12h16", "M4 18h16"],
   collapse: ["m15 18-6-6 6-6"],
@@ -92,6 +100,20 @@ function SystemClock() {
   return h("time", { className: "system-clock", dateTime: now.toISOString() },
     now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
   );
+}
+
+function enterpriseAllowedViews(user) {
+  if (user?.role === "admin") {
+    return ["overview", "receiving", "separation", "conference", "transfers", "inventory", "counting", "exceptions", "audit", "catalog", "users", ...(user.username?.toLowerCase() === "marcos" ? ["admin"] : [])];
+  }
+  return {
+    receiving: ["receiving", "inventory"],
+    separation: ["separation", "inventory"],
+    expedition: ["conference", "transfers", "inventory"],
+    stock: ["inventory", "counting", "audit"],
+    supervisor: ["overview", "receiving", "separation", "conference", "transfers", "inventory", "counting", "exceptions", "audit", "catalog"],
+    auditor: ["overview", "inventory", "exceptions", "audit"]
+  }[user?.role] || user?.allowedViews || [];
 }
 
 function App() {
@@ -147,7 +169,7 @@ function App() {
         refreshing = true;
         window.location.reload();
       });
-      navigator.serviceWorker.register("/sw.js?v=2120")
+      navigator.serviceWorker.register("/sw.js?v=3000")
         .then((registration) => {
           if (registration.waiting && navigator.serviceWorker.controller) {
             setWaitingWorker(registration.waiting);
@@ -203,7 +225,7 @@ function App() {
         setData(cached);
         setAppVersion(cached.version || APP_VERSION);
         setDeployInfo({ version: cached.version || APP_VERSION, buildAt: cached.buildAt || "", commit: cached.commit || "" });
-        setView(cached.user.allowedViews?.[0] || "overview");
+        setView(enterpriseAllowedViews(cached.user)[0] || "overview");
         return;
       }
       clearStoredToken();
@@ -292,9 +314,10 @@ function App() {
     setData(body);
     setAppVersion(body.version || APP_VERSION);
     setDeployInfo({ version: body.version || APP_VERSION, buildAt: body.buildAt || "", commit: body.commit || "" });
-    setView(preferredView === "settings" || body.user.allowedViews.includes(preferredView)
+    const permittedViews = enterpriseAllowedViews(body.user);
+    setView(preferredView === "settings" || permittedViews.includes(preferredView)
       ? preferredView
-      : body.user.allowedViews[0]);
+      : permittedViews[0]);
   }
 
   async function selectView(nextView) {
@@ -348,7 +371,7 @@ function App() {
       setUser(body.user);
       const bootstrap = await request("/api/bootstrap", { token: body.token });
       setData(bootstrap);
-      setView(body.user.allowedViews[0]);
+      setView(enterpriseAllowedViews(body.user)[0]);
       notify(`Login realizado para ${body.user.name}.`);
     } catch (error) {
       notify(error.message);
@@ -364,6 +387,10 @@ function App() {
 
   async function createUser(event) {
     event.preventDefault();
+    if (newUser.password.length < 10 || !/\p{L}/u.test(newUser.password) || !/\d/.test(newUser.password)) {
+      notify("A senha deve ter ao menos 10 caracteres, com letras e números.");
+      return;
+    }
     try {
       await request("/api/users", { method: "POST", body: newUser });
       setNewUser({ username: "", name: "", role: "separation", password: "" });
@@ -818,6 +845,7 @@ function App() {
   }
 
   function logout() {
+    authorizedJson("/api/logout", { method: "POST" }).catch(() => {});
     clearStoredToken();
     setToken("");
     setUser(null);
@@ -833,7 +861,7 @@ function App() {
       }),
       h("section", { className: "brand-panel" },
         h("div", { className: "brand-content" },
-          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=2120", alt: "MN - Check" }),
+          h("img", { className: "app-logo hero-logo", src: "/logo.png?v=3000", alt: "MN - Check" }),
           h("p", { className: "eyebrow" }, "conferência operacional"),
           h("h1", null, "MN - Check"),
           h("p", null, "Controle de separação, conferência e estoque."),
@@ -875,7 +903,7 @@ function App() {
     );
   }
 
-  const allowedViews = user.allowedViews || [];
+  const allowedViews = enterpriseAllowedViews(user);
   const navigationViews = [...allowedViews, "settings"];
   const bottomNavigationViews = BOTTOM_NAV_PRIORITY
     .filter((item) => navigationViews.includes(item))
@@ -895,7 +923,7 @@ function App() {
     }),
     h("aside", { className: "sidebar", "aria-label": "Navegação principal" },
       h("div", { className: "sidebar-brand" },
-        h("img", { className: "app-logo small", src: "/logo.png?v=2120", alt: "MN - Check" }),
+        h("img", { className: "app-logo small", src: "/logo.png?v=3000", alt: "MN - Check" }),
         h("div", { className: "sidebar-brand-copy" },
           h("strong", null, "MN - Check"),
           h("small", { className: "sidebar-version" }, `Versão ${appVersion}`)
@@ -971,7 +999,7 @@ function App() {
             h(Icon, { name: "notifications", size: 19 }),
             unreadNotifications > 0 && h("span", null, unreadNotifications)
           ),
-          ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
+          false && ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
             className: "hidden",
             ref: mapFileInputRef,
             type: "file",
@@ -979,7 +1007,7 @@ function App() {
             multiple: true,
             onChange: uploadMapFile
           }),
-          ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
+          false && ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
             className: "hidden",
             ref: mapCameraInputRef,
             type: "file",
@@ -988,7 +1016,7 @@ function App() {
             multiple: true,
             onChange: uploadMapFile
           }),
-          ["admin", "separation"].includes(user.role) && view === "separation" && h("button", {
+          false && ["admin", "separation"].includes(user.role) && view === "separation" && h("button", {
             className: "primary-action compact",
             disabled: mapImporting,
             onClick: () => setMapImportOpen(true)
@@ -1002,15 +1030,21 @@ function App() {
         onOpenView: selectView,
         onReset: resetOperationalData
       }),
-      view === "overview" && h(Overview, { data }),
-      view === "separation" && h(Separation, {
+      ["overview", "receiving", "inventory", "separation", "conference", "transfers", "exceptions", "audit", "catalog"].includes(view) && h(EnterpriseWorkspace, {
+        view,
+        user,
+        legacyCounts: data.counts,
+        legacyUsers: data.users,
+        notify
+      }),
+      false && view === "separation" && h(Separation, {
         maps: data.maps,
         onToggle: toggleItem,
         onScan: scanSeparationBarcode,
         onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferência."),
         onDelete: deleteMap
       }),
-      view === "conference" && h(Conference, {
+      false && view === "conference" && h(Conference, {
         maps: data.maps,
         onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
         onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
@@ -1135,8 +1169,8 @@ function PasswordDialog({ target, ownPassword, onClose, onSave }) {
   async function submit(event) {
     event.preventDefault();
     setError("");
-    if (values.newPassword.length < 6) {
-      setError("A nova senha deve ter pelo menos 6 caracteres.");
+    if (values.newPassword.length < 10 || !/\p{L}/u.test(values.newPassword) || !/\d/.test(values.newPassword)) {
+      setError("A nova senha deve ter ao menos 10 caracteres, com letras e números.");
       return;
     }
     if (values.newPassword !== values.confirmation) {
@@ -1897,6 +1931,78 @@ function routeStatusLabel(value) {
   }[value] || value;
 }
 
+function normalizeProductSearch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function searchDistance(left, right) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j += 1) {
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1)
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
+function matchesProductSearch(item, query) {
+  const normalizedQuery = normalizeProductSearch(query);
+  if (!normalizedQuery) return true;
+  const sku = normalizeProductSearch(item.sku);
+  const description = normalizeProductSearch(item.description);
+  if (/^\d+$/.test(normalizedQuery)) {
+    return String(item.sku || "").replace(/\D/g, "").includes(normalizedQuery);
+  }
+  if (sku.includes(normalizedQuery) || description.includes(normalizedQuery)) return true;
+  const words = description.split(" ").filter(Boolean);
+  return normalizedQuery.split(" ").every((term) => words.some((word) => {
+    if (/^\d+$/.test(term)) return word === term;
+    if (word.includes(term) || term.includes(word)) return true;
+    const tolerance = term.length >= 7 ? 2 : term.length >= 4 ? 1 : 0;
+    return tolerance > 0 && searchDistance(word, term) <= tolerance;
+  }));
+}
+
+function evaluateCountExpression(value, allowNegative = false) {
+  const expression = String(value || "").replace(/\s+/g, "");
+  if (!expression) return 0;
+  const startsNegative = expression.startsWith("-");
+  const unsignedExpression = startsNegative ? expression.slice(1) : expression;
+  if (startsNegative && !allowNegative) return null;
+  if (!/^\d+(?:[+\-*/]\d+)*$/.test(unsignedExpression)) return null;
+  const tokens = unsignedExpression.match(/\d+|[+\-*/]/g) || [];
+  const values = [Number(tokens[0]) * (startsNegative ? -1 : 1)];
+  const operators = [];
+  for (let index = 1; index < tokens.length; index += 2) {
+    const operator = tokens[index];
+    const number = Number(tokens[index + 1]);
+    if (operator === "*" || operator === "/") {
+      const previous = values.pop();
+      if (operator === "/" && number === 0) return null;
+      values.push(operator === "*" ? previous * number : previous / number);
+    } else {
+      operators.push(operator);
+      values.push(number);
+    }
+  }
+  let result = values[0];
+  operators.forEach((operator, index) => {
+    result = operator === "+" ? result + values[index + 1] : result - values[index + 1];
+  });
+  return Number.isSafeInteger(result) && (allowNegative || result >= 0) ? result : null;
+}
+
 function Counting({
   counts,
   updatedAt,
@@ -1918,8 +2024,13 @@ function Counting({
   const [offlinePending, setOfflinePending] = React.useState(Boolean(initialOfflineDraft?.counts?.length));
   const [searchCode, setSearchCode] = React.useState("");
   const [searchMessage, setSearchMessage] = React.useState("");
+  const [countExpressions, setCountExpressions] = React.useState({});
   const [countFilter, setCountFilter] = React.useState("all");
   const [printFilter, setPrintFilter] = React.useState("counted");
+  const [countFilterOpen, setCountFilterOpen] = React.useState(false);
+  const [printFilterOpen, setPrintFilterOpen] = React.useState(false);
+  const [balanceActionsOpen, setBalanceActionsOpen] = React.useState(false);
+  const [moreActionsOpen, setMoreActionsOpen] = React.useState(false);
   const [manualOpen, setManualOpen] = React.useState(false);
   const [manualProduct, setManualProduct] = React.useState({ sku: "", description: "", system: "", counted: "", assistance: "", damaged: "", other: "" });
   const [savingManual, setSavingManual] = React.useState(false);
@@ -1981,7 +2092,7 @@ function Counting({
   }
 
   function changeCountField(sku, field, value) {
-    const amount = safeQuantity(value);
+    const amount = field === "other" ? signedQuantity(value) : safeQuantity(value);
     setDraft((current) => {
       const next = current.map((item) => item.sku === sku ? { ...item, [field]: amount } : item);
       if (!online || !navigator.onLine) {
@@ -1990,6 +2101,43 @@ function Counting({
       }
       return next;
     });
+  }
+
+  function editCountExpression(sku, field, value) {
+    if (!/^[\d+\-*/\s]*$/.test(value)) return;
+    setCountExpressions((current) => ({
+      ...current,
+      [sku]: { ...(current[sku] || {}), [field]: value }
+    }));
+  }
+
+  function commitCountExpression(sku, field, fallback) {
+    const expression = countExpressions[sku]?.[field];
+    if (expression == null) return;
+    const result = evaluateCountExpression(expression, field === "other");
+    if (result == null) {
+      window.alert(field === "other"
+        ? "Conta inválida. Em Outros, use inteiros ou contas como -60, 20-80, 10*3 ou 100/4."
+        : "Conta inválida. Use números inteiros com +, -, * ou /. Exemplo: 90+23.");
+      setCountExpressions((current) => ({
+        ...current,
+        [sku]: { ...(current[sku] || {}), [field]: String(fallback) }
+      }));
+      return;
+    }
+    changeCountField(sku, field, result);
+    setCountExpressions((current) => {
+      const next = { ...current };
+      const fields = { ...(next[sku] || {}) };
+      delete fields[field];
+      if (Object.keys(fields).length) next[sku] = fields;
+      else delete next[sku];
+      return next;
+    });
+  }
+
+  function countExpressionValue(item, field) {
+    return countExpressions[item.sku]?.[field] ?? item[field];
   }
 
   async function submitCount() {
@@ -2005,9 +2153,10 @@ function Counting({
   }
 
   async function resetCount(mode) {
+    setMoreActionsOpen(false);
     if (!draft.length || savingCount) return;
     const onlyCounted = mode === "counted";
-    const hasValues = draft.some((item) => onlyCounted ? item.counted > 0 : countAccounted(item) > 0);
+    const hasValues = draft.some((item) => onlyCounted ? item.counted > 0 : hasCountMovement(item));
     if (!hasValues) {
       window.alert(onlyCounted ? "A coluna Contagem já está zerada." : "A contagem já está zerada.");
       return;
@@ -2042,6 +2191,7 @@ function Counting({
   }
 
   async function recountDivergent() {
+    setMoreActionsOpen(false);
     if (!divergentRows.length || savingCount) return;
     if (!window.confirm(`Recontar ${divergentRows.length} itens divergentes? Os valores desses itens serão zerados.`)) return;
     const divergentSkus = new Set(divergentRows.map((item) => item.sku));
@@ -2077,7 +2227,7 @@ function Counting({
       window.alert("Informe o SKU no formato produto.gradeX.gradeY. Exemplo: 76331.3.4.");
       return;
     }
-    if ([system, counted, assistance, damaged, other].some((value) => value < 0 || Number.isNaN(value))) {
+    if ([system, counted, assistance, damaged].some((value) => value < 0 || Number.isNaN(value)) || Number.isNaN(other)) {
       window.alert("Informe quantidades válidas.");
       return;
     }
@@ -2096,18 +2246,22 @@ function Counting({
   function findBalanceCode(value, focus = true) {
     const digits = String(value || "").replace(/\D/g, "");
     setSearchCode(value);
-    if (!digits) {
+    if (!String(value || "").trim()) {
       setSearchMessage("");
       return null;
     }
-    const match = draft.find((item) => String(item.sku).replace(/\D/g, "") === digits);
+    const matches = draft.filter((item) => matchesProductSearch(item, value));
+    const match = digits
+      ? draft.find((item) => String(item.sku).replace(/\D/g, "") === digits) || matches[0]
+      : matches[0];
     if (!match) {
-      setSearchMessage(`Código ${value} não encontrado na lista de saldo.`);
+      setSearchMessage(`Nenhum produto encontrado para “${value}”.`);
       playFeedback(false);
       return null;
     }
-    setSearchCode(match.sku);
-    setSearchMessage(`Encontrado: ${match.sku} - ${match.description || "produto sem descrição"} - saldo ${match.system}.`);
+    setSearchMessage(matches.length > 1
+      ? `${matches.length} produtos encontrados. Pressione Enter para abrir o primeiro.`
+      : `Encontrado: ${match.sku} - ${match.description || "produto sem descrição"} - saldo ${match.system}.`);
     playFeedback(true);
     if (focus) {
       window.setTimeout(() => {
@@ -2141,11 +2295,11 @@ function Counting({
           <td>${escapeCell(color)}</td>
           <td>${escapeCell(voltage)}</td>
           <td>${escapeCell(item.description)}</td>
+          <td>${item.system}</td>
           <td>${item.counted}</td>
           <td>${item.assistance}</td>
           <td>${item.damaged}</td>
           <td>${item.other}</td>
-          <td>${item.system}</td>
           <td>${difference}</td>
         </tr>`;
     }).join("");
@@ -2158,6 +2312,9 @@ function Counting({
           table { border-collapse: collapse; width: 100%; }
           th { background: #761b1d; color: #fff; }
           th, td { border: 1px solid #d8ced0; padding: 8px; text-align: left; }
+          th { text-align: center; }
+          th:nth-child(1), th:nth-child(4), td:nth-child(1), td:nth-child(4) { text-align: left; }
+          td:nth-child(2), td:nth-child(3), td:nth-child(n+5) { text-align: center; }
           .meta td { font-weight: bold; }
         </style>
       </head>
@@ -2178,11 +2335,11 @@ function Counting({
               <th>Cor</th>
               <th>Voltagem</th>
               <th>Produto</th>
+              <th>Saldo</th>
               <th>Contagem</th>
               <th>Assist.</th>
               <th>Avaria</th>
               <th>Outros</th>
-              <th>Saldo</th>
               <th>Diferença</th>
             </tr>
           </thead>
@@ -2202,10 +2359,12 @@ function Counting({
   }
 
   function exportPdf() {
+    setMoreActionsOpen(false);
     printCountReport();
   }
 
   function exportExcel() {
+    setMoreActionsOpen(false);
     exportBalanceExcel();
   }
 
@@ -2215,6 +2374,20 @@ function Counting({
   const pendingItems = draft.filter((item) => !hasCountMovement(item));
   const totalSystem = draft.reduce((sum, item) => sum + item.system, 0);
   const divergentItems = divergentRows.length;
+  const countFilterOptions = [
+    { value: "all", label: "Todos", count: draft.length },
+    { value: "counted", label: "Já contados", count: countedItems.length },
+    { value: "ok", label: "Conformes", count: compliantItems.length },
+    { value: "divergent", label: "Somente divergentes", count: divergentItems },
+    { value: "pending", label: "Somente não contados", count: pendingItems.length }
+  ];
+  const selectedCountFilter = countFilterOptions.find((option) => option.value === countFilter) || countFilterOptions[0];
+  const printFilterOptions = [
+    { value: "counted", label: "Somente produtos contados" },
+    { value: "visible", label: "Somente filtro atual" }
+  ];
+  const selectedPrintFilter = printFilterOptions.find((option) => option.value === printFilter) || printFilterOptions[0];
+  const searchTerm = normalizeProductSearch(searchCode);
   const searchDigits = searchCode.replace(/\D/g, "");
   const filteredDraft = draft.filter((item) => {
     if (countFilter === "counted") return hasCountMovement(item);
@@ -2223,8 +2396,8 @@ function Counting({
     if (countFilter === "pending") return !hasCountMovement(item);
     return true;
   });
-  const visibleDraft = searchDigits
-    ? filteredDraft.filter((item) => String(item.sku).replace(/\D/g, "").includes(searchDigits))
+  const visibleDraft = searchTerm
+    ? filteredDraft.filter((item) => matchesProductSearch(item, searchCode))
     : filteredDraft;
   const printableDraft = printMode === "balance" ? draft : printFilter === "counted" ? countedItems : visibleDraft;
   const printTotalSystem = printableDraft.reduce((sum, item) => sum + item.system, 0);
@@ -2235,7 +2408,7 @@ function Counting({
   const printTotalAccounted = printableDraft.reduce((sum, item) => sum + countAccounted(item), 0);
   const printDivergentItems = printableDraft.filter((item) => countDifference(item) !== 0).length;
 
-  return h("div", { className: "section-grid" },
+  return h("div", { className: "section-grid counting-layout" },
     h("article", { className: "panel" },
       h("div", { className: "panel-header" },
         h("h3", null, "Contagem de estoque"),
@@ -2312,73 +2485,115 @@ function Counting({
         }, savingCount
           ? "Salvando..."
           : online ? "Atualizar contagem" : "Salvar contagem off-line"),
-        h("details", { className: "count-more-actions" },
-          h("summary", {
+        h("div", { className: "count-action-group" },
+          h("button", {
             className: "secondary-action compact",
-            title: "Mais ações",
-            "aria-label": "Mais ações"
-          }, h("span", { className: "count-more-actions-icon", "aria-hidden": "true" }, "•••")),
-          h("div", { className: "count-more-actions-menu" },
+            onClick: () => {
+              setBalanceActionsOpen((current) => !current);
+              setMoreActionsOpen(false);
+            }
+          }, importing ? "Lendo PDF..." : "Saldo ▾"),
+          balanceActionsOpen && h("div", { className: "count-action-popover" },
             h("button", {
               className: "secondary-action compact",
               disabled: importing,
-              onClick: () => fileInputRef.current?.click()
-            }, importing ? "Lendo todas as folhas..." : "Importar PDF de saldo"),
+              onClick: () => {
+                setBalanceActionsOpen(false);
+                fileInputRef.current?.click();
+              }
+            }, "Importar PDF de saldo"),
             h("button", {
               className: "secondary-action compact",
-              onClick: () => setManualOpen(true)
-            }, "Adicionar produto"),
-            h("button", {
-              className: "secondary-action compact",
-              disabled: !draft.length,
-              onClick: exportPdf
-            }, "Exportar PDF"),
-            h("button", {
-              className: "secondary-action compact",
-              disabled: !draft.length,
-              onClick: exportExcel
-            }, "Exportar Excel"),
-            h("span", { className: "count-more-actions-divider" }),
-            h("button", {
-              className: "secondary-action compact",
-              disabled: !draft.length || savingCount,
-              onClick: () => resetCount("counted")
-            }, "Zerar somente contagem"),
-            h("button", {
-              className: "danger-action compact",
-              disabled: !divergentRows.length || savingCount,
-              onClick: recountDivergent
-            }, "Zerar divergentes"),
-            h("button", {
-              className: "danger-action compact",
-              disabled: !draft.length || savingCount,
-              onClick: () => resetCount("all")
-            }, "Zerar tudo")
+              onClick: () => {
+                setBalanceActionsOpen(false);
+                setManualOpen(true);
+              }
+            }, "Adicionar produto")
+          )
+        ),
+        h("div", { className: "count-action-group" },
+          h("button", {
+            className: "secondary-action compact",
+            disabled: !draft.length,
+            onClick: () => {
+              setMoreActionsOpen((current) => !current);
+              setBalanceActionsOpen(false);
+            }
+          }, "Mais opções ▾"),
+          moreActionsOpen && h("div", { className: "count-action-popover wide" },
+            h("button", { className: "secondary-action compact", disabled: savingCount, onClick: () => resetCount("counted") }, "Zerar somente contagem"),
+            h("button", { className: "danger-action compact", disabled: savingCount, onClick: () => resetCount("all") }, "Zerar tudo"),
+            h("button", { className: "secondary-action compact", disabled: !divergentRows.length || savingCount, onClick: recountDivergent }, "Zerar divergentes"),
+            h("button", { className: "secondary-action compact", onClick: exportPdf }, "Exportar PDF"),
+            h("button", { className: "secondary-action compact", onClick: exportExcel }, "Exportar Excel")
           )
         )
       ),
       draft.length && h("section", { className: "count-status-filter" },
-        h("div", { className: "count-filter-grid" },
-          [
-            ["all", "Todos", draft.length],
-            ["counted", "Já contados", countedItems.length],
-            ["ok", "Conformes", compliantItems.length],
-            ["divergent", "Somente divergentes", divergentItems],
-            ["pending", "Somente não contados", pendingItems.length]
-          ].map(([value, label, amount]) => h("button", {
-            key: value,
-            className: `count-filter-chip ${countFilter === value ? "active" : ""}`,
-            onClick: () => setCountFilter(value)
-          }, h("span", null, label), h("strong", null, amount)))
+        h("div", { className: "count-filter-control" },
+          h("span", null, "Exibir"),
+          h("div", { className: "filter-select" },
+            h("button", {
+              type: "button",
+              className: `filter-select-trigger ${countFilterOpen ? "open" : ""}`,
+              "aria-haspopup": "listbox",
+              "aria-expanded": countFilterOpen,
+              onClick: () => {
+                setCountFilterOpen((current) => !current);
+                setPrintFilterOpen(false);
+              }
+            },
+              h("span", { className: "filter-select-value" }, selectedCountFilter.label),
+              h("strong", { className: "filter-select-count" }, selectedCountFilter.count),
+              h("span", { className: "filter-select-chevron", "aria-hidden": "true" }, "⌄")
+            ),
+            countFilterOpen && h("div", { className: "filter-select-menu", role: "listbox", "aria-label": "Filtrar produtos" },
+              countFilterOptions.map((option) => h("button", {
+                key: option.value,
+                type: "button",
+                role: "option",
+                "aria-selected": countFilter === option.value,
+                className: `filter-select-option ${countFilter === option.value ? "active" : ""}`,
+                onClick: () => {
+                  setCountFilter(option.value);
+                  setCountFilterOpen(false);
+                }
+              },
+                h("span", null, option.label),
+                h("strong", null, option.count)
+              ))
+            )
+          )
         ),
-        h("label", { className: "print-scope-control" },
+        h("div", { className: "print-scope-control" },
           h("span", null, "Impressão"),
-          h("select", {
-            value: printFilter,
-            onChange: (event) => setPrintFilter(event.target.value)
-          },
-            h("option", { value: "counted" }, "Somente produtos contados"),
-            h("option", { value: "visible" }, "Somente filtro atual")
+          h("div", { className: "filter-select" },
+            h("button", {
+              type: "button",
+              className: `filter-select-trigger ${printFilterOpen ? "open" : ""}`,
+              "aria-haspopup": "listbox",
+              "aria-expanded": printFilterOpen,
+              onClick: () => {
+                setPrintFilterOpen((current) => !current);
+                setCountFilterOpen(false);
+              }
+            },
+              h("span", { className: "filter-select-value" }, selectedPrintFilter.label),
+              h("span", { className: "filter-select-chevron", "aria-hidden": "true" }, "⌄")
+            ),
+            printFilterOpen && h("div", { className: "filter-select-menu", role: "listbox", "aria-label": "Escopo da impressão" },
+              printFilterOptions.map((option) => h("button", {
+                key: option.value,
+                type: "button",
+                role: "option",
+                "aria-selected": printFilter === option.value,
+                className: `filter-select-option ${printFilter === option.value ? "active" : ""}`,
+                onClick: () => {
+                  setPrintFilter(option.value);
+                  setPrintFilterOpen(false);
+                }
+              }, h("span", null, option.label)))
+            )
           )
         )
       ),
@@ -2386,16 +2601,15 @@ function Counting({
         h("div", { className: "balance-search-head" },
           h("div", null,
             h("strong", null, "Localizar produto no saldo"),
-            h("span", null, "Use o coletor/bipador ou pressione Enter após digitar o código")
+            h("span", null, "Use o coletor/bipador ou digite o código")
           ),
           h("b", null, `${visibleDraft.length}/${draft.length} SKUs`)
         ),
         h("div", { className: "balance-search-controls" },
           h("input", {
-            inputMode: "numeric",
             autoFocus: true,
             autoComplete: "off",
-            placeholder: "Código da etiqueta ou SKU",
+            placeholder: "Código, SKU ou nome aproximado do produto",
             value: searchCode,
             onChange: (event) => {
               setSearchCode(event.target.value);
@@ -2407,6 +2621,13 @@ function Counting({
               findBalanceCode(searchCode);
             }
           }),
+          searchCode && h("button", {
+            className: "ghost-action compact",
+            onClick: () => {
+              setSearchCode("");
+              setSearchMessage("");
+            }
+          }, "Limpar")
         ),
         searchMessage && h("div", {
           className: `balance-search-message ${searchMessage.startsWith("Encontrado") ? "success" : ""}`
@@ -2441,34 +2662,58 @@ function Counting({
             h("td", null, item.system),
             h("td", null, h("input", {
               className: "count-input",
-              type: "number",
-              min: "0",
-              value: item.counted,
+              type: "text",
+              inputMode: "text",
+              value: countExpressionValue(item, "counted"),
               ref: (element) => {
                 if (element) countInputRefs.current[item.sku] = element;
               },
-              onChange: (event) => changeCountField(item.sku, "counted", event.target.value)
+              onChange: (event) => editCountExpression(item.sku, "counted", event.target.value),
+              onBlur: () => commitCountExpression(item.sku, "counted", item.counted),
+              onKeyDown: (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitCountExpression(item.sku, "counted", item.counted);
+              }
             })),
             h("td", null, h("input", {
               className: "count-input",
-              type: "number",
-              min: "0",
-              value: item.assistance,
-              onChange: (event) => changeCountField(item.sku, "assistance", event.target.value)
+              type: "text",
+              inputMode: "text",
+              value: countExpressionValue(item, "assistance"),
+              onChange: (event) => editCountExpression(item.sku, "assistance", event.target.value),
+              onBlur: () => commitCountExpression(item.sku, "assistance", item.assistance),
+              onKeyDown: (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitCountExpression(item.sku, "assistance", item.assistance);
+              }
             })),
             h("td", null, h("input", {
               className: "count-input",
-              type: "number",
-              min: "0",
-              value: item.damaged,
-              onChange: (event) => changeCountField(item.sku, "damaged", event.target.value)
+              type: "text",
+              inputMode: "text",
+              value: countExpressionValue(item, "damaged"),
+              onChange: (event) => editCountExpression(item.sku, "damaged", event.target.value),
+              onBlur: () => commitCountExpression(item.sku, "damaged", item.damaged),
+              onKeyDown: (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitCountExpression(item.sku, "damaged", item.damaged);
+              }
             })),
             h("td", null, h("input", {
               className: "count-input",
-              type: "number",
-              min: "0",
-              value: item.other,
-              onChange: (event) => changeCountField(item.sku, "other", event.target.value)
+              type: "text",
+              inputMode: "text",
+              value: countExpressionValue(item, "other"),
+              onChange: (event) => editCountExpression(item.sku, "other", event.target.value),
+              onBlur: () => commitCountExpression(item.sku, "other", item.other),
+              onKeyDown: (event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitCountExpression(item.sku, "other", item.other);
+              }
             })),
             h("td", { className: countDifference(item) === 0 ? "diff-ok" : "diff-alert" }, countDifference(item))
           )))
@@ -2559,7 +2804,6 @@ function Counting({
             h("span", null, "Outros"),
             h("input", {
               type: "number",
-              min: "0",
               value: manualProduct.other,
               onChange: (event) => setManualProduct((current) => ({ ...current, other: event.target.value }))
             })
@@ -2579,17 +2823,6 @@ function Counting({
         )
       )
     ), document.body),
-    h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Divergências"), h("span", null, "por SKU")),
-      h("div", { className: "stack divergence-list" }, divergentRows.length
-        ? divergentRows.map((item) =>
-          h("div", { className: "list-item divergence-item", key: item.sku },
-            h("strong", null, item.sku),
-            h("span", null, `${countDifference(item) > 0 ? "+" : ""}${countDifference(item)} un.`)
-          )
-        )
-        : empty("Nenhuma divergência informada."))
-    ),
     printMode && h("section", { className: "count-print-sheet", "aria-hidden": "true" },
       h("header", { className: "count-print-header" },
         h("div", null,
@@ -2635,11 +2868,11 @@ function Counting({
             h("th", null, "Cor"),
             h("th", null, "Volt."),
             h("th", null, "Produto"),
+            h("th", null, "Saldo"),
             h("th", null, "Contagem"),
             h("th", null, "Assist."),
             h("th", null, "Avaria"),
             h("th", null, "Outros"),
-            h("th", null, "Saldo"),
             h("th", null, "Dif.")
           )
         ),
@@ -2652,11 +2885,11 @@ function Counting({
             h("td", null, color || "—"),
             h("td", null, voltage || "—"),
             h("td", null, item.description || "Produto sem descrição"),
+            h("td", null, item.system),
             h("td", null, item.counted),
             h("td", null, item.assistance),
             h("td", null, item.damaged),
             h("td", null, item.other),
-            h("td", null, item.system),
             h("td", null, difference > 0 ? `+${difference}` : difference)
           );
         }))
@@ -2682,7 +2915,8 @@ function Users({ users, newUser, setNewUser, createUser, removeUser, changeUserP
           h("select", { value: newUser.role, onChange: (e) => setNewUser({ ...newUser, role: e.target.value }) },
             ROLE_OPTIONS.map(([value, label]) => h("option", { key: value, value }, label))
           ),
-          h("input", { placeholder: "Senha", type: "password", value: newUser.password, onChange: (e) => setNewUser({ ...newUser, password: e.target.value }) })
+          h("input", { placeholder: "Senha (10+ caracteres, letras e números)", type: "password", minLength: 10,
+            autoComplete: "new-password", value: newUser.password, onChange: (e) => setNewUser({ ...newUser, password: e.target.value }) })
         ),
         h("button", { className: "primary-action compact", type: "submit" }, "Cadastrar usuário")
       )
@@ -3392,7 +3626,7 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
     return h("main", { className: "fatal-error" },
-      h("img", { className: "app-logo", src: "/logo.png?v=2120", alt: "MN - Check" }),
+      h("img", { className: "app-logo", src: "/logo.png?v=3000", alt: "MN - Check" }),
       h("p", { className: "eyebrow" }, "Falha de interface"),
       h("h1", null, "Não foi possível concluir esta operação"),
       h("p", null, "Seus dados persistidos não foram apagados. Recarregue a tela para continuar."),

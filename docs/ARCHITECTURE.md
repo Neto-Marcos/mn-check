@@ -19,16 +19,32 @@ O MN Check foi construído como um sistema operacional de logística com backend
 - Contagens preservam snapshot do saldo usado naquele momento.
 - Conferências podem ser salvas, pausadas, retomadas ou canceladas com confirmação.
 
-## Evolução Recomendada
+## Módulo empresarial 3.0
 
-Para uma versão empresarial maior, separar:
+- `EnterpriseController`: contrato HTTP versionado em `/api/v2`.
+- `EnterpriseService`: regras transacionais, permissões, estados e idempotência.
+- `EnterpriseDatabase`: gateway JDBC, migrações e limites transacionais.
+- `NfeXmlParser`: leitura segura de NF-e, com DTD e entidades externas desativadas.
+- `enterprise-schema.sql`: entidades normalizadas e índices operacionais.
+- `enterprise.js` e `enterprise.css`: interface isolada da contagem 2.3.0.
 
-- `controllers/`
-- `services/`
-- `repositories/`
-- `models/`
-- `dtos/`
-- `configs/`
-- `utils/`
+O legado continua atendendo autenticação, contagem e compatibilidade durante a transição. Novos fluxos não gravam o estado operacional em `mn_check_state`.
 
-Essa separação deve ser feita em etapas para não quebrar o deploy atual.
+As senhas novas são armazenadas com bcrypt (custo 12), sessões expiram após 12 horas de inatividade e tentativas de login são bloqueadas temporariamente após repetição excessiva. Hashes SHA-256 antigos continuam aceitos somente para migração de usuários já existentes; qualquer troca de senha os converte para bcrypt.
+
+## Invariantes de estoque
+
+- `disponivel + reservado + quarentena <= fisico`.
+- Nenhum componente altera `saldos_estoque` sem inserir um movimento na mesma transação.
+- Toda operação mutável exige uma chave registrada em `requisicoes_idempotentes`.
+- Estornos apontam para o movimento original e aplicam deltas inversos.
+- Expedição somente ocorre após separação e reconferência completas.
+- Divergências não entram silenciosamente no estoque regular.
+
+## Garantias verificadas
+
+`EnterpriseServiceIntegrationTest` inicializa um PostgreSQL 14 descartável e percorre o fluxo completo. Além das regras funcionais, o teste disputa a mesma disponibilidade com duas transações concorrentes, repete chaves de idempotência, valida isolamento entre filiais e exige reconciliação integral ao final.
+
+## Compatibilidade de atualização
+
+O backend mantém `allowedViews` compatível com o frontend 2.3.0 em cache. O frontend 3.0 calcula a nova navegação a partir da função do usuário. Assim, o service worker anterior consegue atualizar sem quebrar a tela antes do recarregamento.
