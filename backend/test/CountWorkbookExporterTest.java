@@ -73,6 +73,28 @@ class CountWorkbookExporterTest {
   }
 
   @Test
+  void discoversAliasesAndColumnsRegardlessOfTheirOriginalPosition() throws Exception {
+    byte[] template = adaptiveTemplateFixture();
+    CountWorkbookExporter.TemplateInfo info = CountWorkbookExporter.validate(template);
+    assertEquals(1, info.products());
+
+    byte[] output = CountWorkbookExporter.export(template, List.of(
+        new MmCheckServer.CountItem("1191.3.1", "FERRO ADAPTATIVO", 179, 170, 2, 1, -4)
+    ));
+    try (XSSFWorkbook workbook = open(output)) {
+      Row row = workbook.getSheetAt(0).getRow(1);
+      assertEquals("FERRO ADAPTATIVO", row.getCell(5).getStringCellValue());
+      assertEquals(170, row.getCell(4).getNumericCellValue());
+      assertEquals(2, row.getCell(7).getNumericCellValue());
+      assertEquals(1, row.getCell(8).getNumericCellValue());
+      assertEquals(-4, row.getCell(9).getNumericCellValue());
+      assertEquals(179, row.getCell(11).getNumericCellValue());
+      assertEquals("SUM(G2:J2)", row.getCell(10).getCellFormula());
+      assertEquals("K2-L2", row.getCell(12).getCellFormula());
+    }
+  }
+
+  @Test
   void comparesAgainstUserWorkbookWhenProvided() throws Exception {
     String path = System.getenv("MN_CHECK_XLSX_TEMPLATE");
     if (path == null || path.isBlank()) return;
@@ -160,6 +182,29 @@ class CountWorkbookExporterTest {
       addRule(sheet, "$Q2>0", "FBBC04");
       addRule(sheet, "$Q2<0", "EA4335");
       addRule(sheet, "$Q2=0", "34A853");
+      workbook.write(output);
+      return output.toByteArray();
+    }
+  }
+
+  private static byte[] adaptiveTemplateFixture() throws Exception {
+    try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+      XSSFSheet sheet = workbook.createSheet("Modelo livre");
+      String[] headers = {"Cor", "Código", "Tensão", "Observações", "Qtd. contada", "Descrição",
+          "Movimentação", "Assistência técnica", "Danificados", "Outros", "Total contado",
+          "Estoque sistema", "Divergência"};
+      Row header = sheet.createRow(0);
+      for (int i = 0; i < headers.length; i++) header.createCell(i).setCellValue(headers[i]);
+      Row row = sheet.createRow(1);
+      for (int i = 0; i < headers.length; i++) row.createCell(i);
+      row.getCell(0).setCellValue(3);
+      row.getCell(1).setCellValue(1191);
+      row.getCell(2).setCellValue(1);
+      row.getCell(5).setCellValue("FERRO ORIGINAL");
+      row.getCell(6).setCellValue(25);
+      row.getCell(10).setCellFormula("SUM(G2:J2)");
+      row.getCell(11).setCellValue(100);
+      row.getCell(12).setCellFormula("K2-L2");
       workbook.write(output);
       return output.toByteArray();
     }

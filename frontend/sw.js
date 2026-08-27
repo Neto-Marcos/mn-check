@@ -1,9 +1,9 @@
-const CACHE_NAME = "mn-check-2.3.2";
+const CACHE_NAME = "mn-check-2.3.2-divergent-balance-1";
 const APP_ASSETS = [
   "/",
   "/index.html",
-  "/styles.css?v=2320",
-  "/app.js?v=2320",
+  "/styles.css?v=2325",
+  "/app.js?v=2325",
   "/api.js",
   "/auth.js",
   "/conferencia.js",

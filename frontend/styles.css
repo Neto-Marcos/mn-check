@@ -766,6 +766,113 @@ select {
   border-color: var(--line);
 }
 
+.print-exclusion-modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.print-exclusion-modal .modal-actions {
+  position: sticky;
+  bottom: -24px;
+  z-index: 2;
+  margin: 20px -24px -24px;
+  padding: 14px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.print-exclusion-tools {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.print-column-options {
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.print-column-options > p {
+  margin: 4px 0 12px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.print-column-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.print-column-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.print-column-grid select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--panel, #fff);
+  font: inherit;
+}
+
+.print-exclusion-title {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.print-exclusion-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(52vh, 520px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.print-exclusion-item {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel, #fff);
+  cursor: pointer;
+}
+
+.print-exclusion-item input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.print-exclusion-item span {
+  display: grid;
+  min-width: 0;
+}
+
+.print-exclusion-item small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .print-column-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .new-map-dialog {
   width: min(520px, 100%);
   max-height: calc(100dvh - 40px);

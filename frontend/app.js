@@ -732,7 +732,7 @@ function App() {
     }
   }
 
-  async function countUpload(file) {
+  async function countUpload(file, mode = "all") {
     try {
       const dataUrl = await readFileAsDataUrl(file);
       await request("/api/importar", {
@@ -740,10 +740,13 @@ function App() {
         body: {
           fileName: file.name,
           contentType: file.type || "application/pdf",
-          dataUrl
+          dataUrl,
+          divergentOnly: mode === "divergent"
         },
       });
-      await refresh("Saldos lidos e validados pelo PDFBox.", "counting");
+      await refresh(mode === "divergent"
+        ? "Saldo atualizado somente nos itens divergentes."
+        : "Saldos lidos e validados pelo PDFBox.", "counting");
     } catch (error) {
       notify(error.message);
       throw error;
@@ -1040,6 +1043,7 @@ function App() {
         onUpdate: updateCounts,
         onAddProduct: addManualBalanceProduct,
         onOfflineDraft: saveCountDraftOffline,
+        request,
         online
       }),
       view === "history" && h(History, { data }),
@@ -1982,11 +1986,13 @@ function Counting({
   onUpdate,
   onAddProduct,
   onOfflineDraft,
+  request,
   online
 }) {
   const initialOfflineDraft = readStoredJson(OFFLINE_COUNT_DRAFT, null);
   const [draft, setDraft] = React.useState(normalizeCountRows(initialOfflineDraft?.counts || counts));
   const [importing, setImporting] = React.useState(false);
+  const [balanceImportMode, setBalanceImportMode] = React.useState("all");
   const [savingCount, setSavingCount] = React.useState(false);
   const [offlinePending, setOfflinePending] = React.useState(Boolean(initialOfflineDraft?.counts?.length));
   const [searchCode, setSearchCode] = React.useState("");
@@ -1999,6 +2005,16 @@ function Counting({
   const [balanceActionsOpen, setBalanceActionsOpen] = React.useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = React.useState(false);
   const [manualOpen, setManualOpen] = React.useState(false);
+  const [printExclusionOpen, setPrintExclusionOpen] = React.useState(false);
+  const [excludedPrintSkus, setExcludedPrintSkus] = React.useState([]);
+  const [printColumnModes, setPrintColumnModes] = React.useState({
+    system: "value",
+    counted: "value",
+    assistance: "value",
+    damaged: "value",
+    other: "value",
+    difference: "value"
+  });
   const [manualProduct, setManualProduct] = React.useState({ sku: "", description: "", system: "", counted: "", assistance: "", damaged: "", other: "" });
   const [savingManual, setSavingManual] = React.useState(false);
   const [printMode, setPrintMode] = React.useState(null);
@@ -2014,14 +2030,14 @@ function Counting({
   }, [counts]);
 
   React.useEffect(() => {
-    if (!manualOpen) return undefined;
+    if (!manualOpen && !printExclusionOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    window.setTimeout(() => manualSkuRef.current?.focus(), 0);
+    if (manualOpen) window.setTimeout(() => manualSkuRef.current?.focus(), 0);
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [manualOpen]);
+  }, [manualOpen, printExclusionOpen]);
 
   React.useEffect(() => {
     const clearPending = () => setOfflinePending(false);
@@ -2050,11 +2066,12 @@ function Counting({
 
     setImporting(true);
     try {
-      await onUpload(file);
+      await onUpload(file, balanceImportMode);
     } catch (error) {
       window.alert(error.message);
     } finally {
       setImporting(false);
+      setBalanceImportMode("all");
     }
   }
 
@@ -2327,7 +2344,10 @@ function Counting({
 
   function exportPdf() {
     setMoreActionsOpen(false);
-    printCountReport();
+    const candidates = (printFilter === "counted" ? countedItems : visibleDraft)
+      .filter((item) => countDifference(item) !== 0);
+    setExcludedPrintSkus((current) => current.filter((sku) => candidates.some((item) => item.sku === sku)));
+    setPrintExclusionOpen(true);
   }
 
   function selectExcelTemplate() {
@@ -2411,7 +2431,10 @@ function Counting({
   const visibleDraft = searchTerm
     ? filteredDraft.filter((item) => matchesProductSearch(item, searchCode))
     : filteredDraft;
-  const printableDraft = printMode === "balance" ? draft : printFilter === "counted" ? countedItems : visibleDraft;
+  const printableSource = printMode === "balance" ? draft : printFilter === "counted" ? countedItems : visibleDraft;
+  const printableDraft = printMode === "count"
+    ? printableSource.filter((item) => !excludedPrintSkus.includes(item.sku))
+    : printableSource;
   const printTotalSystem = printableDraft.reduce((sum, item) => sum + item.system, 0);
   const printTotalCounted = printableDraft.reduce((sum, item) => sum + item.counted, 0);
   const printTotalAssistance = printableDraft.reduce((sum, item) => sum + item.assistance, 0);
@@ -2511,9 +2534,19 @@ function Counting({
               disabled: importing,
               onClick: () => {
                 setBalanceActionsOpen(false);
+                setBalanceImportMode("all");
                 fileInputRef.current?.click();
               }
-            }, "Importar PDF de saldo"),
+            }, "Importar PDF completo"),
+            h("button", {
+              className: "secondary-action compact",
+              disabled: importing || !divergentRows.length,
+              onClick: () => {
+                setBalanceActionsOpen(false);
+                setBalanceImportMode("divergent");
+                fileInputRef.current?.click();
+              }
+            }, `Atualizar somente divergentes (${divergentRows.length})`),
             h("button", {
               className: "secondary-action compact",
               onClick: () => {
@@ -2735,6 +2768,82 @@ function Counting({
         ? empty("Nenhum SKU corresponde à pesquisa.")
         : empty("Selecione um PDF para carregar os saldos.")
     ),
+    printExclusionOpen && ReactDOM.createPortal(h("div", {
+      className: "modal-backdrop",
+      role: "presentation",
+      onMouseDown: (event) => {
+        if (event.target === event.currentTarget) setPrintExclusionOpen(false);
+      }
+    },
+      h("div", { className: "modal-card print-exclusion-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "print-exclusion-title" },
+        h("div", { className: "modal-head" },
+          h("div", null,
+            h("span", null, "PREPARAR IMPRESSÃO"),
+            h("h3", { id: "print-exclusion-title" }, "Ocultar faltas reais")
+          ),
+          h("button", { type: "button", className: "icon-button", onClick: () => setPrintExclusionOpen(false), "aria-label": "Fechar" }, "×")
+        ),
+        h("p", { className: "modal-text" }, "Marque os itens que não devem aparecer no relatório. Eles continuarão registrados normalmente no sistema."),
+        h("section", { className: "print-column-options" },
+          h("strong", null, "Colunas do relatório"),
+          h("p", null, "Escolha se cada coluna mostra os valores, deixa células em branco para preenchimento manual ou fica oculta."),
+          h("div", { className: "print-column-grid" },
+            [
+              ["system", "Saldo"],
+              ["counted", "Contagem"],
+              ["assistance", "Assistência"],
+              ["damaged", "Avaria"],
+              ["other", "Outros"],
+              ["difference", "Diferença"]
+            ].map(([key, label]) => h("label", { key },
+              h("span", null, label),
+              h("select", {
+                value: printColumnModes[key],
+                onChange: (event) => setPrintColumnModes((current) => ({ ...current, [key]: event.target.value }))
+              },
+                h("option", { value: "value" }, "Mostrar valores"),
+                h("option", { value: "blank" }, "Deixar em branco"),
+                h("option", { value: "hidden" }, "Ocultar coluna")
+              )
+            ))
+          )
+        ),
+        h("strong", { className: "print-exclusion-title" }, "Itens divergentes"),
+        h("div", { className: "print-exclusion-tools" },
+          h("button", { type: "button", className: "ghost-action compact", onClick: () => setExcludedPrintSkus((printFilter === "counted" ? countedItems : visibleDraft).filter((item) => countDifference(item) !== 0).map((item) => item.sku)) }, "Ocultar todos"),
+          h("button", { type: "button", className: "ghost-action compact", onClick: () => setExcludedPrintSkus([]) }, "Exibir todos")
+        ),
+        h("div", { className: "print-exclusion-list" },
+          (printFilter === "counted" ? countedItems : visibleDraft)
+            .filter((item) => countDifference(item) !== 0)
+            .map((item) => h("label", { key: item.sku, className: "print-exclusion-item" },
+              h("input", {
+                type: "checkbox",
+                checked: excludedPrintSkus.includes(item.sku),
+                onChange: (event) => setExcludedPrintSkus((current) => event.target.checked
+                  ? [...new Set([...current, item.sku])]
+                  : current.filter((sku) => sku !== item.sku))
+              }),
+              h("span", null,
+                h("strong", null, item.sku),
+                h("small", null, item.description || "Produto sem descrição")
+              ),
+              h("b", { className: countDifference(item) < 0 ? "negative" : "positive" }, countDifference(item) > 0 ? `+${countDifference(item)}` : countDifference(item))
+            ))
+        ),
+        h("div", { className: "modal-actions" },
+          h("button", { type: "button", className: "ghost-action compact", onClick: () => setPrintExclusionOpen(false) }, "Cancelar"),
+          h("button", {
+            type: "button",
+            className: "primary-action compact",
+            onClick: () => {
+              setPrintExclusionOpen(false);
+              window.setTimeout(printCountReport, 50);
+            }
+          }, `Imprimir sem ${excludedPrintSkus.length} item(ns)`)
+        )
+      )
+    ), document.body),
     manualOpen && ReactDOM.createPortal(h("div", {
       className: "modal-backdrop",
       role: "presentation",
@@ -2868,12 +2977,12 @@ function Counting({
           h("col", { className: "print-col-grade" }),
           h("col", { className: "print-col-grade" }),
           h("col", { className: "print-col-product" }),
-          h("col", { className: "print-col-qty" }),
-          h("col", { className: "print-col-qty" }),
-          h("col", { className: "print-col-qty" }),
-          h("col", { className: "print-col-qty" }),
-          h("col", { className: "print-col-qty" }),
-          h("col", { className: "print-col-diff" })
+          printColumnModes.system !== "hidden" && h("col", { className: "print-col-qty" }),
+          printColumnModes.counted !== "hidden" && h("col", { className: "print-col-qty" }),
+          printColumnModes.assistance !== "hidden" && h("col", { className: "print-col-qty" }),
+          printColumnModes.damaged !== "hidden" && h("col", { className: "print-col-qty" }),
+          printColumnModes.other !== "hidden" && h("col", { className: "print-col-qty" }),
+          printColumnModes.difference !== "hidden" && h("col", { className: "print-col-diff" })
         ),
         h("thead", null,
           h("tr", null,
@@ -2881,12 +2990,12 @@ function Counting({
             h("th", null, "Cor"),
             h("th", null, "Volt."),
             h("th", null, "Produto"),
-            h("th", null, "Saldo"),
-            h("th", null, "Contagem"),
-            h("th", null, "Assist."),
-            h("th", null, "Avaria"),
-            h("th", null, "Outros"),
-            h("th", null, "Dif.")
+            printColumnModes.system !== "hidden" && h("th", null, "Saldo"),
+            printColumnModes.counted !== "hidden" && h("th", null, "Contagem"),
+            printColumnModes.assistance !== "hidden" && h("th", null, "Assist."),
+            printColumnModes.damaged !== "hidden" && h("th", null, "Avaria"),
+            printColumnModes.other !== "hidden" && h("th", null, "Outros"),
+            printColumnModes.difference !== "hidden" && h("th", null, "Dif.")
           )
         ),
         h("tbody", null, printableDraft.map((item) => {
@@ -2898,12 +3007,12 @@ function Counting({
             h("td", null, color || "—"),
             h("td", null, voltage || "—"),
             h("td", null, item.description || "Produto sem descrição"),
-            h("td", null, item.system),
-            h("td", null, item.counted),
-            h("td", null, item.assistance),
-            h("td", null, item.damaged),
-            h("td", null, item.other),
-            h("td", null, difference > 0 ? `+${difference}` : difference)
+            printColumnModes.system !== "hidden" && h("td", null, printColumnModes.system === "blank" ? "" : item.system),
+            printColumnModes.counted !== "hidden" && h("td", null, printColumnModes.counted === "blank" ? "" : item.counted),
+            printColumnModes.assistance !== "hidden" && h("td", null, printColumnModes.assistance === "blank" ? "" : item.assistance),
+            printColumnModes.damaged !== "hidden" && h("td", null, printColumnModes.damaged === "blank" ? "" : item.damaged),
+            printColumnModes.other !== "hidden" && h("td", null, printColumnModes.other === "blank" ? "" : item.other),
+            printColumnModes.difference !== "hidden" && h("td", null, printColumnModes.difference === "blank" ? "" : difference > 0 ? `+${difference}` : difference)
           );
         }))
       ),

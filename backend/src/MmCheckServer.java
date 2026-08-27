@@ -509,6 +509,7 @@ public class MmCheckServer {
       String fileName = string(body.get("fileName")).trim();
       String contentType = string(body.get("contentType")).trim();
       String dataUrl = string(body.get("dataUrl")).trim();
+      boolean divergentOnly = Boolean.parseBoolean(string(body.get("divergentOnly")));
       if (fileName.isBlank() || dataUrl.isBlank()) throw new ApiException(400, "Selecione um PDF de saldo.");
       if (contentType.isBlank()) contentType = "application/pdf";
       if (!"application/pdf".equals(contentType)) throw new ApiException(400, "O arquivo de saldo deve ser um PDF.");
@@ -519,6 +520,37 @@ public class MmCheckServer {
 
       CountImportResult importResult = analyzeCountsWithPdfBox(pdfBytes);
       List<CountItem> imported = importResult.items();
+      List<PostgresDatabase.BalanceRow> balancesToSave = imported.stream()
+          .map(item -> new PostgresDatabase.BalanceRow(item.sku(), item.description(), item.system()))
+          .toList();
+      int divergentItemsUpdated = 0;
+      int divergentItemsMissing = 0;
+      if (divergentOnly) {
+        PostgresDatabase.BalanceSnapshot currentSnapshot = relationalDatabase.loadLatestBalances();
+        if (currentSnapshot.rows().isEmpty()) {
+          throw new ApiException(409, "Importe primeiro um PDF de saldo completo.");
+        }
+        Map<String, PostgresDatabase.BalanceRow> importedBySku = new LinkedHashMap<>();
+        balancesToSave.forEach(item -> importedBySku.put(item.sku(), item));
+        List<PostgresDatabase.BalanceRow> merged = new ArrayList<>();
+        for (PostgresDatabase.CountRow current : currentSnapshot.rows()) {
+          boolean divergent = current.accountedQuantity() != current.systemBalance();
+          PostgresDatabase.BalanceRow replacement = divergent ? importedBySku.get(current.sku()) : null;
+          if (replacement != null) {
+            merged.add(replacement);
+            divergentItemsUpdated++;
+          } else {
+            merged.add(new PostgresDatabase.BalanceRow(
+                current.sku(), current.description(), current.systemBalance()));
+            if (divergent) divergentItemsMissing++;
+          }
+        }
+        if (divergentItemsUpdated == 0) {
+          throw new ApiException(409,
+              "Nenhum dos itens atualmente divergentes foi encontrado no novo PDF.");
+        }
+        balancesToSave = merged;
+      }
       BalancePdfParser.Metrics metrics = importResult.metrics();
       System.out.println("SALDO_PDF"
           + " arquivo=\"" + safeFileName(fileName) + "\""
@@ -540,25 +572,32 @@ public class MmCheckServer {
       PostgresDatabase.ImportSummary importSummary = relationalDatabase.saveBalanceImport(
           fileName,
           user.name,
-          imported.stream()
-              .map(item -> new PostgresDatabase.BalanceRow(item.sku(), item.description(), item.system()))
-              .toList(),
+          balancesToSave,
           metrics.pagesProcessed(),
           metrics.totalLinesRead(),
           metrics.ignoredLines(),
           metrics.duplicateSkus(),
           metrics.conflictsFound()
       );
-      db.counts = imported;
-      db.countsUpdatedAt = importSummary.updatedAt().toString();
-      db.countsSourceName = importSummary.fileName();
-      db.countsImportWarnings = importResult.warnings();
+      applyRelationalBalanceSnapshot();
+      db.countsImportWarnings = new ArrayList<>(importResult.warnings());
+      if (divergentOnly) {
+        db.countsImportWarnings.add("Atualização parcial: " + divergentItemsUpdated
+            + " itens divergentes atualizados; os demais saldos foram preservados.");
+        if (divergentItemsMissing > 0) {
+          db.countsImportWarnings.add(divergentItemsMissing
+              + " itens divergentes não apareceram no PDF e permaneceram inalterados.");
+        }
+      }
       db.countsImportMetrics = metrics;
       db.countsImportIgnored = importResult.ignored().stream()
           .map(BalancePdfParser.IgnoredLine::toMap)
           .toList();
-      db.recordHistory(user, "count_upload", "Saldo atualizado pelo PDF " + fileName
-          + " com " + imported.size() + " SKUs em " + metrics.pagesProcessed() + " folhas");
+      db.recordHistory(user, "count_upload", divergentOnly
+          ? "Saldo atualizado somente nos itens divergentes pelo PDF " + fileName
+              + " (" + divergentItemsUpdated + " SKUs atualizados)"
+          : "Saldo atualizado pelo PDF " + fileName
+              + " com " + imported.size() + " SKUs em " + metrics.pagesProcessed() + " folhas");
       db.save();
       System.out.println("SALDO_POSTGRES importacao_id=" + importSummary.id()
           + " arquivo=\"" + safeFileName(fileName) + "\""
