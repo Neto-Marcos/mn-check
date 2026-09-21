@@ -130,6 +130,10 @@ function App() {
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
   const [newRoute, setNewRoute] = React.useState({ name: "", truck: "", driver: "" });
+  const [pwaRefreshing, setPwaRefreshing] = React.useState(false);
+  const [pullProgress, setPullProgress] = React.useState(0);
+  const [pullArmed, setPullArmed] = React.useState(false);
+  const swRegistrationRef = React.useRef(null);
   const mapFileInputRef = React.useRef(null);
   const mapCameraInputRef = React.useRef(null);
   const mapUploadMetadataRef = React.useRef({ mapNumber: "", orderNumbers: [], collectOnly: false });
@@ -148,15 +152,86 @@ function App() {
   }, []);
 
   React.useEffect(() => {
+    let pullStartY = null;
+    let refreshing = false;
+    let armed = false;
+
+    const checkForUpdate = () => swRegistrationRef.current?.update().catch(() => {});
+
+    const refreshFromPull = async () => {
+      if (refreshing || !navigator.onLine) return;
+      refreshing = true;
+      setPwaRefreshing(true);
+      setPullProgress(0);
+      setPullArmed(false);
+      try {
+        await Promise.all([
+          swRegistrationRef.current?.update().catch(() => {}),
+          new Promise((resolve) => window.setTimeout(resolve, 550))
+        ]);
+      } finally {
+        window.location.reload();
+      }
+    };
+
+    const onTouchStart = (event) => {
+      const atTop = window.scrollY <= 0 && document.documentElement.scrollTop <= 0;
+      pullStartY = atTop && event.touches.length === 1 ? event.touches[0]?.clientY ?? null : null;
+      armed = false;
+      setPullArmed(false);
+      setPullProgress(0);
+    };
+
+    const onTouchMove = (event) => {
+      if (pullStartY === null) return;
+      const currentY = event.touches[0]?.clientY ?? pullStartY;
+      const deltaY = currentY - pullStartY;
+      if (deltaY <= 0) {
+        setPullProgress(0);
+        armed = false;
+        setPullArmed(false);
+        return;
+      }
+      const progress = Math.min(1, deltaY / 140);
+      setPullProgress(progress);
+      const isArmed = deltaY >= 140;
+      if (isArmed && !armed) {
+        try {
+          if (navigator.vibrate) navigator.vibrate(15);
+        } catch (_) {}
+      }
+      armed = isArmed;
+      setPullArmed(isArmed);
+    };
+
+    const onTouchEnd = (event) => {
+      const endY = event.changedTouches[0]?.clientY;
+      if (pullStartY !== null && endY && armed && (endY - pullStartY) >= 140) {
+        refreshFromPull();
+      } else {
+        setPullProgress(0);
+        setPullArmed(false);
+      }
+      pullStartY = null;
+      armed = false;
+    };
+
+    window.addEventListener("focus", checkForUpdate);
+    document.addEventListener("visibilitychange", checkForUpdate);
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+
     if ("serviceWorker" in navigator) {
-      let refreshing = false;
+      let controllerRefreshing = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (refreshing) return;
-        refreshing = true;
+        if (controllerRefreshing) return;
+        controllerRefreshing = true;
         window.location.reload();
       });
-      navigator.serviceWorker.register("/sw.js?v=2320")
+      navigator.serviceWorker.register("/sw.js?v=2362")
         .then((registration) => {
+          swRegistrationRef.current = registration;
           if (registration.waiting && navigator.serviceWorker.controller) {
             setWaitingWorker(registration.waiting);
           }
@@ -183,6 +258,11 @@ function App() {
     window.addEventListener("online", updateConnection);
     window.addEventListener("offline", updateConnection);
     return () => {
+      window.removeEventListener("focus", checkForUpdate);
+      document.removeEventListener("visibilitychange", checkForUpdate);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
       window.removeEventListener("online", updateConnection);
       window.removeEventListener("offline", updateConnection);
     };
@@ -837,6 +917,20 @@ function App() {
 
   if (!user) {
     return h("main", { className: "login-view" },
+      pwaRefreshing && h("div", { className: "pwa-refreshing", role: "status", "aria-live": "polite" },
+        h("span", { className: "pwa-refresh-spinner" }),
+        h("span", null, "Atualizando MN - Check...")
+      ),
+      pullProgress > 0 && !pwaRefreshing && h("div", {
+        className: `pwa-pull-indicator ${pullArmed ? "armed" : ""}`,
+        style: {
+          opacity: Math.min(1, pullProgress * 1.5),
+          transform: `translate(-50%, ${Math.min(pullProgress * 32, 32)}px)`
+        }
+      },
+        h("span", { className: "pwa-pull-icon" }, pullArmed ? "↑" : "↓"),
+        h("span", null, pullArmed ? "Solte para atualizar" : "Puxe para atualizar")
+      ),
       h(ThemeToggle, {
         theme,
         className: "login-theme-toggle",
@@ -899,6 +993,20 @@ function App() {
   return h("main", {
     className: `dashboard-view view-${view} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileNavOpen ? "mobile-nav-open" : ""}`
   },
+    pwaRefreshing && h("div", { className: "pwa-refreshing", role: "status", "aria-live": "polite" },
+      h("span", { className: "pwa-refresh-spinner" }),
+      h("span", null, "Atualizando MN - Check...")
+    ),
+    pullProgress > 0 && !pwaRefreshing && h("div", {
+      className: `pwa-pull-indicator ${pullArmed ? "armed" : ""}`,
+      style: {
+        opacity: Math.min(1, pullProgress * 1.5),
+        transform: `translate(-50%, ${Math.min(pullProgress * 32, 32)}px)`
+      }
+    },
+      h("span", { className: "pwa-pull-icon" }, pullArmed ? "↑" : "↓"),
+      h("span", null, pullArmed ? "Solte para atualizar" : "Puxe para atualizar")
+    ),
     h("button", {
       className: "mobile-nav-backdrop",
       "aria-label": "Fechar menu",
