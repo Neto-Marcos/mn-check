@@ -9,6 +9,13 @@ import {
   safeQuantity,
   signedQuantity
 } from "./contagem.js";
+import {
+  CATEGORY_DEFINITIONS,
+  CountCard,
+  CountMobileHud,
+  CountToolbar,
+  detectProductCategory
+} from "./counting_cards.js";
 import { mapContentType, readFileAsDataUrl } from "./mapas.js";
 import {
   normalizeInventorySku,
@@ -1999,6 +2006,14 @@ function Counting({
   const [searchMessage, setSearchMessage] = React.useState("");
   const [countExpressions, setCountExpressions] = React.useState({});
   const [countFilter, setCountFilter] = React.useState("all");
+  const [viewMode, setViewMode] = React.useState(() => {
+    try {
+      const stored = localStorage.getItem("mnCheckCountViewMode");
+      if (stored === "cards" || stored === "table") return stored;
+    } catch (_) {}
+    return "cards";
+  });
+  const [categoryFilter, setCategoryFilter] = React.useState("all");
   const [printFilter, setPrintFilter] = React.useState("counted");
   const [countFilterOpen, setCountFilterOpen] = React.useState(false);
   const [printFilterOpen, setPrintFilterOpen] = React.useState(false);
@@ -2022,6 +2037,13 @@ function Counting({
   const fileInputRef = React.useRef(null);
   const countInputRefs = React.useRef({});
   const manualSkuRef = React.useRef(null);
+
+  function changeViewMode(mode) {
+    setViewMode(mode);
+    try {
+      localStorage.setItem("mnCheckCountViewMode", mode);
+    } catch (_) {}
+  }
 
   React.useEffect(() => {
     const pending = readStoredJson(OFFLINE_COUNT_DRAFT, null);
@@ -2083,6 +2105,31 @@ function Counting({
         onOfflineDraft(next);
         setOfflinePending(true);
       }
+      return next;
+    });
+  }
+
+  function adjustCountField(sku, field, delta) {
+    setDraft((current) => {
+      const next = current.map((item) => {
+        if (item.sku !== sku) return item;
+        const currentVal = field === "other" ? signedQuantity(item[field]) : safeQuantity(item[field]);
+        const nextVal = field === "other" ? currentVal + delta : Math.max(0, currentVal + delta);
+        return { ...item, [field]: nextVal };
+      });
+      if (!online || !navigator.onLine) {
+        onOfflineDraft(next);
+        setOfflinePending(true);
+      }
+      return next;
+    });
+    setCountExpressions((current) => {
+      if (!current[sku]?.[field]) return current;
+      const next = { ...current };
+      const fields = { ...(next[sku] || {}) };
+      delete fields[field];
+      if (Object.keys(fields).length) next[sku] = fields;
+      else delete next[sku];
       return next;
     });
   }
@@ -2251,6 +2298,7 @@ function Counting({
       window.setTimeout(() => {
         countInputRefs.current[match.sku]?.focus();
         countInputRefs.current[match.sku]?.select();
+        countInputRefs.current[match.sku]?.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 80);
     }
     return match;
@@ -2421,16 +2469,50 @@ function Counting({
   const selectedPrintFilter = printFilterOptions.find((option) => option.value === printFilter) || printFilterOptions[0];
   const searchTerm = normalizeProductSearch(searchCode);
   const searchDigits = searchCode.replace(/\D/g, "");
-  const filteredDraft = draft.filter((item) => {
-    if (countFilter === "counted") return hasCountMovement(item);
-    if (countFilter === "ok") return hasCountMovement(item) && countDifference(item) === 0;
-    if (countFilter === "divergent") return countDifference(item) !== 0;
-    if (countFilter === "pending") return !hasCountMovement(item);
-    return true;
-  });
-  const visibleDraft = searchTerm
-    ? filteredDraft.filter((item) => matchesProductSearch(item, searchCode))
-    : filteredDraft;
+
+  const categoryCounts = React.useMemo(() => {
+    const countsMap = { all: draft.length };
+    CATEGORY_DEFINITIONS.forEach((cat) => { countsMap[cat.id] = 0; });
+    countsMap.outros = 0;
+    draft.forEach((item) => {
+      const cat = detectProductCategory(item.description);
+      countsMap[cat] = (countsMap[cat] || 0) + 1;
+    });
+    return countsMap;
+  }, [draft]);
+
+  const activeCategories = React.useMemo(() => {
+    const list = [{ id: "all", label: "Todas", count: draft.length }];
+    CATEGORY_DEFINITIONS.forEach((cat) => {
+      if (categoryCounts[cat.id] > 0) {
+        list.push({ id: cat.id, label: cat.label, count: categoryCounts[cat.id] });
+      }
+    });
+    if (categoryCounts.outros > 0) {
+      list.push({ id: "outros", label: "Outros", count: categoryCounts.outros });
+    }
+    return list;
+  }, [categoryCounts, draft.length]);
+
+  const categoryFilteredDraft = React.useMemo(() => {
+    if (categoryFilter === "all") return draft;
+    return draft.filter((item) => detectProductCategory(item.description) === categoryFilter);
+  }, [draft, categoryFilter]);
+
+  const filteredDraft = React.useMemo(() => {
+    return categoryFilteredDraft.filter((item) => {
+      if (countFilter === "counted") return hasCountMovement(item);
+      if (countFilter === "ok") return hasCountMovement(item) && countDifference(item) === 0;
+      if (countFilter === "divergent") return countDifference(item) !== 0;
+      if (countFilter === "pending") return !hasCountMovement(item);
+      return true;
+    });
+  }, [categoryFilteredDraft, countFilter]);
+
+  const visibleDraft = React.useMemo(() => {
+    if (!searchTerm) return filteredDraft;
+    return filteredDraft.filter((item) => matchesProductSearch(item, searchCode));
+  }, [filteredDraft, searchTerm, searchCode]);
   const printableSource = printMode === "balance" ? draft : printFilter === "counted" ? countedItems : visibleDraft;
   const printableDraft = printMode === "count"
     ? printableSource.filter((item) => !excludedPrintSkus.includes(item.sku))
@@ -2575,74 +2657,16 @@ function Counting({
           )
         )
       ),
-      draft.length && h("section", { className: "count-status-filter" },
-        h("div", { className: "count-filter-control" },
-          h("span", null, "Exibir"),
-          h("div", { className: "filter-select" },
-            h("button", {
-              type: "button",
-              className: `filter-select-trigger ${countFilterOpen ? "open" : ""}`,
-              "aria-haspopup": "listbox",
-              "aria-expanded": countFilterOpen,
-              onClick: () => {
-                setCountFilterOpen((current) => !current);
-                setPrintFilterOpen(false);
-              }
-            },
-              h("span", { className: "filter-select-value" }, selectedCountFilter.label),
-              h("strong", { className: "filter-select-count" }, selectedCountFilter.count),
-              h("span", { className: "filter-select-chevron", "aria-hidden": "true" }, "⌄")
-            ),
-            countFilterOpen && h("div", { className: "filter-select-menu", role: "listbox", "aria-label": "Filtrar produtos" },
-              countFilterOptions.map((option) => h("button", {
-                key: option.value,
-                type: "button",
-                role: "option",
-                "aria-selected": countFilter === option.value,
-                className: `filter-select-option ${countFilter === option.value ? "active" : ""}`,
-                onClick: () => {
-                  setCountFilter(option.value);
-                  setCountFilterOpen(false);
-                }
-              },
-                h("span", null, option.label),
-                h("strong", null, option.count)
-              ))
-            )
-          )
-        ),
-        h("div", { className: "print-scope-control" },
-          h("span", null, "Impressão"),
-          h("div", { className: "filter-select" },
-            h("button", {
-              type: "button",
-              className: `filter-select-trigger ${printFilterOpen ? "open" : ""}`,
-              "aria-haspopup": "listbox",
-              "aria-expanded": printFilterOpen,
-              onClick: () => {
-                setPrintFilterOpen((current) => !current);
-                setCountFilterOpen(false);
-              }
-            },
-              h("span", { className: "filter-select-value" }, selectedPrintFilter.label),
-              h("span", { className: "filter-select-chevron", "aria-hidden": "true" }, "⌄")
-            ),
-            printFilterOpen && h("div", { className: "filter-select-menu", role: "listbox", "aria-label": "Escopo da impressão" },
-              printFilterOptions.map((option) => h("button", {
-                key: option.value,
-                type: "button",
-                role: "option",
-                "aria-selected": printFilter === option.value,
-                className: `filter-select-option ${printFilter === option.value ? "active" : ""}`,
-                onClick: () => {
-                  setPrintFilter(option.value);
-                  setPrintFilterOpen(false);
-                }
-              }, h("span", null, option.label)))
-            )
-          )
-        )
-      ),
+      draft.length > 0 && h(CountToolbar, {
+        viewMode,
+        onChangeViewMode: changeViewMode,
+        countFilter,
+        onSelectCountFilter: setCountFilter,
+        countFilterOptions,
+        categoryFilter,
+        onSelectCategoryFilter: setCategoryFilter,
+        activeCategories
+      }),
       draft.length && h("section", { className: "balance-search" },
         h("div", { className: "balance-search-head" },
           h("div", null,
@@ -2679,95 +2703,124 @@ function Counting({
           className: `balance-search-message ${searchMessage.startsWith("Encontrado") ? "success" : ""}`
         }, searchMessage)
       ),
-      visibleDraft.length ? h("div", { className: "table-wrap count-table-wrap" },
-        h("table", null,
-          h("thead", null, h("tr", null,
-            h("th", null, "Código"),
-            h("th", null, "Cor"),
-            h("th", null, "Voltagem"),
-            h("th", null, "Produto"),
-            h("th", null, "Saldo"),
-            h("th", null, "Contagem"),
-            h("th", null, "Assist."),
-            h("th", null, "Avaria"),
-            h("th", null, "Outros"),
-            h("th", null, "Diferença")
-          )),
-          h("tbody", null, visibleDraft.map((item) => h("tr", {
-            key: item.sku,
-            className: [
-              hasCountMovement(item) && countDifference(item) === 0 ? "count-row-ok" : "",
-              countDifference(item) !== 0 ? "count-row-divergent" : "",
-              searchDigits && String(item.sku).replace(/\D/g, "") === searchDigits ? "count-row-found" : ""
-            ].filter(Boolean).join(" ")
-          },
-            h("td", null, String(item.sku).split(".")[0]),
-            h("td", null, String(item.sku).split(".")[1] || "—"),
-            h("td", null, String(item.sku).split(".")[2] || "—"),
-            h("td", { className: "count-product-description" }, item.description || "Produto sem descrição"),
-            h("td", null, item.system),
-            h("td", null, h("input", {
-              className: "count-input",
-              type: "text",
-              inputMode: "text",
-              value: countExpressionValue(item, "counted"),
-              ref: (element) => {
-                if (element) countInputRefs.current[item.sku] = element;
+      visibleDraft.length ? (
+        viewMode === "cards" ? (
+          h("div", { className: "count-cards-grid" },
+            visibleDraft.map((item) => h(CountCard, {
+              key: item.sku,
+              item,
+              searchDigits,
+              countInputRefs,
+              countExpressionValue,
+              editCountExpression,
+              commitCountExpression,
+              adjustCountField,
+              changeCountField
+            }))
+          )
+        ) : (
+          h("div", { className: "table-wrap count-table-wrap" },
+            h("table", null,
+              h("thead", null, h("tr", null,
+                h("th", null, "Código"),
+                h("th", null, "Cor"),
+                h("th", null, "Voltagem"),
+                h("th", null, "Produto"),
+                h("th", null, "Saldo"),
+                h("th", null, "Contagem"),
+                h("th", null, "Assist."),
+                h("th", null, "Avaria"),
+                h("th", null, "Outros"),
+                h("th", null, "Diferença")
+              )),
+              h("tbody", null, visibleDraft.map((item) => h("tr", {
+                key: item.sku,
+                className: [
+                  hasCountMovement(item) && countDifference(item) === 0 ? "count-row-ok" : "",
+                  countDifference(item) !== 0 ? "count-row-divergent" : "",
+                  searchDigits && String(item.sku).replace(/\D/g, "") === searchDigits ? "count-row-found" : ""
+                ].filter(Boolean).join(" ")
               },
-              onChange: (event) => editCountExpression(item.sku, "counted", event.target.value),
-              onBlur: () => commitCountExpression(item.sku, "counted", item.counted),
-              onKeyDown: (event) => {
-                if (event.key !== "Enter") return;
-                event.preventDefault();
-                commitCountExpression(item.sku, "counted", item.counted);
-              }
-            })),
-            h("td", null, h("input", {
-              className: "count-input",
-              type: "text",
-              inputMode: "text",
-              value: countExpressionValue(item, "assistance"),
-              onChange: (event) => editCountExpression(item.sku, "assistance", event.target.value),
-              onBlur: () => commitCountExpression(item.sku, "assistance", item.assistance),
-              onKeyDown: (event) => {
-                if (event.key !== "Enter") return;
-                event.preventDefault();
-                commitCountExpression(item.sku, "assistance", item.assistance);
-              }
-            })),
-            h("td", null, h("input", {
-              className: "count-input",
-              type: "text",
-              inputMode: "text",
-              value: countExpressionValue(item, "damaged"),
-              onChange: (event) => editCountExpression(item.sku, "damaged", event.target.value),
-              onBlur: () => commitCountExpression(item.sku, "damaged", item.damaged),
-              onKeyDown: (event) => {
-                if (event.key !== "Enter") return;
-                event.preventDefault();
-                commitCountExpression(item.sku, "damaged", item.damaged);
-              }
-            })),
-            h("td", null, h("input", {
-              className: "count-input",
-              type: "text",
-              inputMode: "text",
-              value: countExpressionValue(item, "other"),
-              onChange: (event) => editCountExpression(item.sku, "other", event.target.value),
-              onBlur: () => commitCountExpression(item.sku, "other", item.other),
-              onKeyDown: (event) => {
-                if (event.key !== "Enter") return;
-                event.preventDefault();
-                commitCountExpression(item.sku, "other", item.other);
-              }
-            })),
-            h("td", { className: countDifference(item) === 0 ? "diff-ok" : "diff-alert" }, countDifference(item))
-          )))
+                h("td", null, String(item.sku).split(".")[0]),
+                h("td", null, String(item.sku).split(".")[1] || "—"),
+                h("td", null, String(item.sku).split(".")[2] || "—"),
+                h("td", { className: "count-product-description" }, item.description || "Produto sem descrição"),
+                h("td", null, item.system),
+                h("td", null, h("input", {
+                  className: "count-input",
+                  type: "text",
+                  inputMode: "text",
+                  value: countExpressionValue(item, "counted"),
+                  ref: (element) => {
+                    if (element) countInputRefs.current[item.sku] = element;
+                  },
+                  onChange: (event) => editCountExpression(item.sku, "counted", event.target.value),
+                  onBlur: () => commitCountExpression(item.sku, "counted", item.counted),
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitCountExpression(item.sku, "counted", item.counted);
+                    }
+                  }
+                })),
+                h("td", null, h("input", {
+                  className: "count-input",
+                  type: "text",
+                  inputMode: "text",
+                  value: countExpressionValue(item, "assistance"),
+                  onChange: (event) => editCountExpression(item.sku, "assistance", event.target.value),
+                  onBlur: () => commitCountExpression(item.sku, "assistance", item.assistance),
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitCountExpression(item.sku, "assistance", item.assistance);
+                    }
+                  }
+                })),
+                h("td", null, h("input", {
+                  className: "count-input",
+                  type: "text",
+                  inputMode: "text",
+                  value: countExpressionValue(item, "damaged"),
+                  onChange: (event) => editCountExpression(item.sku, "damaged", event.target.value),
+                  onBlur: () => commitCountExpression(item.sku, "damaged", item.damaged),
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitCountExpression(item.sku, "damaged", item.damaged);
+                    }
+                  }
+                })),
+                h("td", null, h("input", {
+                  className: "count-input",
+                  type: "text",
+                  inputMode: "text",
+                  value: countExpressionValue(item, "other"),
+                  onChange: (event) => editCountExpression(item.sku, "other", event.target.value),
+                  onBlur: () => commitCountExpression(item.sku, "other", item.other),
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitCountExpression(item.sku, "other", item.other);
+                    }
+                  }
+                })),
+                h("td", { className: countDifference(item) === 0 ? "diff-ok" : "diff-alert" }, countDifference(item))
+              )))
+            )
+          )
         )
       ) : draft.length
         ? empty("Nenhum SKU corresponde à pesquisa.")
         : empty("Selecione um PDF para carregar os saldos.")
     ),
+    draft.length > 0 && h(CountMobileHud, {
+      draft,
+      countedItems,
+      divergentRows,
+      savingCount,
+      onSubmitCount: submitCount
+    }),
     printExclusionOpen && ReactDOM.createPortal(h("div", {
       className: "modal-backdrop",
       role: "presentation",

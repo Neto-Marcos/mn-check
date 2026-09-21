@@ -1,21 +1,22 @@
-const CACHE_NAME = "mn-check-2.3.2-divergent-balance-1";
+const CACHE_NAME = "mn-check-2.3.6-cards-1";
 const APP_ASSETS = [
   "/",
   "/index.html",
-  "/styles.css?v=2325",
-  "/app.js?v=2325",
+  "/styles.css?v=2360",
+  "/app.js?v=2360",
   "/api.js",
   "/auth.js",
   "/conferencia.js",
   "/contagem.js",
+  "/counting_cards.js",
   "/mapas.js",
   "/scanner.js",
   "/state.js",
   "/ui.js",
-  "/logo.png?v=2320",
-  "/icon-192.png?v=2320",
-  "/apple-touch-icon.png?v=2320",
-  "/manifest.webmanifest?v=2320",
+  "/logo.png?v=2340",
+  "/icon-192.png?v=2340",
+  "/apple-touch-icon.png?v=2340",
+  "/manifest.webmanifest?v=2340",
   "/vendor/react.production.min.js",
   "/vendor/react-dom.production.min.js"
 ];

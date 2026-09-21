@@ -2,6 +2,7 @@ package br.com.mncheck;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -25,6 +26,15 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 
 class CountWorkbookExporterTest {
+  @Test
+  void bundlesTheDefaultCountTemplateUsedByAutomaticExports() throws Exception {
+    byte[] template = MmCheckServer.bundledCountWorkbookTemplate();
+    assertNotNull(template);
+    CountWorkbookExporter.TemplateInfo info = CountWorkbookExporter.validate(template);
+    assertEquals("082026", info.sheetName());
+    assertEquals(262, info.products());
+  }
+
   @Test
   void updatesOnlyMnCheckFieldsAndPreservesTemplatePresentation() throws Exception {
     byte[] template = templateFixture();
@@ -70,6 +80,30 @@ class CountWorkbookExporterTest {
     CountWorkbookExporter.TemplateInfo info = CountWorkbookExporter.validate(templateFixture());
     assertEquals("082026", info.sheetName());
     assertEquals(1, info.products());
+  }
+
+  @Test
+  void insertsNewProductsInCodeColorVoltageOrderAndCopiesFormatting() throws Exception {
+    byte[] template = templateFixture();
+    byte[] output = CountWorkbookExporter.export(template, List.of(
+        new MmCheckServer.CountItem("9000.3.2", "PRODUTO FINAL", 8, 1, 0, 0, 0),
+        new MmCheckServer.CountItem("1000.4.3", "PRODUTO INICIAL", 5, 2, 0, 0, 0),
+        new MmCheckServer.CountItem("1191.2.3", "MESMO CODIGO", 6, 3, 0, 0, 0)
+    ));
+
+    try (XSSFWorkbook workbook = open(output)) {
+      Sheet sheet = workbook.getSheetAt(0);
+      assertEquals(1000, sheet.getRow(1).getCell(0).getNumericCellValue());
+      assertEquals(1191, sheet.getRow(2).getCell(0).getNumericCellValue());
+      assertEquals(2, sheet.getRow(2).getCell(1).getNumericCellValue());
+      assertEquals(1191, sheet.getRow(3).getCell(0).getNumericCellValue());
+      assertEquals(3, sheet.getRow(3).getCell(1).getNumericCellValue());
+      assertEquals(9000, sheet.getRow(4).getCell(0).getNumericCellValue());
+      assertEquals(sheet.getRow(3).getCell(0).getCellStyle().getIndex(),
+          sheet.getRow(4).getCell(0).getCellStyle().getIndex());
+      assertEquals("SUM(E5:N5)", sheet.getRow(4).getCell(14).getCellFormula());
+      assertEquals("O5-P5", sheet.getRow(4).getCell(16).getCellFormula());
+    }
   }
 
   @Test

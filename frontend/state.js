@@ -1,4 +1,4 @@
-export const APP_VERSION = "2.3.2";
+export const APP_VERSION = "2.3.6";
 export const OFFLINE_SCAN_QUEUE = "mnCheckOfflineScans";
 export const OFFLINE_BOOTSTRAP = "mnCheckOfflineBootstrap";
 export const OFFLINE_COUNT_DRAFT = "mnCheckOfflineCountDraft";

@@ -14,7 +14,10 @@ import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.SpreadsheetVersion;
+import org.apache.poi.ss.util.AreaReference;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.ss.util.CellReference;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
@@ -71,15 +74,13 @@ final class CountWorkbookExporter {
         setFormulas(row, columns);
       }
 
-      int nextRow = lastProductRow(sheet, columns) + 1;
       for (MmCheckServer.CountItem item : items) {
         Row row = rowsBySku.get(normalizeSku(item.sku()));
         if (row == null) {
-          row = sheet.createRow(nextRow++);
-          copyRowPresentation(styleSource, row, columns.lastColumn());
+          row = insertProductRow(sheet, columns, item.sku(), styleSource);
           clearNewRow(row, columns.lastColumn());
           writeSku(row, item.sku(), columns);
-          rowsBySku.put(normalizeSku(item.sku()), row);
+          rowsBySku = indexRows(sheet, columns);
         }
         setTextPreservingStyle(row, columns.description(), item.description());
         setNumber(row, columns.counted(), item.counted(), false);
@@ -94,6 +95,7 @@ final class CountWorkbookExporter {
         sheet.setAutoFilter(new CellRangeAddress(
             0, Math.max(lastProductRow(sheet, columns), FIRST_DATA_ROW), 0, columns.lastColumn()));
       }
+      extendTables(sheet, lastProductRow(sheet, columns), columns.lastColumn());
       workbook.getCreationHelper().createFormulaEvaluator().evaluateAll();
       workbook.setForceFormulaRecalculation(true);
       workbook.write(output);
@@ -184,6 +186,61 @@ final class CountWorkbookExporter {
       if (!skuOf(sheet.getRow(index), columns).isBlank()) last = index;
     }
     return last;
+  }
+
+  private static Row insertProductRow(XSSFSheet sheet, Columns columns, String sku, Row fallbackStyle) {
+    int lastRow = lastProductRow(sheet, columns);
+    int insertionRow = lastRow + 1;
+    for (int index = FIRST_DATA_ROW; index <= lastRow; index++) {
+      Row candidate = sheet.getRow(index);
+      String candidateSku = skuOf(candidate, columns);
+      if (!candidateSku.isBlank() && compareSku(sku, candidateSku) < 0) {
+        insertionRow = index;
+        break;
+      }
+    }
+
+    if (insertionRow <= lastRow) {
+      sheet.shiftRows(insertionRow, sheet.getLastRowNum(), 1, true, false);
+    }
+    Row row = sheet.getRow(insertionRow);
+    if (row == null) row = sheet.createRow(insertionRow);
+    Row styleSource = insertionRow + 1 <= sheet.getLastRowNum()
+        ? sheet.getRow(insertionRow + 1) : sheet.getRow(insertionRow - 1);
+    copyRowPresentation(styleSource == null ? fallbackStyle : styleSource, row, columns.lastColumn());
+    return row;
+  }
+
+  private static int compareSku(String left, String right) {
+    String[] a = normalizeSku(left).split("\\.", -1);
+    String[] b = normalizeSku(right).split("\\.", -1);
+    for (int index = 0; index < Math.max(a.length, b.length); index++) {
+      String x = index < a.length ? a[index] : "";
+      String y = index < b.length ? b[index] : "";
+      int comparison = compareIdentifier(x, y);
+      if (comparison != 0) return comparison;
+    }
+    return 0;
+  }
+
+  private static int compareIdentifier(String left, String right) {
+    try {
+      return Long.compare(Long.parseLong(left), Long.parseLong(right));
+    } catch (NumberFormatException ignored) {
+      return left.compareToIgnoreCase(right);
+    }
+  }
+
+  private static void extendTables(XSSFSheet sheet, int lastRow, int lastColumn) {
+    for (var table : sheet.getTables()) {
+      CellReference start = table.getStartCellReference();
+      CellReference end = table.getEndCellReference();
+      if (start == null || end == null || lastRow <= end.getRow()) continue;
+      table.setArea(new AreaReference(
+          new CellReference(start.getRow(), start.getCol()),
+          new CellReference(lastRow, Math.max(lastColumn, end.getCol())),
+          SpreadsheetVersion.EXCEL2007));
+    }
   }
 
   private static String skuOf(Row row, Columns columns) {

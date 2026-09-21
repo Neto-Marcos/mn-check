@@ -69,6 +69,17 @@ public class MmCheckServer {
     Thread.currentThread().join();
   }
 
+  static byte[] bundledCountWorkbookTemplate() {
+    try (InputStream input = MmCheckServer.class.getResourceAsStream("/modelo-contagem.xlsx")) {
+      if (input == null) {
+        throw new IllegalStateException("O modelo padrão de contagem não foi incluído na aplicação.");
+      }
+      return input.readAllBytes();
+    } catch (IOException error) {
+      throw new IllegalStateException("Não foi possível carregar o modelo padrão de contagem.", error);
+    }
+  }
+
   private static void handle(HttpExchange exchange) throws IOException {
     String requestId = UUID.randomUUID().toString().substring(0, 8);
     long startedAt = System.nanoTime();
@@ -183,17 +194,20 @@ public class MmCheckServer {
     if ("GET".equals(method) && "/api/exportacoes/modelo-contagem".equals(path)) {
       requireRole(user, "admin", "stock");
       Optional<StoredFile> template = persistence.loadFile(COUNT_WORKBOOK_TEMPLATE);
-      json(exchange, 200, Map.of("configured", template.isPresent()));
+      json(exchange, 200, Map.of(
+          "configured", true,
+          "source", template.isPresent() ? "custom" : "default"
+      ));
       return;
     }
 
     if ("GET".equals(method) && "/api/exportacoes/contagem.xlsx".equals(path)) {
       requireRole(user, "admin", "stock");
       applyRelationalBalanceSnapshot();
-      StoredFile template = persistence.loadFile(COUNT_WORKBOOK_TEMPLATE)
-          .orElseThrow(() -> new ApiException(409,
-              "Selecione primeiro a planilha modelo para preservar a formatação original."));
-      byte[] workbook = CountWorkbookExporter.export(template.content(), db.counts);
+      byte[] template = persistence.loadFile(COUNT_WORKBOOK_TEMPLATE)
+          .map(StoredFile::content)
+          .orElseGet(MmCheckServer::bundledCountWorkbookTemplate);
+      byte[] workbook = CountWorkbookExporter.export(template, db.counts);
       file(exchange, new StoredFile(
           CountWorkbookExporter.CONTENT_TYPE,
           workbook
