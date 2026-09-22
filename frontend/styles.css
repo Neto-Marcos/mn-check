@@ -293,6 +293,7 @@
 html {
   height: 100%;
   height: -webkit-fill-available;
+  touch-action: manipulation;
 }
 
 body {
@@ -306,6 +307,7 @@ body {
   font-family: Inter, Arial, sans-serif;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 #root {
@@ -317,8 +319,11 @@ body {
 
 button,
 input,
-select {
+select,
+textarea,
+a {
   font: inherit;
+  touch-action: manipulation;
 }
 
 button {
@@ -6055,6 +6060,7 @@ input[type="number"] {
   transition: all 120ms ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .stepper-btn:active {
@@ -6193,17 +6199,18 @@ input[type="number"] {
 }
 
 .sec-step-btn {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
-  font-size: 0.85rem;
+  font-size: 1rem;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .sec-step-btn:active {
@@ -6212,14 +6219,15 @@ input[type="number"] {
 
 .sec-step-input {
   flex: 1;
-  min-width: 24px;
-  height: 28px;
+  min-width: 32px;
+  height: 32px;
   border: 1px solid var(--line);
   border-radius: 6px;
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 16px !important;
   font-weight: 700;
   background: var(--panel);
+  touch-action: manipulation;
 }
 
 /* FLOATING MOBILE HUD */
@@ -6228,6 +6236,13 @@ input[type="number"] {
 }
 
 @media (max-width: 900px) {
+  /* iOS amplia automaticamente campos com font-size abaixo de 16px ao focar; forçar 16px impede o zoom indesejado */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
   .count-mobile-hud {
     display: flex;
     position: fixed;

@@ -52,6 +52,9 @@ if ("scrollRestoration" in window.history) {
 window.addEventListener("pageshow", () => {
   window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
 }, { once: true });
+if (typeof document !== "undefined") {
+  document.addEventListener("gesturestart", (event) => event.preventDefault(), { passive: false });
+}
 
 const ICON_PATHS = {
   overview: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
@@ -229,7 +232,7 @@ function App() {
         controllerRefreshing = true;
         window.location.reload();
       });
-      navigator.serviceWorker.register("/sw.js?v=2362")
+      navigator.serviceWorker.register("/sw.js?v=2363")
         .then((registration) => {
           swRegistrationRef.current = registration;
           if (registration.waiting && navigator.serviceWorker.controller) {
