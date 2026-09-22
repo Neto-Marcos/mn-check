@@ -39,7 +39,10 @@ export function CountCard({
   const voltage = voltageFromSku(item.sku);
   const diff = countDifference(item);
   const moved = hasCountMovement(item);
-  const isFound = searchDigits && String(item.sku).replace(/\D/g, "") === searchDigits;
+  const isFound = searchDigits && (
+    String(item.sku).replace(/\D/g, "") === searchDigits ||
+    String(item.sku).replace(/\D/g, "").startsWith(searchDigits)
+  );
 
   let statusClass = "pending";
   let statusText = "Não contado";

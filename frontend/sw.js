@@ -1,9 +1,9 @@
-const CACHE_NAME = "mn-check-2.3.6-cards-5";
+const CACHE_NAME = "mn-check-2.3.6-cards-6";
 const APP_ASSETS = [
   "/",
   "/index.html",
-  "/styles.css?v=2365",
-  "/app.js?v=2365",
+  "/styles.css?v=2366",
+  "/app.js?v=2366",
   "/api.js",
   "/auth.js",
   "/conferencia.js",

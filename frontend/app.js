@@ -2046,21 +2046,46 @@ function searchDistance(left, right) {
 }
 
 function matchesProductSearch(item, query) {
-  const normalizedQuery = normalizeProductSearch(query);
+  if (!item) return false;
+  const rawQuery = String(query || "").trim();
+  if (!rawQuery) return true;
+
+  const normalizedQuery = normalizeProductSearch(rawQuery);
   if (!normalizedQuery) return true;
-  const sku = normalizeProductSearch(item.sku);
-  const description = normalizeProductSearch(item.description);
-  if (/^\d+$/.test(normalizedQuery)) {
-    return String(item.sku || "").replace(/\D/g, "").includes(normalizedQuery);
+
+  const queryDigits = rawQuery.replace(/\D/g, "");
+  const rawSku = String(item.sku || "");
+  const skuDigits = rawSku.replace(/\D/g, "");
+  const normalizedSku = normalizeProductSearch(rawSku);
+  const normalizedDesc = normalizeProductSearch(item.description || "");
+  const voltage = normalizeProductSearch(voltageFromSku(rawSku));
+
+  // 1. Dígitos diretos para coletor / código de barras / código parcial (ex: "76761", "7676112", "76761.1.2")
+  if (queryDigits && (skuDigits.includes(queryDigits) || rawSku.includes(queryDigits))) {
+    if (!normalizedQuery.replace(/[0-9\s]/g, "").trim()) {
+      return true;
+    }
   }
-  if (sku.includes(normalizedQuery) || description.includes(normalizedQuery)) return true;
-  const words = description.split(" ").filter(Boolean);
-  return normalizedQuery.split(" ").every((term) => words.some((word) => {
-    if (/^\d+$/.test(term)) return word === term;
-    if (word.includes(term) || term.includes(word)) return true;
-    const tolerance = term.length >= 7 ? 2 : term.length >= 4 ? 1 : 0;
-    return tolerance > 0 && searchDistance(word, term) <= tolerance;
-  }));
+
+  // 2. Inclusão direta no SKU ou na descrição
+  if (normalizedSku.includes(normalizedQuery) || normalizedDesc.includes(normalizedQuery)) {
+    return true;
+  }
+
+  // 3. Busca multi-termos (cada termo deve bater em SKU, voltagem ou descrição)
+  const terms = normalizedQuery.split(/\s+/).filter(Boolean);
+  const descWords = normalizedDesc.split(/\s+/).filter(Boolean);
+
+  return terms.every((term) => {
+    if (skuDigits.includes(term) || normalizedSku.includes(term)) return true;
+    if (voltage.includes(term)) return true;
+    return descWords.some((word) => {
+      if (/^\d+$/.test(term)) return word === term;
+      if (word.includes(term) || term.includes(word)) return true;
+      const tolerance = term.length >= 7 ? 2 : term.length >= 4 ? 1 : 0;
+      return tolerance > 0 && searchDistance(word, term) <= tolerance;
+    });
+  });
 }
 
 function evaluateCountExpression(value, allowNegative = false) {
@@ -2386,31 +2411,42 @@ function Counting({
   }
 
   function findBalanceCode(value, focus = true) {
-    const digits = String(value || "").replace(/\D/g, "");
-    setSearchCode(value);
-    if (!String(value || "").trim()) {
+    const raw = String(value || "").trim();
+    const digits = raw.replace(/\D/g, "");
+    setSearchCode(raw);
+    if (!raw) {
       setSearchMessage("");
       return null;
     }
-    const matches = draft.filter((item) => matchesProductSearch(item, value));
+    const matches = draft.filter((item) => matchesProductSearch(item, raw));
     const match = digits
-      ? draft.find((item) => String(item.sku).replace(/\D/g, "") === digits) || matches[0]
+      ? draft.find((item) => String(item.sku).replace(/\D/g, "") === digits)
+        || draft.find((item) => String(item.sku).replace(/\D/g, "").startsWith(digits))
+        || matches[0]
       : matches[0];
     if (!match) {
-      setSearchMessage(`Nenhum produto encontrado para “${value}”.`);
+      setSearchMessage(`Nenhum produto encontrado para “${raw}”.`);
       playFeedback(false);
       return null;
     }
     setSearchMessage(matches.length > 1
-      ? `${matches.length} produtos encontrados. Pressione Enter para abrir o primeiro.`
+      ? `${matches.length} produtos encontrados. Pressione Enter para focar o primeiro.`
       : `Encontrado: ${match.sku} - ${match.description || "produto sem descrição"} - saldo ${match.system}.`);
     playFeedback(true);
     if (focus) {
+      if (categoryFilter !== "all") setCategoryFilter("all");
+      if (countFilter !== "all") setCountFilter("all");
       window.setTimeout(() => {
-        countInputRefs.current[match.sku]?.focus();
-        countInputRefs.current[match.sku]?.select();
-        countInputRefs.current[match.sku]?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 80);
+        const inputEl = countInputRefs.current[match.sku];
+        if (inputEl) {
+          inputEl.focus();
+          inputEl.select();
+          inputEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+          const cardEl = document.getElementById(`card-${match.sku.replace(/\./g, "-")}`);
+          if (cardEl) cardEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 60);
     }
     return match;
   }
@@ -2622,8 +2658,8 @@ function Counting({
 
   const visibleDraft = React.useMemo(() => {
     if (!searchTerm) return filteredDraft;
-    return filteredDraft.filter((item) => matchesProductSearch(item, searchCode));
-  }, [filteredDraft, searchTerm, searchCode]);
+    return draft.filter((item) => matchesProductSearch(item, searchCode));
+  }, [draft, filteredDraft, searchTerm, searchCode]);
   const printableSource = printMode === "balance" ? draft : printFilter === "counted" ? countedItems : visibleDraft;
   const printableDraft = printMode === "count"
     ? printableSource.filter((item) => !excludedPrintSkus.includes(item.sku))
@@ -2849,7 +2885,10 @@ function Counting({
                 className: [
                   hasCountMovement(item) && countDifference(item) === 0 ? "count-row-ok" : "",
                   countDifference(item) !== 0 ? "count-row-divergent" : "",
-                  searchDigits && String(item.sku).replace(/\D/g, "") === searchDigits ? "count-row-found" : ""
+                  searchDigits && (
+                    String(item.sku).replace(/\D/g, "") === searchDigits ||
+                    String(item.sku).replace(/\D/g, "").startsWith(searchDigits)
+                  ) ? "count-row-found" : ""
                 ].filter(Boolean).join(" ")
               },
                 h("td", null, String(item.sku).split(".")[0]),

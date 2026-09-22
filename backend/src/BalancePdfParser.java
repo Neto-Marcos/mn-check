@@ -355,18 +355,20 @@ final class BalancePdfParser {
       ColumnLayout layout,
       ParsedColumns columns
   ) {
+    float balanceZoneStart = midpoint(layout.description, layout.balance);
+    float balanceZoneEnd = midpoint(layout.balance, layout.cost);
+    float preferredEnd = layout.balance + Math.min(28f, (layout.cost - layout.balance) * 0.45f);
+
     Integer positioned = parseInteger(line.integerClusterClosestTo(
-        layout.balance,
-        midpoint(layout.balance, layout.cost),
-        layout.balance + Math.min(24f, (layout.cost - layout.balance) * 0.35f)
+        balanceZoneStart,
+        balanceZoneEnd,
+        preferredEnd
     ));
     Integer direct = parseInteger(columns.balance);
     BigDecimal cost = parseDecimal(columns.cost);
     BigDecimal total = parseDecimal(columns.total);
     Integer calculated = calculateBalance(cost, total);
-    if (calculated != null && (positioned == null || !calculated.equals(positioned))) {
-      return new BalanceResolution(calculated, "posição validada por Total ÷ Custo Médio");
-    }
+
     if (positioned != null) {
       return new BalanceResolution(positioned, "posição da coluna Saldo");
     }
