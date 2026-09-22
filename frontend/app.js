@@ -232,7 +232,7 @@ function App() {
         controllerRefreshing = true;
         window.location.reload();
       });
-      navigator.serviceWorker.register("/sw.js?v=2364")
+      navigator.serviceWorker.register("/sw.js?v=2365")
         .then((registration) => {
           swRegistrationRef.current = registration;
           if (registration.waiting && navigator.serviceWorker.controller) {

@@ -90,10 +90,15 @@
   .dashboard-view,
   .dashboard-view.sidebar-collapsed {
     display: block;
+    max-width: 100vw;
+    overflow-x: hidden;
   }
 
   .workspace {
     min-height: 100vh;
+    max-width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
     padding: 14px 14px calc(104px + env(safe-area-inset-bottom));
   }
 
@@ -5248,6 +5253,8 @@ th + th {
 
 @media (max-width: 680px) {
   .workspace {
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
     padding-bottom: calc(98px + env(safe-area-inset-bottom, 0px));
   }
 
@@ -5874,20 +5881,24 @@ input[type="number"] {
 /* CARDS GRID */
 .count-cards-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  margin-top: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 @media (min-width: 800px) {
   .count-cards-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 }
 
 @media (min-width: 1300px) {
   .count-cards-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -5895,13 +5906,18 @@ input[type="number"] {
 .count-card {
   background: var(--panel);
   border: 1.5px solid var(--line);
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   transition: transform 140ms ease, border-color 160ms ease, box-shadow 160ms ease;
   position: relative;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .count-card:hover {
@@ -5927,32 +5943,35 @@ input[type="number"] {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .count-card-id {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .count-sku-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 1.05rem;
+  font-size: 0.90rem;
   font-weight: 800;
   color: var(--text);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
 }
 
 .count-tag-voltage {
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
   background: #f1f5f9;
   color: #334155;
   border: 1px solid #cbd5e1;
+  line-height: 1.3;
 }
 
 .count-tag-voltage.volt-2 {
@@ -5969,20 +5988,23 @@ input[type="number"] {
 }
 
 .count-tag-color {
-  font-size: 0.72rem;
-  padding: 2px 6px;
-  border-radius: 6px;
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
   background: var(--input-bg);
   color: var(--muted);
   border: 1px solid var(--line);
+  line-height: 1.3;
 }
 
 .count-status-badge {
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  padding: 3px 10px;
+  padding: 2px 7px;
   border-radius: 999px;
   white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.3;
 }
 
 .badge-pending {
@@ -6007,40 +6029,46 @@ input[type="number"] {
 
 .count-card-title {
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 0.80rem;
+  font-weight: 700;
+  line-height: 1.25;
   color: var(--text);
+  word-break: break-word;
 }
 
 /* BALANCE BAR */
 .count-card-balance-bar {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   background: color-mix(in srgb, var(--page) 70%, var(--panel) 30%);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 10px;
-  gap: 6px;
+  border-radius: 8px;
+  padding: 5px 6px;
+  gap: 4px;
   text-align: center;
+  min-width: 0;
 }
 
 .balance-pill {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  min-width: 0;
 }
 
 .balance-pill span {
-  font-size: 0.68rem;
+  font-size: 0.60rem;
   text-transform: uppercase;
   font-weight: 700;
   color: var(--muted);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .balance-pill strong {
-  font-size: 1.15rem;
+  font-size: 0.92rem;
   font-weight: 800;
 }
 
@@ -6068,33 +6096,36 @@ input[type="number"] {
 .count-stepper-main {
   background: color-mix(in srgb, var(--page) 65%, var(--panel) 35%);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .count-stepper-label-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .count-stepper-label-row label {
-  font-size: 0.78rem;
+  font-size: 0.70rem;
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.3px;
+  margin-top: 0;
 }
 
 .count-quick-zero {
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 600;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 1px 5px;
   border-radius: 4px;
 }
 
@@ -6106,15 +6137,18 @@ input[type="number"] {
 .count-stepper-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
 }
 
 .stepper-btn {
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 0.95rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
   font-weight: 800;
   display: inline-flex;
   align-items: center;
@@ -6124,6 +6158,8 @@ input[type="number"] {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .stepper-btn:active {
@@ -6134,6 +6170,8 @@ input[type="number"] {
   background: var(--panel);
   color: var(--text);
   border-color: var(--line);
+  min-width: 36px;
+  width: 36px;
 }
 
 .stepper-btn.step-minus:hover:not(:disabled) {
@@ -6149,7 +6187,8 @@ input[type="number"] {
   background: var(--red-700);
   color: #ffffff !important;
   border-color: var(--red-700);
-  min-width: 48px;
+  min-width: 40px;
+  width: 40px;
 }
 
 .stepper-btn.step-plus:hover {
@@ -6161,8 +6200,10 @@ input[type="number"] {
   background: color-mix(in srgb, var(--red-700) 14%, var(--panel) 86%);
   border-color: color-mix(in srgb, var(--red-700) 35%, transparent);
   color: var(--red-600);
-  font-size: 0.85rem;
+  font-size: 0.74rem;
+  min-width: 32px;
   flex: 1;
+  padding: 0 2px;
 }
 
 .stepper-btn.step-quick:hover {
@@ -6172,28 +6213,33 @@ input[type="number"] {
 }
 
 .stepper-input {
-  flex: 1.5;
-  min-width: 60px;
-  height: 44px;
+  flex: 1.2;
+  min-width: 40px;
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
   border: 1.5px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   text-align: center;
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 800;
   color: var(--text);
   background: var(--panel);
+  padding: 0;
+  line-height: 36px;
 }
 
 .stepper-input:focus {
   border-color: var(--red-600);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.2);
+  box-shadow: 0 0 0 2px rgba(229, 57, 53, 0.2);
 }
 
 /* SECONDARY STEPPERS (AVARIA & ASSISTENCIA) */
 .count-card-secondary {
   border-top: 1px dashed var(--line);
-  padding-top: 8px;
+  padding-top: 6px;
+  min-width: 0;
 }
 
 .toggle-secondary-btn {
@@ -6203,12 +6249,13 @@ input[type="number"] {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
-  padding: 4px 2px;
+  padding: 2px 0;
   text-align: left;
+  min-width: 0;
 }
 
 .toggle-secondary-btn:hover {
@@ -6219,27 +6266,33 @@ input[type="number"] {
   background: color-mix(in srgb, #f59e0b 20%, var(--panel) 80%);
   color: #f59e0b;
   border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 1.3;
 }
 
 .count-secondary-body {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 6px;
-  margin-top: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 6px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .secondary-stepper-block {
   background: color-mix(in srgb, var(--page) 50%, var(--panel) 50%);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 8px;
+  border-radius: 6px;
+  padding: 4px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .secondary-stepper-block.damaged.has-value {
@@ -6261,31 +6314,50 @@ input[type="number"] {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-weight: 700;
   color: var(--muted);
+  min-width: 0;
+}
+
+.secondary-label-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secondary-label-row strong {
+  font-size: 0.70rem;
+  color: var(--text);
+  flex-shrink: 0;
 }
 
 .secondary-stepper-actions {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
+  min-width: 0;
+  width: 100%;
 }
 
 .sec-step-btn {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  min-width: 24px;
+  height: 26px;
+  min-height: 26px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--panel);
   color: var(--text);
-  font-size: 1rem;
+  font-size: 0.85rem;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   touch-action: manipulation;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .sec-step-btn:hover:not(:disabled) {
@@ -6303,16 +6375,20 @@ input[type="number"] {
 
 .sec-step-input {
   flex: 1;
-  min-width: 32px;
-  height: 32px;
+  min-width: 0;
+  width: 100%;
+  height: 26px;
+  min-height: 26px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 4px;
   text-align: center;
-  font-size: 16px !important;
+  font-size: 0.82rem !important;
   font-weight: 700;
   color: var(--text);
   background: var(--panel);
   touch-action: manipulation;
+  padding: 0 1px;
+  line-height: 26px;
 }
 
 .sec-step-input:focus {
@@ -6326,8 +6402,8 @@ input[type="number"] {
 }
 
 @media (max-width: 900px) {
-  /* iOS amplia automaticamente campos com font-size abaixo de 16px ao focar; forçar 16px impede o zoom indesejado */
-  input,
+  /* iOS amplia automaticamente campos com font-size abaixo de 16px ao focar; forçar 16px impede o zoom indesejado em campos comuns sem distorcer steppers */
+  input:not(.stepper-input):not(.sec-step-input),
   select,
   textarea {
     font-size: 16px !important;
@@ -6353,6 +6429,8 @@ input[type="number"] {
   }
 
   .view-counting .workspace {
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
     padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   }
 
