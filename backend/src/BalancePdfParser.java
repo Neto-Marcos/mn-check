@@ -355,29 +355,31 @@ final class BalancePdfParser {
       ColumnLayout layout,
       ParsedColumns columns
   ) {
-    float balanceZoneStart = midpoint(layout.description, layout.balance);
-    float balanceZoneEnd = midpoint(layout.balance, layout.cost);
-    float preferredEnd = layout.balance + Math.min(28f, (layout.cost - layout.balance) * 0.45f);
-
-    Integer positioned = parseInteger(line.integerClusterClosestTo(
-        balanceZoneStart,
-        balanceZoneEnd,
-        preferredEnd
-    ));
     Integer direct = parseInteger(columns.balance);
     BigDecimal cost = parseDecimal(columns.cost);
     BigDecimal total = parseDecimal(columns.total);
     Integer calculated = calculateBalance(cost, total);
 
-    if (positioned != null) {
-      return new BalanceResolution(positioned, "posição da coluna Saldo");
-    }
     if (direct != null) {
       return new BalanceResolution(direct, "texto da coluna Saldo");
     }
+
+    float balanceStart = layout.balance - 16f;
+    float balanceEnd = midpoint(layout.balance, layout.cost);
+    float preferredEnd = layout.balance + Math.min(24f, (layout.cost - layout.balance) * 0.35f);
+    Integer positioned = parseInteger(line.integerClusterClosestTo(
+        balanceStart,
+        balanceEnd,
+        preferredEnd
+    ));
+    if (positioned != null) {
+      return new BalanceResolution(positioned, "posição da coluna Saldo");
+    }
+
     if (calculated != null) {
       return new BalanceResolution(calculated, "Total ÷ Custo Médio (fallback)");
     }
+
     return new BalanceResolution(null, "saldo não identificado");
   }
 
@@ -697,9 +699,15 @@ final class BalancePdfParser {
     }
 
     ParsedColumns read(TextLine line) {
+      String directCost = line.between(cost, total);
+      String directTotal = line.between(total, Float.MAX_VALUE);
       List<String> chunks = line.chunkTexts();
-      String extractedCost = chunks.size() >= 2 ? chunks.get(chunks.size() - 2) : line.between(cost, total);
-      String extractedTotal = chunks.isEmpty() ? line.between(total, Float.MAX_VALUE) : chunks.get(chunks.size() - 1);
+      String extractedCost = parseDecimal(directCost) != null
+          ? directCost
+          : (chunks.size() >= 2 ? chunks.get(chunks.size() - 2) : directCost);
+      String extractedTotal = parseDecimal(directTotal) != null
+          ? directTotal
+          : (chunks.isEmpty() ? directTotal : chunks.get(chunks.size() - 1));
       return new ParsedColumns(
           line.between(branch, productCode),
           line.between(productCode, gradeX),

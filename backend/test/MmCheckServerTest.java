@@ -53,13 +53,14 @@ public class MmCheckServerTest {
         List.of(
             row("281", "75480", "1", "2", "REFRIGERADOR MIDEA 394L", "108"),
             row("281", "73001", "1", "2", "REFRIGERADOR ESMALTEC 276L RCD34", "1"),
-            row("281", "76331", "3", "4", "CAIXA DE SOM PHILIPS PARTY SPEAKER1 B1T2 1500W TAX40", "112")
+            row("281", "76331", "3", "4", "CAIXA DE SOM PHILIPS PARTY SPEAKER1 B1T2 1500W TAX40", "112"),
+            row("281", "12553", "3", "1", "PANELA ELETRICA ARROZ BRITANIA P,", "104")
         )
     ));
 
     BalancePdfParser.Result result = BalancePdfParser.parse(pdf);
     require(result.metrics().pagesProcessed() == 2, "deve ler todas as folhas");
-    require(result.rows().size() == 4,
+    require(result.rows().size() == 5,
         "deve ignorar código falso e consolidar duplicidade. Resultado:" + System.lineSeparator()
             + result.debugReport());
     require(result.metrics().duplicateSkus() == 1, "deve contar SKU duplicado");
@@ -73,6 +74,7 @@ public class MmCheckServerTest {
     require(balanceOf(result, "73001.1.2") == 1, "deve corrigir saldo contaminado por dígitos da descrição");
     int targetBalance = balanceOf(result, "76331.3.4");
     require(targetBalance == 112, "deve importar 76331.3.4 com descrição sobreposta; saldo=" + targetBalance);
+    require(balanceOf(result, "12553.3.1") == 104, "deve ler 104 sem contaminacao da descricao");
     require(result.debugReport().contains("76331.3.4 = 112"), "debug deve conter o produto processado");
     require(!result.ignored().isEmpty(), "deve detalhar linhas ignoradas");
   }
