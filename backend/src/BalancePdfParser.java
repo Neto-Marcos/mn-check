@@ -355,14 +355,11 @@ final class BalancePdfParser {
       ColumnLayout layout,
       ParsedColumns columns
   ) {
-    Integer direct = parseInteger(columns.balance);
     BigDecimal cost = parseDecimal(columns.cost);
     BigDecimal total = parseDecimal(columns.total);
     Integer calculated = calculateBalance(cost, total);
 
-    if (direct != null) {
-      return new BalanceResolution(direct, "texto da coluna Saldo");
-    }
+    Integer direct = parseInteger(columns.balance);
 
     float balanceStart = layout.balance - 16f;
     float balanceEnd = midpoint(layout.balance, layout.cost);
@@ -372,12 +369,22 @@ final class BalancePdfParser {
         balanceEnd,
         preferredEnd
     ));
-    if (positioned != null) {
-      return new BalanceResolution(positioned, "posição da coluna Saldo");
-    }
 
     if (calculated != null) {
-      return new BalanceResolution(calculated, "Total ÷ Custo Médio (fallback)");
+      if (direct != null && direct.equals(calculated)) {
+        return new BalanceResolution(direct, "texto da coluna Saldo (validado por Total ÷ Custo)");
+      }
+      if (positioned != null && positioned.equals(calculated)) {
+        return new BalanceResolution(positioned, "posição da coluna Saldo (validado por Total ÷ Custo)");
+      }
+      return new BalanceResolution(calculated, "Total ÷ Custo Médio (correção de sobreposição)");
+    }
+
+    if (direct != null) {
+      return new BalanceResolution(direct, "texto da coluna Saldo");
+    }
+    if (positioned != null) {
+      return new BalanceResolution(positioned, "posição da coluna Saldo");
     }
 
     return new BalanceResolution(null, "saldo não identificado");
@@ -403,7 +410,7 @@ final class BalancePdfParser {
     try {
       BigDecimal rounded = total.divide(cost, 0, RoundingMode.HALF_UP);
       BigDecimal difference = cost.multiply(rounded).subtract(total).abs();
-      if (difference.compareTo(new BigDecimal("0.02")) > 0) return null;
+      if (difference.compareTo(new BigDecimal("0.05")) > 0) return null;
       return rounded.intValueExact();
     } catch (ArithmeticException error) {
       return null;
