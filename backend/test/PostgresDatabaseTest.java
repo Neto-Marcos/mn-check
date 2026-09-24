@@ -18,7 +18,9 @@ public class PostgresDatabaseTest {
 
   void prepareDatabase() {
     databaseUrl = System.getenv("DATABASE_URL");
-    assumeFalse(databaseUrl == null || databaseUrl.isBlank(), "DATABASE_URL não configurada; teste Neon ignorado.");
+    boolean allowed = Boolean.parseBoolean(System.getenv("MN_CHECK_ALLOW_DATABASE_TESTS"));
+    assumeFalse(!allowed || databaseUrl == null || databaseUrl.isBlank(),
+        "Banco PostgreSQL descartável não autorizado; teste de integração ignorado.");
   }
 
   @Test

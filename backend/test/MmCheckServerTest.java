@@ -34,6 +34,23 @@ public class MmCheckServerTest {
   }
 
   @Test
+  void parserCurrentlyAggregatesSameSkuAcrossBranches() throws Exception {
+    byte[] pdf = balancePdf(List.of(List.of(
+        row("281", "74683", "1", "2", "PRODUTO FILIAL 281", "10"),
+        row("282", "74683", "1", "2", "PRODUTO FILIAL 282", "20")
+    )));
+
+    BalancePdfParser.Result result = BalancePdfParser.parse(pdf);
+
+    require(result.rows().size() == 1,
+        "comportamento legado deve consolidar o mesmo SKU sem preservar a filial");
+    require(result.metrics().duplicateSkus() == 1,
+        "SKU repetido entre filiais deve ser registrado como duplicado no comportamento atual");
+    require(balanceOf(result, "74683.1.2") == 30,
+        "comportamento atual deve permanecer documentado até a migração multifilial");
+  }
+
+  @Test
   void parserRebuildsRowsBrokenAcrossLines() throws Exception {
     shouldRebuildBrokenRows();
   }

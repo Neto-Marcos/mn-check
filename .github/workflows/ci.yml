@@ -23,6 +23,7 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://mn_check:mn_check_test@localhost:5432/mn_check_test?sslmode=disable
+      MN_CHECK_ALLOW_DATABASE_TESTS: "true"
       MMCHECK_ADMIN_PASSWORD: ci-password
     steps:
       - uses: actions/checkout@v4
