@@ -2154,6 +2154,13 @@ function Counting({
     } catch (_) {}
     return "cards";
   });
+  const [countingSubTab, setCountingSubTab] = React.useState(() => {
+    try {
+      return localStorage.getItem("mnCheckCountingSubTab") || "inventarios";
+    } catch (_) {
+      return "inventarios";
+    }
+  });
   const [categoryFilter, setCategoryFilter] = React.useState("all");
   const [printFilter, setPrintFilter] = React.useState("counted");
   const [countFilterOpen, setCountFilterOpen] = React.useState(false);
