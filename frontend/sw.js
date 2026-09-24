@@ -8,6 +8,7 @@ const APP_ASSETS = [
   "/auth.js",
   "/conferencia.js",
   "/contagem.js",
+  "/inventarios.js",
   "/counting_cards.js",
   "/mapas.js",
   "/scanner.js",

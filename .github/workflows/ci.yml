@@ -38,6 +38,7 @@ jobs:
       - name: Check frontend syntax
         run: |
           node --check frontend/app.js
+          node --check frontend/inventarios.js
           node --check frontend/sw.js
           test -s frontend/vendor/react.production.min.js
           test -s frontend/vendor/react-dom.production.min.js

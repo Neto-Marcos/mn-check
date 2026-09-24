@@ -1,5 +1,6 @@
 package br.com.mncheck;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -19,11 +20,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/inventarios")
 public class InventorySessionController {
   private final InventorySessionService service;
+  private final InventoryCountingService countingService;
   private final LegacyAuthenticationClient authentication;
 
-  public InventorySessionController(InventorySessionService service,
-      LegacyAuthenticationClient authentication) {
+  public InventorySessionController(
+      InventorySessionService service,
+      InventoryCountingService countingService,
+      LegacyAuthenticationClient authentication
+  ) {
     this.service = service;
+    this.countingService = countingService;
     this.authentication = authentication;
   }
 
@@ -88,8 +94,47 @@ public class InventorySessionController {
     return service.cancel(id, request.branchCode(), request.expectedVersion(), user.name());
   }
 
+  @GetMapping("/{id}/rodada-ativa")
+  public InventoryCountingService.RoundDetail activeRound(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return countingService.getActiveRound(id, branchCode);
+  }
+
+  @GetMapping("/{id}/itens")
+  public InventoryCountingService.ItemListResult items(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode,
+      @RequestParam(required = false) String search,
+      @RequestParam(required = false) String estado
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return countingService.listItems(id, branchCode, search, estado);
+  }
+
+  @PostMapping("/{id}/rodadas/{rodadaId}/contagens")
+  public InventoryCountingService.OccurrenceResult recordOccurrence(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable long rodadaId,
+      @RequestParam String branchCode,
+      @RequestBody RecordOccurrenceRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    return countingService.recordOccurrence(id, rodadaId, branchCode, request.toCommand(), user.name());
+  }
+
   @ExceptionHandler(InventorySessionService.InventoryException.class)
   ResponseEntity<Map<String, Object>> inventoryError(InventorySessionService.InventoryException error) {
+    return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
+  }
+
+  @ExceptionHandler(InventoryCountingService.CountingException.class)
+  ResponseEntity<Map<String, Object>> countingError(InventoryCountingService.CountingException error) {
     return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
   }
 
@@ -102,4 +147,21 @@ public class InventorySessionController {
   public record CreateRequest(long importacaoSaldoId, String branchCode, String nome, String tipo,
                               String modo, List<String> skus) {}
   public record TransitionRequest(String branchCode, long expectedVersion) {}
+
+  public record RecordOccurrenceRequest(
+      String sku,
+      int quantidade,
+      String categoria,
+      String tipoAcao,
+      Object clientEventId,
+      String origem,
+      String dispositivo,
+      Instant clientTimestamp,
+      Long referenciaId
+  ) {
+    public InventoryCountingService.RecordOccurrenceCommand toCommand() {
+      return new InventoryCountingService.RecordOccurrenceCommand(
+          sku, quantidade, categoria, tipoAcao, clientEventId, origem, dispositivo, clientTimestamp, referenciaId);
+    }
+  }
 }

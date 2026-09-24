@@ -72,3 +72,35 @@ As transições inicialmente expostas são `RASCUNHO → ABERTO → EM_CONTAGEM`
 cancelamento a partir de `RASCUNHO` ou `ABERTO`. Toda transição exige a versão atual;
 conflitos e transições inválidas retornam HTTP 409. Estados futuros existem no modelo,
 mas sua lógica será adicionada apenas nas etapas correspondentes.
+
+
+## V4 — rodadas e ocorrências de contagem
+
+V4__create_counting_rounds_and_occurrences.sql introduz as estruturas para auditoria
+e persistência append-only da contagem operacional: odadas_contagem e ocorrencias_contagem.
+
+Todas as relações possuem ON DELETE RESTRICT, impedindo a deleção silenciosa de inventários,
+itens ou rodadas enquanto houver registros vinculados.
+
+Principais garantias do modelo V4:
+
+1. **Rodadas determinísticas:** A transição ABERTO → EM_CONTAGEM cria atomicamente a Rodada 1
+   no mesmo commit. Falhas na criação da rodada desfazem a transição.
+2. **Imutabilidade e auditoria (Append-Only):** Nenhuma contagem é apagada ou sobrescrita no banco.
+   Cada leitura, bipagem ou ajuste gera uma nova linha em ocorrencias_contagem.
+3. **Semântica de múltiplas ocorrências:**
+   - DEFINIR: estabelece a quantidade base contada.
+   - SOMAR: adiciona quantidade cumulativamente (ex: leituras contínuas de scanner).
+   - CORRECAO: ajusta a quantidade vigente para um novo valor, vinculando opcionalmente eferencia_id
+     à ocorrência corrigida.
+   A projeção do valor atual é obtida ordenando as ocorrências cronologicamente por server_timestamp ASC, id ASC.
+4. **Idempotência estrita via PostgreSQL:** A coluna client_event_id possui restrição UNIQUE.
+   O backend executa INSERT ... ON CONFLICT (client_event_id) DO NOTHING e, em caso de colisão,
+   retorna a ocorrência existente com HTTP 200, evitando duplicidades em retentativas ou operações concorrentes.
+5. **Fonte da verdade de progresso:** O progresso da rodada não depende de flags mutáveis em
+   inventario_itens. A contagem de SKUs finalizados é calculada diretamente como o número de itens distintos
+   presentes em ocorrencias_contagem para a rodada em andamento.
+6. **Contagem Cega REAL:** Tanto o detalhe da sessão (GET /api/inventarios/{id}) quanto as rotas
+   operacionais de contagem (/itens e /contagens) sanitizam e definem saldoSnapshot como
+ull
+   sempre que o inventário estiver em modo CEGO.

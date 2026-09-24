@@ -117,7 +117,8 @@ public class InventorySessionService {
           inventory = summary(result);
         }
       }
-      return new InventoryDetail(inventory, loadItems(connection, inventoryId));
+      boolean isBlind = "CEGO".equalsIgnoreCase(inventory.modo());
+      return new InventoryDetail(inventory, loadItems(connection, inventoryId, isBlind));
     } catch (SQLException error) {
       throw databaseError("Não foi possível carregar o inventário.", error);
     }
@@ -151,6 +152,9 @@ public class InventorySessionService {
           throw new InvalidTransitionException(current.status(), targetStatus);
         }
         updateState(connection, inventoryId, branch.id(), expectedVersion, targetStatus, safeActor(actor));
+        if ("EM_CONTAGEM".equals(targetStatus)) {
+          createInitialRound(connection, inventoryId, safeActor(actor));
+        }
         connection.commit();
         return loadDetail(inventoryId, normalizedBranch);
       } catch (RuntimeException | SQLException error) {
@@ -271,7 +275,20 @@ public class InventorySessionService {
     }
   }
 
-  private List<InventoryItem> loadItems(Connection connection, long inventoryId) throws SQLException {
+  private void createInitialRound(Connection connection, long inventoryId, String actor) throws SQLException {
+    String sql = """
+        INSERT INTO rodadas_contagem (inventario_id, numero, tipo, status, iniciada_por, iniciada_em, created_at)
+        VALUES (?, 1, 'CONTAGEM', 'EM_ANDAMENTO', ?, now(), now())
+        ON CONFLICT (inventario_id, numero) DO NOTHING
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, inventoryId);
+      statement.setString(2, actor);
+      statement.executeUpdate();
+    }
+  }
+
+  private List<InventoryItem> loadItems(Connection connection, long inventoryId, boolean isBlind) throws SQLException {
     String sql = """
         SELECT id, sku, descricao_snapshot, saldo_snapshot, estado, criado_em
         FROM inventario_itens WHERE inventario_id = ? ORDER BY sku
@@ -281,8 +298,9 @@ public class InventorySessionService {
       try (ResultSet result = statement.executeQuery()) {
         List<InventoryItem> items = new ArrayList<>();
         while (result.next()) {
+          Integer saldoSnapshot = isBlind ? null : result.getInt("saldo_snapshot");
           items.add(new InventoryItem(result.getLong("id"), result.getString("sku"),
-              result.getString("descricao_snapshot"), result.getInt("saldo_snapshot"),
+              result.getString("descricao_snapshot"), saldoSnapshot,
               result.getString("estado"), instant(result, "criado_em")));
         }
         return items;
@@ -367,7 +385,7 @@ public class InventorySessionService {
 
   public record CreateCommand(long importacaoSaldoId, String branchCode, String nome, String tipo,
                               String modo, List<String> skus) {}
-  public record InventoryItem(long id, String sku, String descricaoSnapshot, int saldoSnapshot,
+  public record InventoryItem(long id, String sku, String descricaoSnapshot, Integer saldoSnapshot,
                               String estado, Instant criadoEm) {}
   public record InventorySummary(long id, String branchCode, long importacaoSaldoId, String nome,
                                  String tipo, String modo, String status, long version,

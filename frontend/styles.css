@@ -6543,3 +6543,179 @@ input[type="number"] {
   transform: rotate(180deg);
 }
 
+
+/* ==========================================================================
+   Inventário & Contagem 3.0 (Dia 4)
+   ========================================================================== */
+
+.inventarios-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.inventarios-header {
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--panel, #ffffff);
+  border: 1px solid var(--line, #e6e6e6);
+}
+
+.inventarios-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.inventory-card {
+  background: var(--panel, #ffffff);
+  border: 1px solid var(--line, #e6e6e6);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+}
+
+.badge-info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1d4ed8;
+}
+
+.badge-neutral {
+  background: rgba(100, 116, 139, 0.15);
+  color: #475569;
+}
+
+.badge-success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+}
+
+.badge-rascunho { background: rgba(148, 163, 184, 0.2); color: #475569; }
+.badge-aberto { background: rgba(59, 130, 246, 0.2); color: #1d4ed8; }
+.badge-em_contagem { background: rgba(16, 185, 129, 0.2); color: #047857; }
+.badge-cancelado { background: rgba(239, 68, 68, 0.2); color: #b91c1c; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 150ms ease;
+  min-height: 40px;
+}
+
+.btn-primary {
+  background: var(--red-700, #cd1e1a);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: var(--red-800, #9f1714);
+}
+
+.btn-secondary {
+  background: var(--panel, #ffffff);
+  border-color: var(--line, #e6e6e6);
+  color: var(--text, #21191b);
+}
+
+.btn-secondary:hover {
+  background: var(--page, #fbf7f7);
+}
+
+.btn-danger-outline {
+  background: transparent;
+  border-color: var(--red-600, #e53935);
+  color: var(--red-600, #e53935);
+}
+
+.btn-danger-outline:hover {
+  background: var(--red-50, #fff4f5);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: 1.1rem;
+}
+
+.notice-banner {
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.notice-success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.notice-danger {
+  background: var(--red-50, #fff4f5);
+  color: var(--red-800, #9f1714);
+  border: 1px solid var(--red-100, #ffe7ea);
+}
+
+.stepper-btn {
+  background: var(--panel, #ffffff);
+  border: 2px solid var(--line, #e6e6e6);
+  color: var(--text, #21191b);
+}
+
+.stepper-btn:active {
+  transform: scale(0.96);
+  background: var(--page, #fbf7f7);
+}
+
+.stepper-input {
+  border: 2px solid var(--line, #e6e6e6);
+  background: var(--input-bg, #ffffff);
+  color: var(--text, #21191b);
+}
+
+.item-counted {
+  background: rgba(16, 185, 129, 0.05);
+}
+
+@media (max-width: 600px) {
+  .stepper-btn {
+    width: 68px !important;
+    height: 68px !important;
+    font-size: 2.2rem !important;
+  }
+
+  .stepper-input {
+    width: 100px !important;
+    height: 68px !important;
+    font-size: 2rem !important;
+  }
+
+  .btn {
+    min-height: 48px;
+  }
+}
