@@ -46,13 +46,20 @@ jobs:
         run: mvn --batch-mode --no-transfer-progress -DskipTests package
       - name: Smoke test API
         run: |
-          java -jar target/mn-check-1.8.6.jar > /tmp/mn-check.log 2>&1 &
+          APP_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          APP_JAR="target/mn-check-${APP_VERSION}.jar"
+          java -jar "$APP_JAR" > /tmp/mn-check.log 2>&1 &
           SERVER_PID=$!
-          sleep 6
-          curl --fail http://127.0.0.1:4173/api/health
-          curl --fail http://127.0.0.1:4173/api/version | grep '"version":"1.8.6"'
-          curl --fail http://127.0.0.1:4173/sw.js | grep 'mn-check-1.8.6'
-          kill $SERVER_PID
-          cat /tmp/mn-check.log
+          trap 'cat /tmp/mn-check.log; kill $SERVER_PID 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4137/api/health > /tmp/health.json; then
+              break
+            fi
+            kill -0 $SERVER_PID
+            sleep 1
+          done
+          cat /tmp/health.json
+          curl --fail --silent http://127.0.0.1:4137/api/version | grep "\"version\":\"${APP_VERSION}\""
+          curl --fail --silent http://127.0.0.1:4137/sw.js | grep "mn-check-${APP_VERSION}"
       - name: Build production image
         run: docker build -t mn-check-ci .
