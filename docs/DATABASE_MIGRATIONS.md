@@ -55,3 +55,20 @@ automaticamente. APIs antigas que não informam `branchCode` usam a compatibilid
 centralizada `PostgresDatabase.LEGACY_BRANCH_CODE` (`281`). Esse fallback não
 representa autorização por filial e deverá ser removido quando o contexto do usuário
 for implementado.
+
+## V3 — sessões de inventário
+
+`V3__create_inventory_sessions.sql` cria `inventarios` e `inventario_itens`. A sessão
+registra filial, importação-base, tipo, modo, estado e versão otimista. Seus itens são
+copiados de `saldos` no momento da criação, mantendo `saldo_snapshot` imutável mesmo
+quando uma importação ou o estoque corrente mudarem posteriormente.
+
+O domínio novo é atendido diretamente pelo Spring Boot em `/api/inventarios`. A
+criação e as transições são transacionais. Inventários parciais aceitam uma seleção
+explícita de SKUs; os demais tipos usam todos os itens da importação. O frontend e as
+tabelas de contagem 2.3.6 continuam independentes durante a fase de compatibilidade.
+
+As transições inicialmente expostas são `RASCUNHO → ABERTO → EM_CONTAGEM` e o
+cancelamento a partir de `RASCUNHO` ou `ABERTO`. Toda transição exige a versão atual;
+conflitos e transições inválidas retornam HTTP 409. Estados futuros existem no modelo,
+mas sua lógica será adicionada apenas nas etapas correspondentes.

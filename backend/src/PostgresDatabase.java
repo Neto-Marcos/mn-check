@@ -874,6 +874,8 @@ public final class PostgresDatabase {
     List<String> statements = List.of(
         "DELETE FROM historico_scanner",
         "DELETE FROM conferencias",
+        "DELETE FROM inventario_itens",
+        "DELETE FROM inventarios",
         "DELETE FROM estoque_produtos",
         "DELETE FROM contagens",
         "DELETE FROM importacoes_saldo"

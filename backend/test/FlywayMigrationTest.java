@@ -52,16 +52,18 @@ class FlywayMigrationTest {
     try {
       Flyway emptyFlyway = flyway(config, emptySchema);
       MigrateResult emptyResult = emptyFlyway.migrate();
-      assertEquals(2, emptyResult.migrationsExecuted);
+      assertEquals(3, emptyResult.migrationsExecuted);
       assertBranchCreatedOnce(config, emptySchema);
       assertRootTablesHaveBranch(config, emptySchema);
+      assertInventorySessionTables(config, emptySchema);
 
       Flyway existingFlyway = flyway(config, existingSchema);
       MigrateResult existingResult = existingFlyway.migrate();
-      assertEquals(2, existingResult.migrationsExecuted,
-          "schema existente deve receber V1 e V2 depois do baseline 0");
+      assertEquals(3, existingResult.migrationsExecuted,
+          "schema existente deve receber V1, V2 e V3 depois do baseline 0");
       assertBranchCreatedOnce(config, existingSchema);
       assertRootTablesHaveBranch(config, existingSchema);
+      assertInventorySessionTables(config, existingSchema);
       assertEquals("281", scalar(config, "SELECT f.codigo FROM " + existingSchema
           + ".estoque_produtos e JOIN " + existingSchema
           + ".filiais f ON f.id = e.filial_id WHERE e.sku = 'LEGADO.1.1'"));
@@ -71,8 +73,8 @@ class FlywayMigrationTest {
       MigrateResult repeated = existingFlyway.migrate();
       assertEquals(0, repeated.migrationsExecuted);
       assertBranchCreatedOnce(config, existingSchema);
-      assertTrue(existingFlyway.info().applied().length >= 3,
-          "schema existente deve registrar baseline, V1 e V2");
+      assertTrue(existingFlyway.info().applied().length >= 4,
+          "schema existente deve registrar baseline, V1, V2 e V3");
 
       String scopedUrl = withCurrentSchema(databaseUrl, existingSchema);
       PostgresDatabase legacyInitialization = new PostgresDatabase(scopedUrl);
@@ -123,6 +125,14 @@ class FlywayMigrationTest {
           + (SELECT COUNT(*) FROM %s.contagens WHERE filial_id IS NULL)
         )::text
         """.formatted(schema, schema, schema)));
+  }
+
+  private void assertInventorySessionTables(DatabaseUrlParser.JdbcConfig config, String schema)
+      throws Exception {
+    assertEquals("2", scalar(config, """
+        SELECT COUNT(*)::text FROM information_schema.tables
+        WHERE table_schema = '%s' AND table_name IN ('inventarios', 'inventario_itens')
+        """.formatted(schema)));
   }
 
   private String scalar(DatabaseUrlParser.JdbcConfig config, String sql) throws Exception {
