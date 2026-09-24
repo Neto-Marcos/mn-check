@@ -123,28 +123,31 @@ final class BalancePdfParser {
           continue;
         }
 
+        String branchCode = onlyDigits(columns.branch);
         String sku = product + "." + gradeX + "." + gradeY;
+        String branchSku = branchCode + "|" + sku;
         String description = columns.description().trim().replaceAll("\\s+", " ");
-        Row row = new Row(sku, description, balance, page.number, text);
-        Row previous = unique.get(sku);
+        Row row = new Row(branchCode, sku, description, balance, page.number, text);
+        Row previous = unique.get(branchSku);
         if (previous == null) {
-          unique.put(sku, row);
-          processingLog.add("[LIDA] folha=" + page.number + " produto=" + sku
+          unique.put(branchSku, row);
+          processingLog.add("[LIDA] folha=" + page.number + " filial=" + branchCode + " produto=" + sku
               + " saldo=" + balance + " linha=\"" + text + "\"");
         } else {
           duplicateSkus++;
           int consolidatedBalance = previous.balance + balance;
-          unique.put(sku, new Row(
+          unique.put(branchSku, new Row(
+              branchCode,
               sku,
               previous.description.isBlank() ? description : previous.description,
               consolidatedBalance,
               previous.page,
               previous.sourceLine + " | " + text
           ));
-          processingLog.add("[DUPLICADA] folha=" + page.number + " produto=" + sku
+          processingLog.add("[DUPLICADA] folha=" + page.number + " filial=" + branchCode + " produto=" + sku
               + " saldo_anterior=" + previous.balance + " saldo_adicionado=" + balance
               + " saldo_final=" + consolidatedBalance);
-          warnings.add("SKU duplicado somado: " + sku + " (" + previous.balance
+          warnings.add("SKU duplicado somado na filial " + branchCode + ": " + sku + " (" + previous.balance
               + " + " + balance + " = " + consolidatedBalance + ").");
         }
       }
@@ -308,7 +311,7 @@ final class BalancePdfParser {
     report.append("=== PROCESSAMENTO ===\n");
     processingLog.forEach(entry -> report.append(entry).append('\n'));
     report.append("\n=== RESULTADO FINAL ===\n");
-    rows.values().forEach(row -> report.append(row.sku)
+    rows.values().forEach(row -> report.append(row.branchCode).append('|').append(row.sku)
         .append(" = ").append(row.balance)
         .append(" | folha ").append(row.page)
         .append('\n'));
@@ -439,7 +442,7 @@ final class BalancePdfParser {
         .toLowerCase(Locale.ROOT);
   }
 
-  record Row(String sku, String description, int balance, int page, String sourceLine) {}
+  record Row(String branchCode, String sku, String description, int balance, int page, String sourceLine) {}
 
   record Metrics(
       int pagesProcessed,

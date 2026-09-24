@@ -116,6 +116,8 @@ public class MmCheckServer {
             "error", "PostgreSQL temporariamente indisponível. Nenhuma alteração foi confirmada."
         ));
       }
+    } catch (PostgresDatabase.UnknownBranchException | PostgresDatabase.InactiveBranchException error) {
+      json(exchange, 400, Map.of("error", error.getMessage()));
     } catch (Exception error) {
       error.printStackTrace();
       json(exchange, 500, Map.of("error", "Erro interno do servidor."));
@@ -230,16 +232,19 @@ public class MmCheckServer {
 
     if ("GET".equals(method) && "/api/saldos".equals(path)) {
       requireRole(user, "admin", "stock");
-      applyRelationalBalanceSnapshot();
-      json(exchange, 200, countData());
+      String branchCode = requestedBranchCode(exchange);
+      applyRelationalBalanceSnapshot(branchCode);
+      json(exchange, 200, countData(branchCode));
       return;
     }
 
     if ("GET".equals(method) && "/api/saldos/historico".equals(path)) {
       requireRole(user, "admin", "stock");
+      String branchCode = requestedBranchCode(exchange);
       json(exchange, 200, Map.of(
-          "imports", relationalDatabase.loadBalanceHistory(30),
-          "inventory", relationalDatabase.loadInventoryMetrics()
+          "branchCode", branchCode,
+          "imports", relationalDatabase.loadBalanceHistory(branchCode, 30),
+          "inventory", relationalDatabase.loadInventoryMetrics(branchCode)
       ));
       return;
     }
@@ -247,6 +252,7 @@ public class MmCheckServer {
     if ("POST".equals(method) && "/api/saldos/produto".equals(path)) {
       requireRole(user, "admin", "stock");
       Map<String, Object> body = readJson(exchange);
+      String branchCode = requestedBranchCode(body);
       String sku = normalizeSku(string(body.get("sku")));
       String description = string(body.get("description")).trim();
       int systemBalance = integerField(body, "system");
@@ -261,6 +267,7 @@ public class MmCheckServer {
         throw new ApiException(400, "Saldo, contagem, assistência e avaria não podem ser negativos.");
       }
       PostgresDatabase.ImportSummary summary = relationalDatabase.saveManualBalanceProduct(
+          branchCode,
           sku,
           description,
           systemBalance,
@@ -270,7 +277,7 @@ public class MmCheckServer {
           otherQuantity,
           user.name
       );
-      applyRelationalBalanceSnapshot();
+      applyRelationalBalanceSnapshot(branchCode);
       db.recordHistory(user, "manual_balance_product", "Produto " + sku
           + " adicionado manualmente ao saldo atual");
       db.save();
@@ -288,7 +295,8 @@ public class MmCheckServer {
 
     if ("GET".equals(method) && "/api/historico".equals(path)) {
       requireAdmin(user);
-      json(exchange, 200, historyData());
+      String branchCode = requestedBranchCode(exchange);
+      json(exchange, 200, historyData(branchCode));
       return;
     }
 
@@ -533,6 +541,7 @@ public class MmCheckServer {
       }
 
       CountImportResult importResult = analyzeCountsWithPdfBox(pdfBytes);
+      String branchCode = importResult.branchCode();
       List<CountItem> imported = importResult.items();
       List<PostgresDatabase.BalanceRow> balancesToSave = imported.stream()
           .map(item -> new PostgresDatabase.BalanceRow(item.sku(), item.description(), item.system()))
@@ -540,7 +549,7 @@ public class MmCheckServer {
       int divergentItemsUpdated = 0;
       int divergentItemsMissing = 0;
       if (divergentOnly) {
-        PostgresDatabase.BalanceSnapshot currentSnapshot = relationalDatabase.loadLatestBalances();
+        PostgresDatabase.BalanceSnapshot currentSnapshot = relationalDatabase.loadLatestBalances(branchCode);
         if (currentSnapshot.rows().isEmpty()) {
           throw new ApiException(409, "Importe primeiro um PDF de saldo completo.");
         }
@@ -584,6 +593,7 @@ public class MmCheckServer {
           importResult.debugReport().getBytes(StandardCharsets.UTF_8)
       );
       PostgresDatabase.ImportSummary importSummary = relationalDatabase.saveBalanceImport(
+          branchCode,
           fileName,
           user.name,
           balancesToSave,
@@ -593,7 +603,7 @@ public class MmCheckServer {
           metrics.duplicateSkus(),
           metrics.conflictsFound()
       );
-      applyRelationalBalanceSnapshot();
+      applyRelationalBalanceSnapshot(branchCode);
       db.countsImportWarnings = new ArrayList<>(importResult.warnings());
       if (divergentOnly) {
         db.countsImportWarnings.add("Atualização parcial: " + divergentItemsUpdated
@@ -627,10 +637,11 @@ public class MmCheckServer {
         || ("POST".equals(method) && "/api/contagem".equals(path))) {
       if (!List.of("admin", "stock").contains(user.role)) throw new ApiException(403, "Ação não permitida.");
       Map<String, Object> body = readJson(exchange);
+      String branchCode = requestedBranchCode(body);
       List<Object> rows = list(body.get("counts"));
       String countStatus = normalizeCountStatus(string(body.get("status")));
       if (rows.isEmpty()) throw new ApiException(400, "Não há contagens para atualizar.");
-      PostgresDatabase.BalanceSnapshot currentSnapshot = relationalDatabase.loadLatestBalances();
+      PostgresDatabase.BalanceSnapshot currentSnapshot = relationalDatabase.loadLatestBalances(branchCode);
       Map<String, Integer> currentBalances = new LinkedHashMap<>();
       currentSnapshot.rows().forEach(item -> currentBalances.put(item.sku(), item.systemBalance()));
       if (currentBalances.isEmpty()) {
@@ -661,6 +672,7 @@ public class MmCheckServer {
       List<CountItem> updated = new ArrayList<>(updatedBySku.values());
       if (updated.isEmpty()) throw new ApiException(400, "Nenhuma contagem válida foi informada.");
       long countId = relationalDatabase.saveCount(
+          branchCode,
           user.name,
           updated.stream()
               .map(item -> new PostgresDatabase.CountRow(item.sku(), item.description(), item.system(), item.counted(), item.assistance(), item.damaged(), item.other()))
@@ -1056,18 +1068,19 @@ public class MmCheckServer {
     return lineId + "|" + sku;
   }
 
-  private static Map<String, Object> countData() {
-    return Map.of(
-        "counts", db.counts.stream().map(CountItem::toMap).toList(),
-        "updatedAt", db.countsUpdatedAt,
-        "sourceName", db.countsSourceName,
-        "warnings", db.countsImportWarnings,
-        "importMetrics", db.countsImportMetrics.toMap(),
-        "ignoredProducts", db.countsImportIgnored
-    );
+  private static Map<String, Object> countData(String branchCode) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("branchCode", branchCode);
+    result.put("counts", db.counts.stream().map(CountItem::toMap).toList());
+    result.put("updatedAt", db.countsUpdatedAt);
+    result.put("sourceName", db.countsSourceName);
+    result.put("warnings", db.countsImportWarnings);
+    result.put("importMetrics", db.countsImportMetrics.toMap());
+    result.put("ignoredProducts", db.countsImportIgnored);
+    return result;
   }
 
-  private static Map<String, Object> historyData() {
+  private static Map<String, Object> historyData(String branchCode) {
     List<CargoMap> maps = db.maps.stream()
         .filter(map -> !"separacao".equals(map.status))
         .toList();
@@ -1075,7 +1088,7 @@ public class MmCheckServer {
         .filter(event -> !List.of("count_upload", "update_counts").contains(event.action()))
         .map(HistoryRecord::toMap)
         .toList());
-    events.addAll(relationalDatabase.loadHistory().stream().map(entry -> Map.<String, Object>of(
+    events.addAll(relationalDatabase.loadHistory(branchCode).stream().map(entry -> Map.<String, Object>of(
         "at", entry.at().toString(),
         "userName", entry.operator(),
         "action", entry.action(),
@@ -1083,6 +1096,7 @@ public class MmCheckServer {
     )).toList());
     events.sort((left, right) -> string(right.get("at")).compareTo(string(left.get("at"))));
     return Map.of(
+        "branchCode", branchCode,
         "maps", maps.stream().map(CargoMap::toMap).toList(),
         "errors", db.errors.stream().map(ErrorRecord::toMap).toList(),
         "events", events
@@ -1090,7 +1104,11 @@ public class MmCheckServer {
   }
 
   private static void applyRelationalBalanceSnapshot() {
-    PostgresDatabase.BalanceSnapshot snapshot = relationalDatabase.loadLatestBalances();
+    applyRelationalBalanceSnapshot(PostgresDatabase.LEGACY_BRANCH_CODE);
+  }
+
+  private static void applyRelationalBalanceSnapshot(String branchCode) {
+    PostgresDatabase.BalanceSnapshot snapshot = relationalDatabase.loadLatestBalances(branchCode);
     if (snapshot.importSummary() == null) {
       db.counts = new ArrayList<>();
       db.countsUpdatedAt = "";
@@ -1122,6 +1140,32 @@ public class MmCheckServer {
         summary.conflictsFound(),
         0
     );
+  }
+
+  private static String requestedBranchCode(Map<String, Object> body) {
+    String requested = string(body.get("branchCode")).trim();
+    String branchCode = requested.isBlank() ? PostgresDatabase.LEGACY_BRANCH_CODE : requested;
+    relationalDatabase.requireBranch(branchCode);
+    return branchCode;
+  }
+
+  private static String requestedBranchCode(HttpExchange exchange) {
+    String requested = queryParameter(exchange, "branchCode");
+    String branchCode = requested.isBlank() ? PostgresDatabase.LEGACY_BRANCH_CODE : requested;
+    relationalDatabase.requireBranch(branchCode);
+    return branchCode;
+  }
+
+  private static String queryParameter(HttpExchange exchange, String name) {
+    String query = exchange.getRequestURI().getRawQuery();
+    if (query == null || query.isBlank()) return "";
+    for (String parameter : query.split("&")) {
+      String[] parts = parameter.split("=", 2);
+      String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
+      if (!name.equals(key)) continue;
+      return parts.length == 1 ? "" : URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
+    }
+    return "";
   }
 
   private static User requireUser(HttpExchange exchange) {
@@ -1282,7 +1326,7 @@ public class MmCheckServer {
     return item.sku + "|" + item.name;
   }
 
-  private static CountImportResult analyzeCountsWithPdfBox(byte[] pdfBytes) throws IOException {
+  static CountImportResult analyzeCountsWithPdfBox(byte[] pdfBytes) throws IOException {
     BalancePdfParser.Result parsed;
     try {
       parsed = BalancePdfParser.parse(pdfBytes);
@@ -1302,10 +1346,20 @@ public class MmCheckServer {
     if (parsed.rows().isEmpty()) {
       throw new ApiException(422, "O PDFBox não encontrou linhas válidas com Produto, Grade X, Grade Y e Saldo.");
     }
+    List<String> branches = parsed.rows().stream()
+        .map(BalancePdfParser.Row::branchCode)
+        .distinct()
+        .sorted()
+        .toList();
+    if (branches.size() != 1) {
+      throw new ApiException(422, "O PDF deve conter exatamente uma filial. Filiais encontradas: "
+          + String.join(", ", branches) + ".");
+    }
     List<CountItem> items = parsed.rows().stream()
         .map(row -> new CountItem(row.sku(), row.description(), row.balance(), 0, 0, 0, 0))
         .toList();
     return new CountImportResult(
+        branches.get(0),
         items,
         parsed.warnings(),
         metrics,
@@ -1687,7 +1741,7 @@ public class MmCheckServer {
     }
   }
 
-  private static class ApiException extends RuntimeException {
+  static class ApiException extends RuntimeException {
     final int status;
     ApiException(int status, String message) {
       super(message);
@@ -1899,6 +1953,7 @@ public class MmCheckServer {
   }
 
   record CountImportResult(
+      String branchCode,
       List<CountItem> items,
       List<String> warnings,
       BalancePdfParser.Metrics metrics,

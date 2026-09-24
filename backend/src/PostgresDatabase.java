@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 
 public final class PostgresDatabase {
+  public static final String LEGACY_BRANCH_CODE = "281";
   private final String jdbcUrl;
   private final String username;
   private final String password;
@@ -58,6 +59,7 @@ public final class PostgresDatabase {
   }
 
   public ImportSummary saveBalanceImport(
+      String branchCode,
       String fileName,
       String importedBy,
       List<BalanceRow> balances,
@@ -70,8 +72,8 @@ public final class PostgresDatabase {
     String insertImport = """
         INSERT INTO importacoes_saldo
           (nome_arquivo, importado_por, quantidade_skus, paginas_processadas, total_linhas_lidas,
-           linhas_ignoradas, skus_duplicados, conflitos_encontrados, atualizado_em)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())
+           linhas_ignoradas, skus_duplicados, conflitos_encontrados, atualizado_em, filial_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, now(), ?)
         RETURNING id, atualizado_em
         """;
     String insertBalance = """
@@ -82,6 +84,7 @@ public final class PostgresDatabase {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
+        Branch branch = requireBranch(connection, branchCode);
         long importId;
         Instant updatedAt;
         try (PreparedStatement statement = connection.prepareStatement(insertImport)) {
@@ -93,6 +96,7 @@ public final class PostgresDatabase {
           statement.setInt(6, ignoredLines);
           statement.setInt(7, duplicateSkus);
           statement.setInt(8, conflictsFound);
+          statement.setLong(9, branch.id());
           try (ResultSet result = statement.executeQuery()) {
             if (!result.next()) throw new SQLException("A importação não retornou um identificador.");
             importId = result.getLong("id");
@@ -109,7 +113,7 @@ public final class PostgresDatabase {
           }
           statement.executeBatch();
         }
-        ImportChanges changes = calculateImportChanges(connection, importId);
+        ImportChanges changes = calculateImportChanges(connection, importId, branch.id());
         try (PreparedStatement statement = connection.prepareStatement(
             "UPDATE importacoes_saldo SET itens_alterados = ?, itens_removidos = ? WHERE id = ?")) {
           statement.setInt(1, changes.changedItems());
@@ -117,7 +121,7 @@ public final class PostgresDatabase {
           statement.setLong(3, importId);
           statement.executeUpdate();
         }
-        synchronizeCurrentInventory(connection, importId, balances);
+        synchronizeCurrentInventory(connection, branch.id(), importId, balances);
         connection.commit();
         return new ImportSummary(
             importId, fileName, safeText(importedBy, "Sistema"), balances.size(), updatedAt, pagesProcessed,
@@ -135,16 +139,32 @@ public final class PostgresDatabase {
     }
   }
 
-  private ImportChanges calculateImportChanges(Connection connection, long importId) throws SQLException {
+  public ImportSummary saveBalanceImport(
+      String fileName,
+      String importedBy,
+      List<BalanceRow> balances,
+      int pagesProcessed,
+      int totalLinesRead,
+      int ignoredLines,
+      int duplicateSkus,
+      int conflictsFound
+  ) {
+    return saveBalanceImport(LEGACY_BRANCH_CODE, fileName, importedBy, balances, pagesProcessed,
+        totalLinesRead, ignoredLines, duplicateSkus, conflictsFound);
+  }
+
+  private ImportChanges calculateImportChanges(Connection connection, long importId, long branchId)
+      throws SQLException {
     String previousImport = """
         SELECT id FROM importacoes_saldo
-        WHERE id < ?
+        WHERE id < ? AND filial_id = ?
         ORDER BY atualizado_em DESC, id DESC
         LIMIT 1
         """;
     Long previousId = null;
     try (PreparedStatement statement = connection.prepareStatement(previousImport)) {
       statement.setLong(1, importId);
+      statement.setLong(2, branchId);
       try (ResultSet result = statement.executeQuery()) {
         if (result.next()) previousId = result.getLong(1);
       }
@@ -183,18 +203,20 @@ public final class PostgresDatabase {
 
   private void synchronizeCurrentInventory(
       Connection connection,
+      long branchId,
       long importId,
       List<BalanceRow> balances
   ) throws SQLException {
     try (PreparedStatement deactivate = connection.prepareStatement(
-        "UPDATE estoque_produtos SET ativo = FALSE, ultima_atualizacao = now() WHERE ativo = TRUE")) {
+        "UPDATE estoque_produtos SET ativo = FALSE, ultima_atualizacao = now() WHERE filial_id = ? AND ativo = TRUE")) {
+      deactivate.setLong(1, branchId);
       deactivate.executeUpdate();
     }
     String upsert = """
         INSERT INTO estoque_produtos
-          (sku, descricao, saldo_sistema, saldo_contado, saldo_assistencia, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, importacao_id)
-        VALUES (?, ?, ?, 0, 0, 0, 0, TRUE, now(), ?)
-        ON CONFLICT (sku) DO UPDATE SET
+          (filial_id, sku, descricao, saldo_sistema, saldo_contado, saldo_assistencia, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, importacao_id)
+        VALUES (?, ?, ?, ?, 0, 0, 0, 0, TRUE, now(), ?)
+        ON CONFLICT (filial_id, sku) DO UPDATE SET
           descricao = EXCLUDED.descricao,
           saldo_sistema = EXCLUDED.saldo_sistema,
           ativo = TRUE,
@@ -203,20 +225,21 @@ public final class PostgresDatabase {
         """;
     try (PreparedStatement statement = connection.prepareStatement(upsert)) {
       for (BalanceRow balance : balances) {
-        statement.setString(1, balance.sku());
-        statement.setString(2, balance.description());
-        statement.setInt(3, balance.balance());
-        statement.setLong(4, importId);
+        statement.setLong(1, branchId);
+        statement.setString(2, balance.sku());
+        statement.setString(3, balance.description());
+        statement.setInt(4, balance.balance());
+        statement.setLong(5, importId);
         statement.addBatch();
       }
       statement.executeBatch();
     }
   }
 
-  public long saveCount(String operator, List<CountRow> rows, String status) {
+  public long saveCount(String branchCode, String operator, List<CountRow> rows, String status) {
     String insertCount = """
-        INSERT INTO contagens (criado_em, operador, importacao_id, status)
-        VALUES (now(), ?, (SELECT id FROM importacoes_saldo ORDER BY atualizado_em DESC, id DESC LIMIT 1), ?)
+        INSERT INTO contagens (criado_em, operador, importacao_id, status, filial_id)
+        VALUES (now(), ?, (SELECT id FROM importacoes_saldo WHERE filial_id = ? ORDER BY atualizado_em DESC, id DESC LIMIT 1), ?, ?)
         RETURNING id
         """;
     String insertItem = """
@@ -227,10 +250,13 @@ public final class PostgresDatabase {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
+        Branch branch = requireBranch(connection, branchCode);
         long countId;
         try (PreparedStatement statement = connection.prepareStatement(insertCount)) {
           statement.setString(1, operator);
-          statement.setString(2, normalizeCountStatus(status));
+          statement.setLong(2, branch.id());
+          statement.setString(3, normalizeCountStatus(status));
+          statement.setLong(4, branch.id());
           try (ResultSet result = statement.executeQuery()) {
             if (!result.next()) throw new SQLException("A contagem não retornou um identificador.");
             countId = result.getLong(1);
@@ -258,7 +284,7 @@ public final class PostgresDatabase {
                 saldo_outros = ?,
                 ultima_contagem_em = now(),
                 ultima_atualizacao = now()
-            WHERE sku = ?
+            WHERE filial_id = ? AND sku = ?
             """;
         try (PreparedStatement statement = connection.prepareStatement(updateInventory)) {
           for (CountRow row : rows) {
@@ -266,7 +292,8 @@ public final class PostgresDatabase {
             statement.setInt(2, row.assistanceQuantity());
             statement.setInt(3, row.damagedQuantity());
             statement.setInt(4, row.otherQuantity());
-            statement.setString(5, row.sku());
+            statement.setLong(5, branch.id());
+            statement.setString(6, row.sku());
             statement.addBatch();
           }
           statement.executeBatch();
@@ -284,20 +311,26 @@ public final class PostgresDatabase {
     }
   }
 
-  public long saveCount(String operator, List<CountRow> rows) {
-    return saveCount(operator, rows, "FINALIZADA");
+  public long saveCount(String operator, List<CountRow> rows, String status) {
+    return saveCount(LEGACY_BRANCH_CODE, operator, rows, status);
   }
 
-  public CountCycle loadLatestCountCycle() {
+  public long saveCount(String operator, List<CountRow> rows) {
+    return saveCount(LEGACY_BRANCH_CODE, operator, rows, "FINALIZADA");
+  }
+
+  public CountCycle loadLatestCountCycle(String branchCode) {
     String sql = """
         SELECT id, criado_em, operador, status
         FROM contagens
+        WHERE filial_id = (SELECT id FROM filiais WHERE codigo = ?)
         ORDER BY criado_em DESC, id DESC
         LIMIT 1
         """;
     try (Connection connection = connect();
-         PreparedStatement statement = connection.prepareStatement(sql);
-         ResultSet result = statement.executeQuery()) {
+         PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, normalizeBranchCode(branchCode));
+      try (ResultSet result = statement.executeQuery()) {
       if (!result.next()) return CountCycle.open();
       return new CountCycle(
           result.getLong("id"),
@@ -305,9 +338,14 @@ public final class PostgresDatabase {
           result.getString("operador"),
           result.getTimestamp("criado_em").toInstant()
       );
+      }
     } catch (SQLException error) {
       throw new DatabaseException("Não foi possível carregar o ciclo da contagem.", error);
     }
+  }
+
+  public CountCycle loadLatestCountCycle() {
+    return loadLatestCountCycle(LEGACY_BRANCH_CODE);
   }
 
   private static String normalizeCountStatus(String status) {
@@ -316,19 +354,21 @@ public final class PostgresDatabase {
     return "EM_ANDAMENTO";
   }
 
-  public BalanceSnapshot loadLatestBalances() {
-    ImportSummary latest = latestImport();
+  public BalanceSnapshot loadLatestBalances(String branchCode) {
+    Branch branch = requireBranch(branchCode);
+    ImportSummary latest = latestImport(branch.id());
     if (latest == null) return BalanceSnapshot.empty();
 
     List<CountRow> rows = new ArrayList<>();
     String sql = """
         SELECT sku, descricao, saldo_sistema, saldo_contado, saldo_assistencia, saldo_avaria, saldo_outros
         FROM estoque_produtos
-        WHERE ativo = TRUE
+        WHERE filial_id = ? AND ativo = TRUE
         ORDER BY sku
         """;
     try (Connection connection = connect();
          PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, branch.id());
       try (ResultSet result = statement.executeQuery()) {
         while (result.next()) {
           String sku = result.getString("sku");
@@ -349,7 +389,12 @@ public final class PostgresDatabase {
     }
   }
 
+  public BalanceSnapshot loadLatestBalances() {
+    return loadLatestBalances(LEGACY_BRANCH_CODE);
+  }
+
   public ImportSummary saveManualBalanceProduct(
+      String branchCode,
       String sku,
       String description,
       int systemBalance,
@@ -359,11 +404,11 @@ public final class PostgresDatabase {
       int otherQuantity,
       String operator
   ) {
-    String latestImportSql = "SELECT id FROM importacoes_saldo ORDER BY atualizado_em DESC, id DESC LIMIT 1";
+    String latestImportSql = "SELECT id FROM importacoes_saldo WHERE filial_id = ? ORDER BY atualizado_em DESC, id DESC LIMIT 1";
     String createImportSql = """
         INSERT INTO importacoes_saldo
-          (nome_arquivo, importado_por, quantidade_skus, atualizado_em, itens_alterados)
-        VALUES ('Ajuste manual de produto', ?, 1, now(), 1)
+          (nome_arquivo, importado_por, quantidade_skus, atualizado_em, itens_alterados, filial_id)
+        VALUES ('Ajuste manual de produto', ?, 1, now(), 1, ?)
         RETURNING id, atualizado_em
         """;
     String insertBalanceSql = """
@@ -373,9 +418,9 @@ public final class PostgresDatabase {
         """;
     String upsertInventorySql = """
         INSERT INTO estoque_produtos
-          (sku, descricao, saldo_sistema, saldo_contado, saldo_assistencia, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, ultima_contagem_em, importacao_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, now(), now(), ?)
-        ON CONFLICT (sku) DO UPDATE SET
+          (filial_id, sku, descricao, saldo_sistema, saldo_contado, saldo_assistencia, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, ultima_contagem_em, importacao_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, now(), now(), ?)
+        ON CONFLICT (filial_id, sku) DO UPDATE SET
           descricao = EXCLUDED.descricao,
           saldo_sistema = EXCLUDED.saldo_sistema,
           saldo_contado = EXCLUDED.saldo_contado,
@@ -390,22 +435,26 @@ public final class PostgresDatabase {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
+        Branch branch = requireBranch(connection, branchCode);
         long importId;
         Instant updatedAt;
-        try (Statement statement = connection.createStatement();
-             ResultSet result = statement.executeQuery(latestImportSql)) {
+        try (PreparedStatement statement = connection.prepareStatement(latestImportSql)) {
+          statement.setLong(1, branch.id());
+          try (ResultSet result = statement.executeQuery()) {
           if (result.next()) {
             importId = result.getLong(1);
             updatedAt = latestImportTimestamp(connection, importId);
           } else {
             try (PreparedStatement insertImport = connection.prepareStatement(createImportSql)) {
               insertImport.setString(1, safeText(operator, "Sistema"));
+              insertImport.setLong(2, branch.id());
               try (ResultSet created = insertImport.executeQuery()) {
                 if (!created.next()) throw new SQLException("A importação manual não retornou identificador.");
                 importId = created.getLong("id");
                 updatedAt = created.getTimestamp("atualizado_em").toInstant();
               }
             }
+          }
           }
         }
         try (PreparedStatement statement = connection.prepareStatement(insertBalanceSql)) {
@@ -415,14 +464,15 @@ public final class PostgresDatabase {
           statement.executeUpdate();
         }
         try (PreparedStatement statement = connection.prepareStatement(upsertInventorySql)) {
-          statement.setString(1, sku);
-          statement.setString(2, safeText(description, "Produto " + sku));
-          statement.setInt(3, systemBalance);
-          statement.setInt(4, countedQuantity);
-          statement.setInt(5, assistanceQuantity);
-          statement.setInt(6, damagedQuantity);
-          statement.setInt(7, otherQuantity);
-          statement.setLong(8, importId);
+          statement.setLong(1, branch.id());
+          statement.setString(2, sku);
+          statement.setString(3, safeText(description, "Produto " + sku));
+          statement.setInt(4, systemBalance);
+          statement.setInt(5, countedQuantity);
+          statement.setInt(6, assistanceQuantity);
+          statement.setInt(7, damagedQuantity);
+          statement.setInt(8, otherQuantity);
+          statement.setLong(9, importId);
           statement.executeUpdate();
         }
         try (PreparedStatement statement = connection.prepareStatement("""
@@ -446,6 +496,20 @@ public final class PostgresDatabase {
     } catch (SQLException error) {
       throw new DatabaseException("Não foi possível adicionar o produto manualmente.", error);
     }
+  }
+
+  public ImportSummary saveManualBalanceProduct(
+      String sku,
+      String description,
+      int systemBalance,
+      int countedQuantity,
+      int assistanceQuantity,
+      int damagedQuantity,
+      int otherQuantity,
+      String operator
+  ) {
+    return saveManualBalanceProduct(LEGACY_BRANCH_CODE, sku, description, systemBalance,
+        countedQuantity, assistanceQuantity, damagedQuantity, otherQuantity, operator);
   }
 
   public ImportSummary saveManualBalanceProduct(
@@ -505,22 +569,26 @@ public final class PostgresDatabase {
     }
   }
 
-  public List<HistoryEntry> loadHistory() {
+  public List<HistoryEntry> loadHistory(String branchCode) {
     List<HistoryEntry> history = new ArrayList<>();
     String imports = """
         SELECT id, nome_arquivo, importado_por, quantidade_skus, atualizado_em
-        FROM importacoes_saldo ORDER BY atualizado_em DESC
+        FROM importacoes_saldo
+        WHERE filial_id = (SELECT id FROM filiais WHERE codigo = ?)
+        ORDER BY atualizado_em DESC
         """;
     String counts = """
         SELECT c.id, c.operador, c.criado_em, COUNT(i.id) AS itens
         FROM contagens c
         LEFT JOIN itens_contagem i ON i.contagem_id = c.id
+        WHERE c.filial_id = (SELECT id FROM filiais WHERE codigo = ?)
         GROUP BY c.id, c.operador, c.criado_em
         ORDER BY c.criado_em DESC
         """;
-    try (Connection connection = connect();
-         Statement statement = connection.createStatement()) {
-      try (ResultSet result = statement.executeQuery(imports)) {
+    try (Connection connection = connect()) {
+      try (PreparedStatement statement = connection.prepareStatement(imports)) {
+        statement.setString(1, normalizeBranchCode(branchCode));
+        try (ResultSet result = statement.executeQuery()) {
         while (result.next()) {
           history.add(new HistoryEntry(
               result.getTimestamp("atualizado_em").toInstant(),
@@ -530,8 +598,11 @@ public final class PostgresDatabase {
                   + " com " + result.getInt("quantidade_skus") + " SKUs"
           ));
         }
+        }
       }
-      try (ResultSet result = statement.executeQuery(counts)) {
+      try (PreparedStatement statement = connection.prepareStatement(counts)) {
+        statement.setString(1, normalizeBranchCode(branchCode));
+        try (ResultSet result = statement.executeQuery()) {
         while (result.next()) {
           history.add(new HistoryEntry(
               result.getTimestamp("criado_em").toInstant(),
@@ -539,6 +610,7 @@ public final class PostgresDatabase {
               "update_counts",
               "Contagem " + result.getLong("id") + " salva com " + result.getInt("itens") + " SKUs"
           ));
+        }
         }
       }
       history.sort((left, right) -> right.at().compareTo(left.at()));
@@ -548,18 +620,20 @@ public final class PostgresDatabase {
     }
   }
 
-  public List<Map<String, Object>> loadBalanceHistory(int limit) {
+  public List<Map<String, Object>> loadBalanceHistory(String branchCode, int limit) {
     String sql = """
         SELECT i.id, i.nome_arquivo, i.importado_por, i.quantidade_skus, i.atualizado_em,
                i.itens_alterados, i.itens_removidos
         FROM importacoes_saldo i
+        WHERE i.filial_id = (SELECT id FROM filiais WHERE codigo = ?)
         ORDER BY i.atualizado_em DESC, i.id DESC
         LIMIT ?
         """;
     List<Map<String, Object>> history = new ArrayList<>();
     try (Connection connection = connect();
          PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setInt(1, Math.max(1, Math.min(limit, 100)));
+      statement.setString(1, normalizeBranchCode(branchCode));
+      statement.setInt(2, Math.max(1, Math.min(limit, 100)));
       try (ResultSet result = statement.executeQuery()) {
         while (result.next()) {
           history.add(Map.of(
@@ -579,26 +653,41 @@ public final class PostgresDatabase {
     }
   }
 
-  public Map<String, Object> loadInventoryMetrics() {
+  public List<HistoryEntry> loadHistory() {
+    return loadHistory(LEGACY_BRANCH_CODE);
+  }
+
+  public List<Map<String, Object>> loadBalanceHistory(int limit) {
+    return loadBalanceHistory(LEGACY_BRANCH_CODE, limit);
+  }
+
+  public Map<String, Object> loadInventoryMetrics(String branchCode) {
     String sql = """
         SELECT
           COUNT(*) FILTER (WHERE ativo) AS ativos,
           COUNT(*) FILTER (WHERE NOT ativo) AS inativos,
           COUNT(*) FILTER (WHERE ativo AND (saldo_contado + saldo_avaria + saldo_outros) <> saldo_sistema) AS divergentes
         FROM estoque_produtos
+        WHERE filial_id = (SELECT id FROM filiais WHERE codigo = ?)
         """;
     try (Connection connection = connect();
-         Statement statement = connection.createStatement();
-         ResultSet result = statement.executeQuery(sql)) {
+         PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, normalizeBranchCode(branchCode));
+      try (ResultSet result = statement.executeQuery()) {
       if (!result.next()) return Map.of("active", 0, "inactive", 0, "divergent", 0);
       return Map.of(
           "active", result.getInt("ativos"),
           "inactive", result.getInt("inativos"),
           "divergent", result.getInt("divergentes")
       );
+      }
     } catch (SQLException error) {
       throw new DatabaseException("Não foi possível carregar os indicadores de estoque.", error);
     }
+  }
+
+  public Map<String, Object> loadInventoryMetrics() {
+    return loadInventoryMetrics(LEGACY_BRANCH_CODE);
   }
 
   public ScanHistoryEntry saveScanHistory(
@@ -881,18 +970,20 @@ public final class PostgresDatabase {
     );
   }
 
-  private ImportSummary latestImport() {
+  private ImportSummary latestImport(long branchId) {
     String sql = """
         SELECT id, nome_arquivo, importado_por, quantidade_skus, atualizado_em,
                paginas_processadas, total_linhas_lidas, linhas_ignoradas,
                skus_duplicados, conflitos_encontrados, itens_alterados, itens_removidos
         FROM importacoes_saldo
+        WHERE filial_id = ?
         ORDER BY atualizado_em DESC, id DESC
         LIMIT 1
         """;
     try (Connection connection = connect();
-         Statement statement = connection.createStatement();
-         ResultSet result = statement.executeQuery(sql)) {
+         PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, branchId);
+      try (ResultSet result = statement.executeQuery()) {
       if (!result.next()) return null;
       return new ImportSummary(
           result.getLong("id"),
@@ -908,31 +999,40 @@ public final class PostgresDatabase {
           result.getInt("itens_alterados"),
           result.getInt("itens_removidos")
       );
+      }
     } catch (SQLException error) {
       throw new DatabaseException("Não foi possível carregar a última importação.", error);
     }
   }
 
-  private Map<String, Integer> loadLatestCountQuantities(Instant importedAt) throws SQLException {
-    String sql = """
-        SELECT i.sku, i.quantidade_contada
-        FROM itens_contagem i
-        WHERE i.contagem_id = (
-          SELECT id FROM contagens
-          WHERE criado_em >= ?
-          ORDER BY criado_em DESC, id DESC
-          LIMIT 1
-        )
-        """;
-    Map<String, Integer> quantities = new LinkedHashMap<>();
-    try (Connection connection = connect();
-         PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setTimestamp(1, Timestamp.from(importedAt));
+  public Branch requireBranch(String branchCode) {
+    try (Connection connection = connect()) {
+      return requireBranch(connection, branchCode);
+    } catch (SQLException error) {
+      throw new DatabaseException("Não foi possível validar a filial.", error);
+    }
+  }
+
+  private Branch requireBranch(Connection connection, String branchCode) throws SQLException {
+    String normalized = normalizeBranchCode(branchCode);
+    try (PreparedStatement statement = connection.prepareStatement(
+        "SELECT id, codigo, nome, ativa FROM filiais WHERE codigo = ?")) {
+      statement.setString(1, normalized);
       try (ResultSet result = statement.executeQuery()) {
-      while (result.next()) quantities.put(result.getString(1), result.getInt(2));
+        if (!result.next()) throw new UnknownBranchException(normalized);
+        if (!result.getBoolean("ativa")) throw new InactiveBranchException(normalized);
+        return new Branch(result.getLong("id"), result.getString("codigo"),
+            result.getString("nome"), true);
       }
     }
-    return quantities;
+  }
+
+  private static String normalizeBranchCode(String branchCode) {
+    String normalized = branchCode == null ? "" : branchCode.trim();
+    if (!normalized.matches("\\d{1,20}")) {
+      throw new IllegalArgumentException("Código de filial inválido.");
+    }
+    return normalized;
   }
 
   private void migrateWithRetry() {
@@ -959,6 +1059,17 @@ public final class PostgresDatabase {
   private void migrate() {
     String[] statements = {
         """
+        CREATE TABLE IF NOT EXISTS filiais (
+          id BIGSERIAL PRIMARY KEY,
+          codigo TEXT NOT NULL UNIQUE,
+          nome TEXT NOT NULL,
+          ativa BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        "INSERT INTO filiais (codigo, nome, ativa) VALUES ('281', 'Filial 281', TRUE) ON CONFLICT (codigo) DO NOTHING",
+        """
         CREATE TABLE IF NOT EXISTS importacoes_saldo (
           id BIGSERIAL PRIMARY KEY,
           nome_arquivo TEXT NOT NULL,
@@ -971,7 +1082,8 @@ public final class PostgresDatabase {
           skus_duplicados INTEGER NOT NULL DEFAULT 0,
           conflitos_encontrados INTEGER NOT NULL DEFAULT 0,
           itens_alterados INTEGER NOT NULL DEFAULT 0,
-          itens_removidos INTEGER NOT NULL DEFAULT 0
+          itens_removidos INTEGER NOT NULL DEFAULT 0,
+          filial_id BIGINT NOT NULL REFERENCES filiais(id)
         )
         """,
         "ALTER TABLE importacoes_saldo ADD COLUMN IF NOT EXISTS importado_por TEXT NOT NULL DEFAULT 'Sistema'",
@@ -993,7 +1105,8 @@ public final class PostgresDatabase {
           criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
           operador TEXT NOT NULL,
           importacao_id BIGINT REFERENCES importacoes_saldo(id),
-          status VARCHAR(24) NOT NULL DEFAULT 'ABERTA'
+          status VARCHAR(24) NOT NULL DEFAULT 'ABERTA',
+          filial_id BIGINT NOT NULL REFERENCES filiais(id)
         )
         """,
         "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS importacao_id BIGINT REFERENCES importacoes_saldo(id)",
@@ -1031,7 +1144,8 @@ public final class PostgresDatabase {
         """,
         """
         CREATE TABLE IF NOT EXISTS estoque_produtos (
-          sku VARCHAR(64) PRIMARY KEY,
+          filial_id BIGINT NOT NULL REFERENCES filiais(id),
+          sku VARCHAR(64) NOT NULL,
           descricao TEXT NOT NULL DEFAULT '',
           saldo_sistema INTEGER NOT NULL CHECK (saldo_sistema >= 0),
           saldo_contado INTEGER NOT NULL DEFAULT 0 CHECK (saldo_contado >= 0),
@@ -1041,7 +1155,8 @@ public final class PostgresDatabase {
           ativo BOOLEAN NOT NULL DEFAULT TRUE,
           ultima_atualizacao TIMESTAMPTZ NOT NULL DEFAULT now(),
           ultima_contagem_em TIMESTAMPTZ,
-          importacao_id BIGINT NOT NULL REFERENCES importacoes_saldo(id)
+          importacao_id BIGINT NOT NULL REFERENCES importacoes_saldo(id),
+          PRIMARY KEY (filial_id, sku)
         )
         """,
         "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_avaria INTEGER NOT NULL DEFAULT 0 CHECK (saldo_avaria >= 0)",
@@ -1076,22 +1191,23 @@ public final class PostgresDatabase {
         "CREATE INDEX IF NOT EXISTS idx_contagens_criado_em ON contagens(criado_em DESC)",
         "CREATE INDEX IF NOT EXISTS idx_itens_contagem_contagem ON itens_contagem(contagem_id)",
         "CREATE INDEX IF NOT EXISTS idx_historico_scanner_mapa ON historico_scanner(mapa_id, criado_em DESC)"
-        ,"CREATE INDEX IF NOT EXISTS idx_estoque_produtos_ativo ON estoque_produtos(ativo, sku)"
+        ,"CREATE INDEX IF NOT EXISTS idx_estoque_produtos_ativo ON estoque_produtos(filial_id, ativo, sku)"
         ,"CREATE INDEX IF NOT EXISTS idx_conferencias_status ON conferencias(status, atualizado_em DESC)"
     };
     try (Connection connection = connect(); Statement statement = connection.createStatement()) {
       for (String sql : statements) statement.execute(sql);
       statement.execute("""
           INSERT INTO estoque_produtos
-            (sku, saldo_sistema, saldo_contado, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, ultima_contagem_em, importacao_id)
+            (filial_id, sku, saldo_sistema, saldo_contado, saldo_avaria, saldo_outros, ativo, ultima_atualizacao, ultima_contagem_em, importacao_id)
           SELECT
+            i.filial_id,
             s.sku,
             s.saldo,
             COALESCE((
               SELECT ic.quantidade_contada
               FROM itens_contagem ic
               JOIN contagens c ON c.id = ic.contagem_id
-              WHERE ic.sku = s.sku
+              WHERE ic.sku = s.sku AND c.filial_id = i.filial_id
               ORDER BY c.criado_em DESC, c.id DESC
               LIMIT 1
             ), 0),
@@ -1099,7 +1215,7 @@ public final class PostgresDatabase {
               SELECT ic.quantidade_avaria
               FROM itens_contagem ic
               JOIN contagens c ON c.id = ic.contagem_id
-              WHERE ic.sku = s.sku
+              WHERE ic.sku = s.sku AND c.filial_id = i.filial_id
               ORDER BY c.criado_em DESC, c.id DESC
               LIMIT 1
             ), 0),
@@ -1107,7 +1223,7 @@ public final class PostgresDatabase {
               SELECT ic.quantidade_outros
               FROM itens_contagem ic
               JOIN contagens c ON c.id = ic.contagem_id
-              WHERE ic.sku = s.sku
+              WHERE ic.sku = s.sku AND c.filial_id = i.filial_id
               ORDER BY c.criado_em DESC, c.id DESC
               LIMIT 1
             ), 0),
@@ -1116,10 +1232,13 @@ public final class PostgresDatabase {
             NULL,
             s.importacao_id
           FROM saldos s
+          JOIN importacoes_saldo i ON i.id = s.importacao_id
           WHERE s.importacao_id = (
-            SELECT id FROM importacoes_saldo ORDER BY atualizado_em DESC, id DESC LIMIT 1
+            SELECT id FROM importacoes_saldo
+            WHERE filial_id = (SELECT id FROM filiais WHERE codigo = '281')
+            ORDER BY atualizado_em DESC, id DESC LIMIT 1
           )
-          ON CONFLICT (sku) DO NOTHING
+          ON CONFLICT (filial_id, sku) DO NOTHING
           """);
     } catch (SQLException error) {
       throw new DatabaseException("Não foi possível criar as tabelas do PostgreSQL.", error);
@@ -1146,6 +1265,7 @@ public final class PostgresDatabase {
       this(sku, "", balance);
     }
   }
+  public record Branch(long id, String code, String name, boolean active) {}
   public record CountRow(
       String sku,
       String description,
@@ -1268,6 +1388,25 @@ public final class PostgresDatabase {
         current = current.getCause();
       }
       return false;
+    }
+  }
+
+  public static final class UnknownBranchException extends RuntimeException {
+    private final String branchCode;
+
+    UnknownBranchException(String branchCode) {
+      super("Filial não encontrada: " + branchCode + ".");
+      this.branchCode = branchCode;
+    }
+
+    public String branchCode() {
+      return branchCode;
+    }
+  }
+
+  public static final class InactiveBranchException extends RuntimeException {
+    InactiveBranchException(String branchCode) {
+      super("Filial inativa: " + branchCode + ".");
     }
   }
 

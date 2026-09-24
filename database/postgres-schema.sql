@@ -1,3 +1,12 @@
+CREATE TABLE IF NOT EXISTS filiais (
+  id BIGSERIAL PRIMARY KEY,
+  codigo TEXT NOT NULL UNIQUE,
+  nome TEXT NOT NULL,
+  ativa BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS importacoes_saldo (
   id BIGSERIAL PRIMARY KEY,
   nome_arquivo TEXT NOT NULL,
@@ -10,7 +19,8 @@ CREATE TABLE IF NOT EXISTS importacoes_saldo (
   skus_duplicados INTEGER NOT NULL DEFAULT 0,
   conflitos_encontrados INTEGER NOT NULL DEFAULT 0,
   itens_alterados INTEGER NOT NULL DEFAULT 0,
-  itens_removidos INTEGER NOT NULL DEFAULT 0
+  itens_removidos INTEGER NOT NULL DEFAULT 0,
+  filial_id BIGINT NOT NULL REFERENCES filiais(id)
 );
 
 CREATE TABLE IF NOT EXISTS saldos (
@@ -22,7 +32,8 @@ CREATE TABLE IF NOT EXISTS saldos (
 );
 
 CREATE TABLE IF NOT EXISTS estoque_produtos (
-  sku VARCHAR(64) PRIMARY KEY,
+  filial_id BIGINT NOT NULL REFERENCES filiais(id),
+  sku VARCHAR(64) NOT NULL,
   descricao TEXT NOT NULL DEFAULT '',
   saldo_sistema INTEGER NOT NULL CHECK (saldo_sistema >= 0),
   saldo_contado INTEGER NOT NULL DEFAULT 0 CHECK (saldo_contado >= 0),
@@ -32,7 +43,8 @@ CREATE TABLE IF NOT EXISTS estoque_produtos (
   ativo BOOLEAN NOT NULL DEFAULT TRUE,
   ultima_atualizacao TIMESTAMPTZ NOT NULL DEFAULT now(),
   ultima_contagem_em TIMESTAMPTZ,
-  importacao_id BIGINT NOT NULL REFERENCES importacoes_saldo(id)
+  importacao_id BIGINT NOT NULL REFERENCES importacoes_saldo(id),
+  PRIMARY KEY (filial_id, sku)
 );
 
 CREATE TABLE IF NOT EXISTS contagens (
@@ -40,7 +52,8 @@ CREATE TABLE IF NOT EXISTS contagens (
   criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
   operador TEXT NOT NULL,
   importacao_id BIGINT REFERENCES importacoes_saldo(id),
-  status VARCHAR(24) NOT NULL DEFAULT 'ABERTA'
+  status VARCHAR(24) NOT NULL DEFAULT 'ABERTA',
+  filial_id BIGINT NOT NULL REFERENCES filiais(id)
 );
 
 CREATE TABLE IF NOT EXISTS itens_contagem (
@@ -112,7 +125,7 @@ CREATE TABLE IF NOT EXISTS mn_check_files (
 );
 
 CREATE INDEX IF NOT EXISTS idx_saldos_importacao ON saldos(importacao_id);
-CREATE INDEX IF NOT EXISTS idx_estoque_produtos_ativo ON estoque_produtos(ativo, sku);
+CREATE INDEX IF NOT EXISTS idx_estoque_produtos_ativo ON estoque_produtos(filial_id, ativo, sku);
 CREATE INDEX IF NOT EXISTS idx_contagens_criado_em ON contagens(criado_em DESC);
 CREATE INDEX IF NOT EXISTS idx_itens_contagem_contagem ON itens_contagem(contagem_id);
 CREATE INDEX IF NOT EXISTS idx_conferencias_status ON conferencias(status, atualizado_em DESC);

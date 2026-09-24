@@ -38,17 +38,20 @@ Sem a autorização explícita, os testes são ignorados. Essa trava reduz o ris
 
 As migrations são roll-forward. Antes de produção, deve-se gerar backup e validar a migration em uma cópia. Se a inicialização falhar, o rollback operacional é voltar ao artefato anterior; a tabela `filiais` pode permanecer porque não interfere no legado. Não apagar tabela nem editar `flyway_schema_history` automaticamente.
 
-## Próxima migration planejada
+## V2 — contexto de filial no estoque
 
-A próxima etapa será dividida para evitar mudança ampla:
+`V2__add_filial_context_to_inventory.sql` adiciona `filial_id` apenas às raízes
+`importacoes_saldo`, `estoque_produtos` e `contagens`. `saldos` herda o contexto da
+importação e `itens_contagem` herda o contexto da contagem.
 
-1. adicionar `filial_id` nullable em `importacoes_saldo`, `estoque_produtos` e `contagens`;
-2. avaliar `saldos`: a filial pode ser derivada de `importacoes_saldo`, portanto não deve ser duplicada sem necessidade comprovada;
-3. avaliar `itens_contagem`: a filial pode ser derivada de `contagens`, portanto não deve ser duplicada inicialmente;
-4. criar a Filial 281 se ausente e fazer backfill em lotes;
-5. comparar contagens antes/depois e exigir zero registros sem filial;
-6. criar índices e chaves estrangeiras como `NOT VALID`, validar separadamente;
-7. somente depois aplicar `NOT NULL`;
-8. alterar consultas e unicidades por filial em uma etapa funcional posterior.
+A migration exige a Filial 281, faz o backfill dos registros legados, verifica que
+não restaram órfãos, valida as FKs e só então aplica `NOT NULL`. A chave primária
+global de `estoque_produtos.sku` é substituída por `(filial_id, sku)` depois de
+confirmar que a chave encontrada é exatamente a chave legado esperada.
 
-Nenhuma dessas alterações faz parte da V1.
+Nesta primeira versão, cada PDF deve conter exatamente uma filial. O código é
+extraído do próprio documento. PDF misto é rejeitado e não é dividido
+automaticamente. APIs antigas que não informam `branchCode` usam a compatibilidade
+centralizada `PostgresDatabase.LEGACY_BRANCH_CODE` (`281`). Esse fallback não
+representa autorização por filial e deverá ser removido quando o contexto do usuário
+for implementado.

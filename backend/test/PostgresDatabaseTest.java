@@ -156,12 +156,90 @@ public class PostgresDatabaseTest {
     assertFalse(outage.isConstraintViolation());
   }
 
+  @Test
+  void isolatesImportsAndInventoryBetweenBranches() throws Exception {
+    prepareDatabase();
+    PostgresDatabase database = new PostgresDatabase(databaseUrl);
+    try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement("""
+        INSERT INTO filiais (codigo, nome, ativa)
+        VALUES ('282', 'Filial 282', TRUE)
+        ON CONFLICT (codigo) DO UPDATE SET nome = EXCLUDED.nome, ativa = TRUE
+        """)) {
+      statement.executeUpdate();
+    }
+
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    String sharedSku = "MULTI-" + suffix;
+    String old281Sku = "OLD281-" + suffix;
+    String only282Sku = "ONLY282-" + suffix;
+
+    PostgresDatabase.ImportSummary first281 = database.saveBalanceImport(
+        "281", "filial-281-" + suffix + ".pdf", "Teste multifilial",
+        List.of(
+            new PostgresDatabase.BalanceRow(sharedSku, "Descrição 281", 10),
+            new PostgresDatabase.BalanceRow(old281Sku, "Antigo 281", 5)
+        ), 1, 2, 0, 0, 0);
+    PostgresDatabase.ImportSummary first282 = database.saveBalanceImport(
+        "282", "filial-282-" + suffix + ".pdf", "Teste multifilial",
+        List.of(
+            new PostgresDatabase.BalanceRow(sharedSku, "Descrição 282", 37),
+            new PostgresDatabase.BalanceRow(only282Sku, "Exclusivo 282", 8)
+        ), 1, 2, 0, 0, 0);
+
+    assertEquals(10, systemOf(database.loadLatestBalances("281"), sharedSku));
+    assertEquals(37, systemOf(database.loadLatestBalances("282"), sharedSku));
+    assertEquals("Descrição 281", descriptionOf(database.loadLatestBalances("281"), sharedSku));
+    assertEquals("Descrição 282", descriptionOf(database.loadLatestBalances("282"), sharedSku));
+
+    PostgresDatabase.ImportSummary second281 = database.saveBalanceImport(
+        "281", "filial-281-nova-" + suffix + ".pdf", "Teste multifilial",
+        List.of(new PostgresDatabase.BalanceRow(sharedSku, "Descrição 281 nova", 11)),
+        1, 1, 0, 0, 0);
+
+    assertEquals(1, database.loadLatestBalances("281").rows().size(),
+        "nova importação 281 deve desativar somente produtos antigos da 281");
+    assertEquals(2, database.loadLatestBalances("282").rows().size(),
+        "importação 281 não pode desativar produtos da 282");
+    assertEquals(37, systemOf(database.loadLatestBalances("282"), sharedSku));
+    assertEquals("Descrição 282", descriptionOf(database.loadLatestBalances("282"), sharedSku));
+
+    database.saveManualBalanceProduct("281", sharedSku, "Ajuste 281", 99, 0, 0, 0, 0,
+        "Teste multifilial");
+    assertEquals(99, systemOf(database.loadLatestBalances("281"), sharedSku));
+    assertEquals(37, systemOf(database.loadLatestBalances("282"), sharedSku),
+        "upsert da 281 não pode alterar SKU equivalente da 282");
+
+    try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement("""
+        SELECT
+          (SELECT COUNT(*) FROM importacoes_saldo WHERE filial_id IS NULL)
+          + (SELECT COUNT(*) FROM estoque_produtos WHERE filial_id IS NULL)
+          + (SELECT COUNT(*) FROM contagens WHERE filial_id IS NULL)
+        """)) {
+      try (var result = statement.executeQuery()) {
+        assertTrue(result.next());
+        assertEquals(0, result.getLong(1));
+      }
+    }
+
+    cleanup(database, List.of(first281.id(), first282.id(), second281.id()), 0, "");
+  }
+
   private int countedOf(PostgresDatabase.BalanceSnapshot snapshot, String sku) {
     return snapshot.rows().stream()
         .filter(row -> row.sku().equals(sku))
         .findFirst()
         .orElseThrow()
         .countedQuantity();
+  }
+
+  private int systemOf(PostgresDatabase.BalanceSnapshot snapshot, String sku) {
+    return snapshot.rows().stream().filter(row -> row.sku().equals(sku)).findFirst().orElseThrow()
+        .systemBalance();
+  }
+
+  private String descriptionOf(PostgresDatabase.BalanceSnapshot snapshot, String sku) {
+    return snapshot.rows().stream().filter(row -> row.sku().equals(sku)).findFirst().orElseThrow()
+        .description();
   }
 
   private void cleanup(
@@ -171,21 +249,23 @@ public class PostgresDatabaseTest {
       String mapId
   ) throws Exception {
     try (Connection connection = database.connect()) {
-      try (PreparedStatement statement = connection.prepareStatement(
-          "DELETE FROM historico_scanner WHERE mapa_id = ?"
-      )) {
-        statement.setString(1, mapId);
-        statement.executeUpdate();
+      if (!mapId.isBlank()) {
+        try (PreparedStatement statement = connection.prepareStatement(
+            "DELETE FROM historico_scanner WHERE mapa_id = ?")) {
+          statement.setString(1, mapId);
+          statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+            "DELETE FROM conferencias WHERE mapa_id = ?")) {
+          statement.setString(1, mapId);
+          statement.executeUpdate();
+        }
       }
-      try (PreparedStatement statement = connection.prepareStatement(
-          "DELETE FROM conferencias WHERE mapa_id = ?"
-      )) {
-        statement.setString(1, mapId);
-        statement.executeUpdate();
-      }
-      try (PreparedStatement statement = connection.prepareStatement("DELETE FROM contagens WHERE id = ?")) {
-        statement.setLong(1, countId);
-        statement.executeUpdate();
+      if (countId > 0) {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM contagens WHERE id = ?")) {
+          statement.setLong(1, countId);
+          statement.executeUpdate();
+        }
       }
       try (PreparedStatement statement = connection.prepareStatement(
           "DELETE FROM estoque_produtos WHERE importacao_id = ANY (?)"

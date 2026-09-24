@@ -34,7 +34,7 @@ public class MmCheckServerTest {
   }
 
   @Test
-  void parserCurrentlyAggregatesSameSkuAcrossBranches() throws Exception {
+  void parserKeepsSameSkuSeparatedAcrossBranches() throws Exception {
     byte[] pdf = balancePdf(List.of(List.of(
         row("281", "74683", "1", "2", "PRODUTO FILIAL 281", "10"),
         row("282", "74683", "1", "2", "PRODUTO FILIAL 282", "20")
@@ -42,12 +42,33 @@ public class MmCheckServerTest {
 
     BalancePdfParser.Result result = BalancePdfParser.parse(pdf);
 
-    require(result.rows().size() == 1,
-        "comportamento legado deve consolidar o mesmo SKU sem preservar a filial");
-    require(result.metrics().duplicateSkus() == 1,
-        "SKU repetido entre filiais deve ser registrado como duplicado no comportamento atual");
-    require(balanceOf(result, "74683.1.2") == 30,
-        "comportamento atual deve permanecer documentado até a migração multifilial");
+    require(result.rows().size() == 2,
+        "o mesmo SKU em filiais diferentes deve permanecer separado");
+    require(result.metrics().duplicateSkus() == 0,
+        "SKU repetido entre filiais não deve ser tratado como duplicado");
+    require(balanceOf(result, "281", "74683.1.2") == 10,
+        "saldo da filial 281 deve permanecer isolado");
+    require(balanceOf(result, "282", "74683.1.2") == 20,
+        "saldo da filial 282 deve permanecer isolado");
+  }
+
+  @Test
+  void importRejectsPdfWithMoreThanOneBranch() throws Exception {
+    byte[] pdf = balancePdf(List.of(List.of(
+        row("281", "74683", "1", "2", "PRODUTO FILIAL 281", "10"),
+        row("282", "74683", "1", "2", "PRODUTO FILIAL 282", "20")
+    )));
+
+    try {
+      MmCheckServer.analyzeCountsWithPdfBox(pdf);
+      throw new AssertionError("PDF com filiais misturadas deveria ser rejeitado");
+    } catch (MmCheckServer.ApiException error) {
+      require(error.status == 422, "PDF misto deve resultar em HTTP 422");
+      require(error.getMessage().contains("exatamente uma filial"),
+          "erro deve explicar que o PDF aceita apenas uma filial");
+      require(error.getMessage().contains("281") && error.getMessage().contains("282"),
+          "erro deve identificar as filiais encontradas");
+    }
   }
 
   @Test
@@ -148,6 +169,14 @@ public class MmCheckServerTest {
         .filter(row -> row.sku().equals(sku))
         .findFirst()
         .orElseThrow(() -> new AssertionError("SKU não encontrado: " + sku))
+        .balance();
+  }
+
+  private static int balanceOf(BalancePdfParser.Result result, String branchCode, String sku) {
+    return result.rows().stream()
+        .filter(row -> row.branchCode().equals(branchCode) && row.sku().equals(sku))
+        .findFirst()
+        .orElseThrow()
         .balance();
   }
 
