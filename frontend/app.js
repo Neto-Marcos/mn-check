@@ -2673,55 +2673,61 @@ function Counting({
   const printTotalAccounted = printableDraft.reduce((sum, item) => sum + countAccounted(item), 0);
   const printDivergentItems = printableDraft.filter((item) => countDifference(item) !== 0).length;
 
-  return h("div", { className: "section-grid counting-layout" },
-    h("div", {
-      className: "counting-subtabs-nav card-panel",
-      style: {
-        gridColumn: "1 / -1",
-        display: "flex",
-        gap: "8px",
-        padding: "10px 14px",
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexWrap: "wrap",
-        background: "var(--panel)",
-        marginBottom: "10px",
-        borderRadius: "8px",
-        border: "1px solid var(--line)"
-      }
-    },
-      h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } },
-        h("button", {
-          type: "button",
-          className: countingSubTab === "inventarios" ? "btn btn-primary" : "btn btn-secondary",
-          onClick: () => {
-            setCountingSubTab("inventarios");
-            try { localStorage.setItem("mnCheckCountingSubTab", "inventarios"); } catch (_) {}
-          },
-          style: { padding: "8px 16px", fontWeight: "bold" }
-        }, "📋 Sessões de Inventário 3.0"),
-        h("button", {
-          type: "button",
-          className: countingSubTab === "legado" ? "btn btn-primary" : "btn btn-secondary",
-          onClick: () => {
-            setCountingSubTab("legado");
-            try { localStorage.setItem("mnCheckCountingSubTab", "legado"); } catch (_) {}
-          },
-          style: { padding: "8px 16px", fontWeight: "bold" }
-        }, "⚡ Contagem Direta (Legada 2.3.6)")
-      ),
-      h("span", { className: "hint", style: { fontSize: "0.85rem" } },
-        countingSubTab === "inventarios"
-          ? "Ciclo formal: rodadas auditáveis e contagem cega"
-          : "Modo rápido: edição por lote de estoque"
-      )
+  const subtabsNav = h("div", {
+    className: "counting-subtabs-nav card-panel",
+    style: {
+      gridColumn: "1 / -1",
+      display: "flex",
+      gap: "8px",
+      padding: "10px 14px",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      background: "var(--panel)",
+      marginBottom: "10px",
+      borderRadius: "8px",
+      border: "1px solid var(--line)"
+    }
+  },
+    h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } },
+      h("button", {
+        type: "button",
+        className: countingSubTab === "inventarios" ? "btn btn-primary" : "btn btn-secondary",
+        onClick: () => {
+          setCountingSubTab("inventarios");
+          try { localStorage.setItem("mnCheckCountingSubTab", "inventarios"); } catch (_) {}
+        },
+        style: { padding: "8px 16px", fontWeight: "bold" }
+      }, "📋 Sessões de Inventário 3.0"),
+      h("button", {
+        type: "button",
+        className: countingSubTab === "legado" ? "btn btn-primary" : "btn btn-secondary",
+        onClick: () => {
+          setCountingSubTab("legado");
+          try { localStorage.setItem("mnCheckCountingSubTab", "legado"); } catch (_) {}
+        },
+        style: { padding: "8px 16px", fontWeight: "bold" }
+      }, "⚡ Contagem Direta (Legada 2.3.6)")
     ),
-    countingSubTab === "inventarios"
-      ? h("div", { style: { gridColumn: "1 / -1" } },
-          h(InventariosManager, { request, user, token })
-        )
-      : h(React.Fragment, null,
-          h("article", { className: "panel" },
+    h("span", { className: "hint", style: { fontSize: "0.85rem" } },
+      countingSubTab === "inventarios"
+        ? "Ciclo formal: rodadas auditáveis e contagem cega"
+        : "Modo rápido: edição por lote de estoque"
+    )
+  );
+
+  if (countingSubTab === "inventarios") {
+    return h("div", { className: "section-grid counting-layout" },
+      subtabsNav,
+      h("div", { style: { gridColumn: "1 / -1" } },
+        h(InventariosManager, { request, user, token })
+      )
+    );
+  }
+
+  return h("div", { className: "section-grid counting-layout" },
+    subtabsNav,
+    h("article", { className: "panel" },
       h("div", { className: "panel-header" },
         h("h3", null, "Contagem de estoque"),
         h("span", null, updatedAt ? `Saldo atualizado em ${formatDate(updatedAt)}` : "Saldo ainda não importado")
