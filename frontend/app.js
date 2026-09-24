@@ -1151,6 +1151,8 @@ function App() {
         onStatus: updateRouteStatus
       }),
       view === "counting" && h(Counting, {
+        user,
+        token,
         counts: data.counts,
         updatedAt: data.countsUpdatedAt,
         sourceName: data.countsSourceName,
@@ -2119,6 +2121,8 @@ function evaluateCountExpression(value, allowNegative = false) {
 }
 
 function Counting({
+  user,
+  token,
   counts,
   updatedAt,
   sourceName,
