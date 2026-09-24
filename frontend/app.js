@@ -2693,7 +2693,7 @@ function Counting({
       h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap" } },
         h("button", {
           type: "button",
-          className: tn ,
+          className: countingSubTab === "inventarios" ? "btn btn-primary" : "btn btn-secondary",
           onClick: () => {
             setCountingSubTab("inventarios");
             try { localStorage.setItem("mnCheckCountingSubTab", "inventarios"); } catch (_) {}
@@ -2702,7 +2702,7 @@ function Counting({
         }, "📋 Sessões de Inventário 3.0"),
         h("button", {
           type: "button",
-          className: tn ,
+          className: countingSubTab === "legado" ? "btn btn-primary" : "btn btn-secondary",
           onClick: () => {
             setCountingSubTab("legado");
             try { localStorage.setItem("mnCheckCountingSubTab", "legado"); } catch (_) {}
