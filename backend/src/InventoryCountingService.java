@@ -235,7 +235,8 @@ public class InventoryCountingService {
         );
 
         CountingProgress progress = calculateProgress(connection, inventoryId, round.id());
-        List<OccurrenceRecord> allItemOccurrences = loadItemOccurrences(connection, round.id(), item.id());
+        List<OccurrenceRecord> allItemOccurrences = new ArrayList<>(existingItemOccurrences);
+        allItemOccurrences.add(occurrence);
         ItemProjection projection = calculateItemProjection(allItemOccurrences);
 
         connection.commit();
@@ -271,6 +272,168 @@ public class InventoryCountingService {
       }
     } catch (SQLException error) {
       throw new DatabaseException("Não foi possível registrar a ocorrência de contagem.", error);
+    }
+  }
+
+  public OccurrenceResult recordCompoundOccurrence(
+      long inventoryId,
+      long roundId,
+      String branchCode,
+      RecordCompoundCommand command,
+      String operator
+  ) {
+    String normalizedBranch = normalizeBranchCode(branchCode);
+    String sku = required(command.sku(), "SKU não informado.");
+    int total = command.total();
+    if (total < 0) throw new ValidationException("Quantidade total não pode ser negativa.");
+
+    int avaria = Math.max(0, command.avaria());
+    int assistencia = Math.max(0, command.assistencia());
+    int outros = Math.max(0, command.outros());
+    int boa = total - (avaria + assistencia + outros);
+    if (boa < 0) {
+      throw new ValidationException("A soma de avaria, assistência e outros não pode ser maior que o total físico (quantidade boa não pode ser negativa).");
+    }
+
+    String rawLocation = command.localizacao() == null || command.localizacao().isBlank()
+        ? "GERAL" : command.localizacao();
+    String localizacao = enumValue(rawLocation, LOCATIONS, "Localização inválida.");
+    String origem = enumValue(command.origem() == null || command.origem().isBlank()
+        ? "SCANNER" : command.origem(), ORIGINS, "Origem inválida.");
+
+    UUID clientEventId = command.clientEventId();
+    if (clientEventId == null) {
+      throw new ValidationException("client_event_id inválido ou ausente. Deve ser um UUID.");
+    }
+
+    String safeOperator = required(operator, "Operador autenticado não identificado.");
+
+    try (Connection connection = connect()) {
+      connection.setAutoCommit(false);
+      try {
+        rejectCrossContextEventId(connection, clientEventId, inventoryId, normalizedBranch);
+        requireBranch(connection, normalizedBranch);
+        InventoryHeader inventory = requireInventoryForUpdate(connection, inventoryId, normalizedBranch);
+        if (!"EM_CONTAGEM".equalsIgnoreCase(inventory.status()) && !"EM_RECONTAGEM".equalsIgnoreCase(inventory.status())) {
+          throw new ConflictException("Inventário não está em contagem (status atual: " + inventory.status() + ").");
+        }
+
+        RoundRecord round = requireRoundForUpdate(connection, roundId, inventoryId);
+        if (!"EM_ANDAMENTO".equalsIgnoreCase(round.status())) {
+          throw new ConflictException("Rodada " + round.numero() + " não está em andamento.");
+        }
+
+        ItemRecord item = findItemBySku(connection, inventoryId, sku);
+        if (item == null) {
+          throw new NotFoundException("SKU " + sku + " não pertence a este inventário.");
+        }
+
+        if (hasRoundItemScope(connection, round.id())) {
+          if (!isItemInRoundScope(connection, round.id(), item.id())) {
+            throw new ConflictException("SKU " + sku + " não pertence ao escopo desta rodada de recontagem.");
+          }
+        }
+
+        List<OccurrenceRecord> existingItemOccurrences = loadItemOccurrences(connection, round.id(), item.id());
+        validateLocationMixing(existingItemOccurrences, localizacao);
+
+        if (command.referenciaId() != null) {
+          validateReferenceOccurrence(connection, round.id(), item.id(), command.referenciaId());
+        }
+
+        ItemProjection currentProj = calculateItemProjection(existingItemOccurrences);
+        Map<String, Integer> locBuckets = currentProj.locationDetails().getOrDefault(localizacao, Map.of());
+        boolean hadPreviousCounts = !locBuckets.isEmpty();
+        String tipoAcao = hadPreviousCounts ? "CORRECAO" : "DEFINIR";
+
+        int prevAvaria = locBuckets.getOrDefault("AVARIA", 0);
+        int prevAssistencia = locBuckets.getOrDefault("ASSISTENCIA", 0);
+        int prevOutros = locBuckets.getOrDefault("OUTROS", 0);
+
+        List<OccurrenceRecord> insertedOccurrences = new ArrayList<>();
+
+        // 1. Ocorrência BOA (sempre gravada)
+        UUID boaEventId = UUID.nameUUIDFromBytes((clientEventId + ":BOA").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        OccurrenceRecord boaOcc = insertOccurrenceIdempotent(
+            connection, inventoryId, normalizedBranch, round.id(), item.id(), sku,
+            boa, localizacao, "BOA", tipoAcao, safeOperator, boaEventId,
+            origem, command.dispositivo(), command.clientTimestamp(), command.referenciaId()
+        );
+        insertedOccurrences.add(boaOcc);
+
+        // 2. Ocorrência AVARIA (se > 0 ou se precisa zerar valor anterior)
+        if (avaria > 0 || prevAvaria > 0) {
+          UUID avariaEventId = UUID.nameUUIDFromBytes((clientEventId + ":AVARIA").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+          OccurrenceRecord avariaOcc = insertOccurrenceIdempotent(
+              connection, inventoryId, normalizedBranch, round.id(), item.id(), sku,
+              avaria, localizacao, "AVARIA", tipoAcao, safeOperator, avariaEventId,
+              origem, command.dispositivo(), command.clientTimestamp(), command.referenciaId()
+          );
+          insertedOccurrences.add(avariaOcc);
+        }
+
+        // 3. Ocorrência ASSISTENCIA (se > 0 ou se precisa zerar valor anterior)
+        if (assistencia > 0 || prevAssistencia > 0) {
+          UUID assistenciaEventId = UUID.nameUUIDFromBytes((clientEventId + ":ASSISTENCIA").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+          OccurrenceRecord assistenciaOcc = insertOccurrenceIdempotent(
+              connection, inventoryId, normalizedBranch, round.id(), item.id(), sku,
+              assistencia, localizacao, "ASSISTENCIA", tipoAcao, safeOperator, assistenciaEventId,
+              origem, command.dispositivo(), command.clientTimestamp(), command.referenciaId()
+          );
+          insertedOccurrences.add(assistenciaOcc);
+        }
+
+        // 4. Ocorrência OUTROS (se > 0 ou se precisa zerar valor anterior)
+        if (outros > 0 || prevOutros > 0) {
+          UUID outrosEventId = UUID.nameUUIDFromBytes((clientEventId + ":OUTROS").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+          OccurrenceRecord outrosOcc = insertOccurrenceIdempotent(
+              connection, inventoryId, normalizedBranch, round.id(), item.id(), sku,
+              outros, localizacao, "OUTROS", tipoAcao, safeOperator, outrosEventId,
+              origem, command.dispositivo(), command.clientTimestamp(), command.referenciaId()
+          );
+          insertedOccurrences.add(outrosOcc);
+        }
+
+        CountingProgress progress = calculateProgress(connection, inventoryId, round.id());
+        List<OccurrenceRecord> allItemOccurrences = new ArrayList<>(existingItemOccurrences);
+        allItemOccurrences.addAll(insertedOccurrences);
+        ItemProjection projection = calculateItemProjection(allItemOccurrences);
+
+        connection.commit();
+
+        boolean isBlind = "CEGO".equalsIgnoreCase(inventory.modo()) || round.numero() >= 2;
+        OccurrenceRecord mainOcc = insertedOccurrences.get(0);
+
+        return new OccurrenceResult(
+            mainOcc.id(),
+            mainOcc.rodadaId(),
+            mainOcc.inventarioItemId(),
+            mainOcc.sku(),
+            total,
+            localizacao,
+            "BOA",
+            tipoAcao,
+            mainOcc.operador(),
+            clientEventId,
+            origem,
+            mainOcc.dispositivo(),
+            mainOcc.clientTimestamp(),
+            mainOcc.serverTimestamp(),
+            mainOcc.referenciaId(),
+            projection.totalQuantity(),
+            projection.categoryQuantities(),
+            projection.locationDetails(),
+            isBlind ? null : item.saldoSnapshot(),
+            progress
+        );
+      } catch (RuntimeException | SQLException error) {
+        connection.rollback();
+        throw error;
+      } finally {
+        connection.setAutoCommit(true);
+      }
+    } catch (SQLException error) {
+      throw new DatabaseException("Não foi possível registrar a contagem composta.", error);
     }
   }
 
@@ -893,39 +1056,26 @@ public class InventoryCountingService {
   private CountingProgress calculateProgress(Connection connection, long inventoryId, long roundId)
       throws SQLException {
     boolean hasScope = hasRoundItemScope(connection, roundId);
-    int totalItems = 0;
-
-    if (hasScope) {
-      String totalScopeSql = "SELECT COUNT(*) FROM rodada_itens WHERE rodada_id = ?";
-      try (PreparedStatement statement = connection.prepareStatement(totalScopeSql)) {
-        statement.setLong(1, roundId);
-        try (ResultSet result = statement.executeQuery()) {
-          if (result.next()) totalItems = result.getInt(1);
-        }
-      }
-    } else {
-      String totalSql = "SELECT COUNT(*) FROM inventario_itens WHERE inventario_id = ?";
-      try (PreparedStatement statement = connection.prepareStatement(totalSql)) {
-        statement.setLong(1, inventoryId);
-        try (ResultSet result = statement.executeQuery()) {
-          if (result.next()) totalItems = result.getInt(1);
-        }
-      }
-    }
-
-    String countedSql = """
-        SELECT COUNT(DISTINCT inventario_item_id)
-        FROM ocorrencias_contagem
-        WHERE rodada_id = ?
+    String sql = """
+        SELECT
+          (SELECT COUNT(DISTINCT inventario_item_id) FROM ocorrencias_contagem WHERE rodada_id = ?) AS counted,
+          CASE WHEN ? THEN (SELECT COUNT(*) FROM rodada_itens WHERE rodada_id = ?)
+               ELSE (SELECT COUNT(*) FROM inventario_itens WHERE inventario_id = ?) END AS total
         """;
+    int totalItems = 0;
     int countedItems = 0;
-    try (PreparedStatement statement = connection.prepareStatement(countedSql)) {
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, roundId);
+      statement.setBoolean(2, hasScope);
+      statement.setLong(3, roundId);
+      statement.setLong(4, inventoryId);
       try (ResultSet result = statement.executeQuery()) {
-        if (result.next()) countedItems = result.getInt(1);
+        if (result.next()) {
+          countedItems = result.getInt("counted");
+          totalItems = result.getInt("total");
+        }
       }
     }
-
     int pendingItems = totalItems - countedItems;
     int percent = totalItems == 0 ? 0 : Math.round((countedItems * 100f) / totalItems);
     return new CountingProgress(totalItems, countedItems, pendingItems, percent);
@@ -1321,6 +1471,20 @@ public class InventoryCountingService {
       this(sku, quantidade, "GERAL", categoria, tipoAcao, clientEventId, origem, dispositivo, clientTimestamp, referenciaId);
     }
   }
+
+  public record RecordCompoundCommand(
+      String sku,
+      String localizacao,
+      int total,
+      int avaria,
+      int assistencia,
+      int outros,
+      UUID clientEventId,
+      String origem,
+      String dispositivo,
+      Instant clientTimestamp,
+      Long referenciaId
+  ) {}
 
   public record CountingProgress(int totalSkus, int contados, int pendentes, int percentual) {}
 

@@ -113,7 +113,8 @@ public class InventoryReportService {
         row.createCell(8).setCellValue(item.statusInvestigacao() == null ? "" : item.statusInvestigacao());
         row.createCell(9).setCellValue(item.conclusao() == null ? "" : item.conclusao());
       }
-      for (int c = 0; c < columns.length; c++) sheet.autoSizeColumn(c);
+      int[] colWidths = {16 * 256, 35 * 256, 18 * 256, 16 * 256, 14 * 256, 18 * 256, 14 * 256, 14 * 256, 20 * 256, 30 * 256};
+      for (int c = 0; c < columns.length; c++) sheet.setColumnWidth(c, colWidths[c]);
       sheet.createFreezePane(0, 9);
       workbook.write(output);
       return output.toByteArray();

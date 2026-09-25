@@ -656,8 +656,13 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
     }
   });
 
-  const [stepperQuantity, setStepperQuantity] = useState(1);
-  const [stepperCategory, setStepperCategory] = useState("BOA");
+  // Campos de contagem composta
+  const [compoundTotal, setCompoundTotal] = useState(1);
+  const [compoundAvaria, setCompoundAvaria] = useState(0);
+  const [compoundAssistencia, setCompoundAssistencia] = useState(0);
+  const [compoundOutros, setCompoundOutros] = useState(0);
+
+  const [visibleLimit, setVisibleLimit] = useState(50);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -671,6 +676,13 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   const searchInputRef = useRef(null);
   const scanTimingRef = useRef({ first: 0, last: 0, keys: 0 });
 
+  const parsedTotal = parseInt(compoundTotal, 10) || 0;
+  const parsedAvaria = Math.max(0, parseInt(compoundAvaria, 10) || 0);
+  const parsedAssistencia = Math.max(0, parseInt(compoundAssistencia, 10) || 0);
+  const parsedOutros = Math.max(0, parseInt(compoundOutros, 10) || 0);
+  const calculatedBoa = parsedTotal - (parsedAvaria + parsedAssistencia + parsedOutros);
+  const isNegativeBoa = calculatedBoa < 0;
+
   useEffect(() => {
     loadActiveRoundAndItems();
   }, [inventory.id]);
@@ -681,11 +693,39 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
     }
   }, [selectedItem]);
 
+  function updateLocationBuckets(item, loc) {
+    const locBuckets = (item.detalhes && item.detalhes[loc]) || {};
+    const curAvaria = locBuckets["AVARIA"] || 0;
+    const curAssistencia = locBuckets["ASSISTENCIA"] || 0;
+    const curOutros = locBuckets["OUTROS"] || 0;
+    let curBoa = locBuckets["BOA"] || 0;
+
+    const hasSpecificLoc = locBuckets["BOA"] !== undefined ||
+      locBuckets["AVARIA"] !== undefined ||
+      locBuckets["ASSISTENCIA"] !== undefined ||
+      locBuckets["OUTROS"] !== undefined;
+
+    if (!hasSpecificLoc && loc === "GERAL" && isExplicitlyCounted(item) && item.quantidadeContada != null) {
+      curBoa = item.quantidadeContada;
+    }
+
+    const hasAnyCount = isExplicitlyCounted(item) && (hasSpecificLoc || (loc === "GERAL" && item.quantidadeContada != null));
+    const total = hasAnyCount ? (curBoa + curAvaria + curAssistencia + curOutros) : (isExplicitlyCounted(item) ? (item.quantidadeContada ?? 1) : 1);
+
+    setCompoundTotal(total);
+    setCompoundAvaria(curAvaria);
+    setCompoundAssistencia(curAssistencia);
+    setCompoundOutros(curOutros);
+  }
+
   function handleSetLocation(loc) {
     setActiveLocation(loc);
     try {
       localStorage.setItem("mnCheckActiveLocation", loc);
     } catch (_) {}
+    if (selectedItem) {
+      updateLocationBuckets(selectedItem, loc);
+    }
   }
 
   async function loadActiveRoundAndItems(query = search, estado = estadoFilter) {
@@ -701,6 +741,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
       const itemsRes = await request(itemsUrl);
       setItemsData(itemsRes);
+      setVisibleLimit(50);
     } catch (err) {
       setError(err.message || "Erro ao carregar dados da contagem.");
     } finally {
@@ -736,30 +777,34 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   function openItemStepper(item, origin = "MANUAL") {
     setSelectedItem(item);
     setSelectedOrigin(origin);
-    setStepperQuantity(initialCountQuantity(item));
-    setStepperCategory("BOA");
+    updateLocationBuckets(item, activeLocation);
     setFeedback(null);
     setError("");
   }
 
   async function handleConfirmCount() {
     if (!selectedItem || !roundDetail) return;
+    if (isNegativeBoa) {
+      setError("A soma de Avaria, Assistência e Outros não pode ser maior que o Total Físico.");
+      return;
+    }
+
     setSubmitting(true);
     setError("");
     setFeedback(null);
 
     const clientEventId = generateUUID();
-    const tipoAcao = countActionType(selectedItem);
 
     try {
-      const result = await request(`/api/inventarios/${inventory.id}/rodadas/${roundDetail.id}/contagens?branchCode=${encodeURIComponent(branchCode)}`, {
+      const result = await request(`/api/inventarios/${inventory.id}/rodadas/${roundDetail.id}/contagem-composta?branchCode=${encodeURIComponent(branchCode)}`, {
         method: "POST",
         body: {
           sku: selectedItem.sku,
-          quantidade: Math.max(0, parseInt(stepperQuantity, 10) || 0),
+          total: parsedTotal,
+          avaria: parsedAvaria,
+          assistencia: parsedAssistencia,
+          outros: parsedOutros,
           localizacao: activeLocation,
-          categoria: stepperCategory,
-          tipoAcao,
           clientEventId,
           origem: selectedOrigin,
           dispositivo: "PWA Mobile",
@@ -768,16 +813,52 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         }
       });
 
+      // Atualização otimista e direta em memória (sem reload completo de 1000 itens)
+      if (itemsData && itemsData.itens) {
+        const updatedItens = itemsData.itens.map(it => {
+          if (it.sku.toLowerCase() === selectedItem.sku.toLowerCase() || it.id === selectedItem.id) {
+            return {
+              ...it,
+              estado: "CONTADO",
+              quantidadeContada: result.quantidadeItemProjetada,
+              categorias: result.categorias,
+              detalhes: result.detalhes,
+              ultimaOcorrenciaId: result.id,
+              ultimaOcorrenciaEm: result.serverTimestamp
+            };
+          }
+          return it;
+        });
+
+        const newProgresso = result.progresso || {
+          ...itemsData.progresso,
+          contados: (itemsData.progresso?.contados || 0) + (selectedItem.estado === "CONTADO" ? 0 : 1),
+          pendentes: Math.max(0, (itemsData.progresso?.pendentes || 0) - (selectedItem.estado === "CONTADO" ? 0 : 1))
+        };
+
+        setItemsData({
+          ...itemsData,
+          progresso: newProgresso,
+          itens: updatedItens
+        });
+
+        if (roundDetail) {
+          setRoundDetail({
+            ...roundDetail,
+            progresso: newProgresso
+          });
+        }
+      }
+
       setFeedback({
         type: "success",
-        text: `Item ${selectedItem.sku} registrado com ${result.quantidadeItemProjetada} un em [${activeLocation} / ${stepperCategory}]!`
+        text: `Item ${selectedItem.sku} gravado: Total ${parsedTotal} un (Boa: ${calculatedBoa}, Avaria: ${parsedAvaria}, Assist: ${parsedAssistencia}, Outros: ${parsedOutros}) em [${activeLocation}]!`
       });
 
       setSelectedItem(null);
       setSearch("");
-      loadActiveRoundAndItems("", estadoFilter);
     } catch (err) {
-      setError(err.message || "Falha ao gravar contagem.");
+      setError(err.message || "Falha ao gravar contagem composta.");
     } finally {
       setSubmitting(false);
     }
@@ -816,6 +897,25 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   // Verificação de restrição de GERAL x Detalhada no item selecionado
   const itemHasGeral = selectedItem?.detalhes && Object.keys(selectedItem.detalhes).includes("GERAL");
   const itemHasDetailed = selectedItem?.detalhes && Object.keys(selectedItem.detalhes).some(k => k !== "GERAL");
+
+  const filteredItems = useMemo(() => {
+    if (!itemsData || !itemsData.itens) return [];
+    let list = itemsData.itens;
+    if (estadoFilter === "pendente") {
+      list = list.filter(i => !isExplicitlyCounted(i));
+    } else if (estadoFilter === "contado") {
+      list = list.filter(i => isExplicitlyCounted(i));
+    }
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(i => i.sku.toLowerCase().includes(q) || (i.descricao && i.descricao.toLowerCase().includes(q)));
+    }
+    return list;
+  }, [itemsData, estadoFilter, search]);
+
+  const displayedItems = useMemo(() => {
+    return filteredItems.slice(0, visibleLimit);
+  }, [filteredItems, visibleLimit]);
 
   return h("div", { className: "inventario-contagem-view" },
     // Banner de Recontagem Cega (R2)
@@ -892,7 +992,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
       error
     ),
 
-    // Modal de Contagem Touch (Item Selecionado)
+    // Modal de Contagem Composta Touch (Item Selecionado)
     selectedItem && h("div", { className: "stepper-modal-overlay card-panel", style: { border: "2px solid var(--primary, #3b82f6)", marginBottom: "16px", padding: "16px" } },
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
         h("div", null,
@@ -948,63 +1048,164 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         )
       ),
 
-      // Seletor Rápido de Condição
-      h("div", { style: { margin: "12px 0 8px" } },
-        h("label", { style: { fontSize: "0.85rem", fontWeight: "bold", display: "block", marginBottom: "4px" } }, "Condição do Produto:"),
-        h("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
-          CONDITIONS.map((cat) => h("button", {
-            key: cat,
-            type: "button",
-            className: `btn ${stepperCategory === cat ? "btn-primary" : "btn-secondary"}`,
-            onClick: () => setStepperCategory(cat),
-            style: { padding: "6px 12px", fontSize: "0.85rem" }
-          }, cat))
-        )
-      ),
-
-      // Stepper Touch Grande
-      h("div", { className: "stepper-touch-container", style: { marginTop: "14px" } },
+      // Seção: Total Físico Encontrado
+      h("div", { style: { margin: "16px 0 10px", padding: "12px", background: "rgba(0,0,0,0.03)", borderRadius: "8px" } },
+        h("label", { style: { fontSize: "0.95rem", fontWeight: "bold", display: "block", marginBottom: "6px" } }, "Total Físico Encontrado (Soma geral):"),
         h("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "12px" } },
           h("button", {
             type: "button",
             className: "btn stepper-btn",
-            onClick: () => setStepperQuantity(q => Math.max(0, (parseInt(q, 10) || 0) - 1)),
-            style: { width: "64px", height: "64px", fontSize: "2rem", borderRadius: "12px", fontWeight: "bold" }
+            onClick: () => setCompoundTotal(q => Math.max(0, (parseInt(q, 10) || 0) - 1)),
+            style: { width: "56px", height: "56px", fontSize: "1.8rem", borderRadius: "10px", fontWeight: "bold" }
           }, "−"),
 
           h("input", {
             type: "number",
             className: "form-control stepper-input",
-            value: stepperQuantity,
-            onChange: (e) => setStepperQuantity(e.target.value),
+            value: compoundTotal,
+            onChange: (e) => setCompoundTotal(e.target.value),
             min: "0",
-            style: { width: "120px", height: "64px", fontSize: "2rem", textAlign: "center", fontWeight: "bold", borderRadius: "12px" }
+            style: { width: "110px", height: "56px", fontSize: "1.8rem", textAlign: "center", fontWeight: "bold", borderRadius: "10px" }
           }),
 
           h("button", {
             type: "button",
             className: "btn stepper-btn",
-            onClick: () => setStepperQuantity(q => (parseInt(q, 10) || 0) + 1),
-            style: { width: "64px", height: "64px", fontSize: "2rem", borderRadius: "12px", fontWeight: "bold" }
+            onClick: () => setCompoundTotal(q => (parseInt(q, 10) || 0) + 1),
+            style: { width: "56px", height: "56px", fontSize: "1.8rem", borderRadius: "10px", fontWeight: "bold" }
           }, "+")
         ),
 
         // Botões de incremento rápido
-        h("div", { style: { display: "flex", justifyContent: "center", gap: "8px", marginTop: "12px" } },
+        h("div", { style: { display: "flex", justifyContent: "center", gap: "8px", marginTop: "10px" } },
           [1, 5, 10, 50].map((inc) => h("button", {
             key: inc,
             type: "button",
             className: "btn btn-secondary",
-            onClick: () => setStepperQuantity(q => (parseInt(q, 10) || 0) + inc),
-            style: { padding: "8px 14px", fontWeight: "600" }
+            onClick: () => setCompoundTotal(q => (parseInt(q, 10) || 0) + inc),
+            style: { padding: "6px 12px", fontWeight: "600", fontSize: "0.85rem" }
           }, `+${inc}`)),
           h("button", {
             type: "button",
             className: "btn btn-secondary",
-            onClick: () => setStepperQuantity(0),
-            style: { padding: "8px 14px", color: "var(--danger, #ef4444)" }
+            onClick: () => {
+              setCompoundTotal(0);
+              setCompoundAvaria(0);
+              setCompoundAssistencia(0);
+              setCompoundOutros(0);
+            },
+            style: { padding: "6px 12px", color: "var(--danger, #ef4444)", fontSize: "0.85rem", fontWeight: "600" }
           }, "Zerar")
         )
+      ),
+
+      // Seção: Condições Especiais (Avaria, Assistência, Outros)
+      h("div", { style: { margin: "14px 0 10px" } },
+        h("label", { style: { fontSize: "0.85rem", fontWeight: "bold", display: "block", marginBottom: "6px" } }, "Distribuição por Condição (Se houver avarias/assistência):"),
+        h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" } },
+          h("div", { style: { padding: "8px", background: "rgba(239, 68, 68, 0.06)", borderRadius: "6px", border: "1px solid rgba(239, 68, 68, 0.2)" } },
+            h("label", { style: { fontSize: "0.75rem", fontWeight: "bold", color: "#dc2626", display: "block", marginBottom: "4px" } }, "Avaria:"),
+            h("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
+              h("button", {
+                type: "button",
+                className: "btn btn-secondary",
+                onClick: () => setCompoundAvaria(v => Math.max(0, (parseInt(v, 10) || 0) - 1)),
+                style: { padding: "2px 8px", fontSize: "1rem" }
+              }, "−"),
+              h("input", {
+                type: "number",
+                min: "0",
+                value: compoundAvaria,
+                onChange: e => setCompoundAvaria(e.target.value),
+                style: { width: "100%", textAlign: "center", fontWeight: "bold", padding: "4px" }
+              }),
+              h("button", {
+                type: "button",
+                className: "btn btn-secondary",
+                onClick: () => setCompoundAvaria(v => (parseInt(v, 10) || 0) + 1),
+                style: { padding: "2px 8px", fontSize: "1rem" }
+              }, "+")
+            )
+          ),
+          h("div", { style: { padding: "8px", background: "rgba(245, 158, 11, 0.06)", borderRadius: "6px", border: "1px solid rgba(245, 158, 11, 0.2)" } },
+            h("label", { style: { fontSize: "0.75rem", fontWeight: "bold", color: "#d97706", display: "block", marginBottom: "4px" } }, "Assistência:"),
+            h("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
+              h("button", {
+                type: "button",
+                className: "btn btn-secondary",
+                onClick: () => setCompoundAssistencia(v => Math.max(0, (parseInt(v, 10) || 0) - 1)),
+                style: { padding: "2px 8px", fontSize: "1rem" }
+              }, "−"),
+              h("input", {
+                type: "number",
+                min: "0",
+                value: compoundAssistencia,
+                onChange: e => setCompoundAssistencia(e.target.value),
+                style: { width: "100%", textAlign: "center", fontWeight: "bold", padding: "4px" }
+              }),
+              h("button", {
+                type: "button",
+                className: "btn btn-secondary",
+                onClick: () => setCompoundAssistencia(v => (parseInt(v, 10) || 0) + 1),
+                style: { padding: "2px 8px", fontSize: "1rem" }
+              }, "+")
+            )
+          ),
+          h("div", { style: { padding: "8px", background: "rgba(107, 114, 128, 0.06)", borderRadius: "6px", border: "1px solid rgba(107, 114, 128, 0.2)" } },
+            h("label", { style: { fontSize: "0.75rem", fontWeight: "bold", color: "#4b5563", display: "block", marginBottom: "4px" } }, "Outros:"),
+            h("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
+              h("button", {
+                type: "button",
+                className: "btn btn-secondary",
+                onClick: () => setCompoundOutros(v => Math.max(0, (parseInt(v, 10) || 0) - 1)),
+                style: { padding: "2px 8px", fontSize: "1rem" }
+              }, "−"),
+              h("input", {
+                type: "number",
+                min: "0",
+                value: compoundOutros,
+                onChange: e => setCompoundOutros(e.target.value),
+                style: { width: "100%", textAlign: "center", fontWeight: "bold", padding: "4px" }
+              }),
+              h("button", {
+                type: "button",
+                className: "btn btn-secondary",
+                onClick: () => setCompoundOutros(v => (parseInt(v, 10) || 0) + 1),
+                style: { padding: "2px 8px", fontSize: "1rem" }
+              }, "+")
+            )
+          )
+        )
+      ),
+
+      // Cálculo Automático de Boa / Validação
+      h("div", {
+        style: {
+          padding: "10px 14px",
+          borderRadius: "8px",
+          margin: "12px 0",
+          background: isNegativeBoa ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.1)",
+          border: isNegativeBoa ? "2px solid #ef4444" : "1px solid rgba(16, 185, 129, 0.3)"
+        }
+      },
+        isNegativeBoa
+          ? h("div", { style: { color: "#dc2626" } },
+              h("strong", { style: { display: "block", fontSize: "0.95rem" } }, "⚠ Soma Inválida!"),
+              h("span", { style: { fontSize: "0.85rem" } },
+                `Avaria (${parsedAvaria}) + Assistência (${parsedAssistencia}) + Outros (${parsedOutros}) = ${parsedAvaria + parsedAssistencia + parsedOutros} un, que excede o Total Físico (${parsedTotal} un). A quantidade Boa ficaria ${calculatedBoa} un.`
+              )
+            )
+          : h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+              h("div", null,
+                h("span", { style: { fontSize: "0.8rem", color: "var(--text-secondary)", display: "block" } }, "Mercadoria Boa (calculada automaticamente):"),
+                h("span", { style: { fontSize: "0.8rem", color: "var(--muted)" } },
+                  `${parsedTotal} (Total) − ${parsedAvaria + parsedAssistencia + parsedOutros} (Avaria/Assist/Outros) =`
+                )
+              ),
+              h("strong", { style: { fontSize: "1.4rem", color: "var(--accent-green, #10b981)" } },
+                `${calculatedBoa} un BOA`
+              )
+            )
       ),
 
       // Botão de Confirmação Touch Grande
@@ -1012,18 +1213,18 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         type: "button",
         className: "btn btn-primary",
         onClick: handleConfirmCount,
-        disabled: submitting,
+        disabled: submitting || isNegativeBoa || parsedTotal < 0,
         style: {
           width: "100%",
           height: "56px",
-          fontSize: "1.2rem",
+          fontSize: "1.1rem",
           fontWeight: "bold",
-          marginTop: "18px",
+          marginTop: "14px",
           borderRadius: "10px",
-          background: "var(--accent-green, #10b981)",
-          borderColor: "var(--accent-green, #10b981)"
+          background: isNegativeBoa ? "#9ca3af" : "var(--accent-green, #10b981)",
+          borderColor: isNegativeBoa ? "#9ca3af" : "var(--accent-green, #10b981)"
         }
-      }, submitting ? "Gravando..." : `✔ Confirmar [${activeLocation} / ${stepperCategory}]`)
+      }, submitting ? "Gravando..." : `✔ Confirmar [${activeLocation}] — Total: ${parsedTotal} un (Boa: ${calculatedBoa})`)
     ),
 
     // Busca e Scanner
@@ -1043,6 +1244,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
               scanTimingRef.current = { first: timing.first, last: now, keys: timing.keys + 1 };
             }
             setSearch(e.target.value);
+            setVisibleLimit(50);
           },
           placeholder: "Escanear código de barras ou digitar SKU...",
           style: { flex: 1, padding: "10px 14px", fontSize: "1rem", borderRadius: "8px" }
@@ -1066,7 +1268,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           className: `btn ${estadoFilter === f.id ? "btn-primary" : "btn-secondary"}`,
           onClick: () => {
             setEstadoFilter(f.id);
-            loadActiveRoundAndItems(search, f.id);
+            setVisibleLimit(50);
           },
           style: { padding: "4px 12px", fontSize: "0.85rem", borderRadius: "20px" }
         }, f.label))
@@ -1079,11 +1281,11 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         "Carregando itens..."
       ),
 
-      !loading && itemsData && itemsData.itens.length === 0 && h("div", { className: "card-panel", style: { textAlign: "center", padding: "30px" } },
+      !loading && filteredItems.length === 0 && h("div", { className: "card-panel", style: { textAlign: "center", padding: "30px" } },
         h("p", { className: "hint" }, "Nenhum item encontrado com o filtro atual.")
       ),
 
-      !loading && itemsData && itemsData.itens.map(item => h("div", {
+      !loading && displayedItems.map(item => h("div", {
         key: item.id,
         className: `card-panel item-row-card ${item.estado === "CONTADO" ? "item-counted" : ""}`,
         onClick: () => openItemStepper(item),
@@ -1116,7 +1318,16 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           ),
           h("span", { style: { fontSize: "0.85rem", color: "var(--primary, #3b82f6)" } }, "Toque para contar →")
         )
-      ))
+      )),
+
+      !loading && filteredItems.length > visibleLimit && h("div", { style: { textAlign: "center", margin: "16px 0" } },
+        h("button", {
+          type: "button",
+          className: "btn btn-secondary",
+          onClick: () => setVisibleLimit(l => l + 50),
+          style: { width: "100%", padding: "12px", fontSize: "0.95rem", fontWeight: "600" }
+        }, `Carregar mais 50 itens (exibindo ${displayedItems.length} de ${filteredItems.length})`)
+      )
     ),
 
     // Modal de Confirmação de Encerramento

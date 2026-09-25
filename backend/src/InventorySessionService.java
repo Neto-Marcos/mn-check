@@ -100,7 +100,6 @@ public class InventorySessionService {
     String sql = summarySelect() + """
         WHERE f.codigo = ?
         """ + filter + """
-        GROUP BY i.id, f.codigo
         ORDER BY i.criado_em DESC, i.id DESC
         """;
     try (Connection connection = connect()) {
@@ -122,7 +121,6 @@ public class InventorySessionService {
     String normalizedBranch = normalizeBranchCode(branchCode);
     String sql = summarySelect() + """
         WHERE i.id = ? AND f.codigo = ?
-        GROUP BY i.id, f.codigo
         """;
     try (Connection connection = connect()) {
       requireBranch(connection, normalizedBranch);
@@ -332,10 +330,14 @@ public class InventorySessionService {
         SELECT i.id, f.codigo AS filial_codigo, i.importacao_saldo_id, i.nome, i.tipo, i.modo,
                i.status, i.version, i.criado_por, i.criado_em, i.aberto_por, i.aberto_em,
                i.encerrado_por, i.encerrado_em, i.cancelado_por, i.cancelado_em,
-               COUNT(ii.id) AS total_skus, COALESCE(SUM(ii.saldo_snapshot), 0) AS total_unidades
+               COALESCE(ii.total_skus, 0) AS total_skus, COALESCE(ii.total_unidades, 0) AS total_unidades
         FROM inventarios i
         JOIN filiais f ON f.id = i.filial_id
-        LEFT JOIN inventario_itens ii ON ii.inventario_id = i.id
+        LEFT JOIN LATERAL (
+          SELECT COUNT(id) AS total_skus, COALESCE(SUM(saldo_snapshot), 0) AS total_unidades
+          FROM inventario_itens
+          WHERE inventario_id = i.id
+        ) ii ON true
         """;
   }
 

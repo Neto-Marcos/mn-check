@@ -2154,8 +2154,18 @@ function Counting({
     } catch (_) {}
     return "cards";
   });
+  const showLegacyDirectCount = (() => {
+    try {
+      if (typeof window !== "undefined") {
+        if (new URLSearchParams(window.location.search).get("legado") === "1") return true;
+        if (localStorage.getItem("mnCheckShowLegacyCounting") === "true") return true;
+      }
+    } catch (_) {}
+    return false;
+  })();
   const [countingSubTab, setCountingSubTab] = React.useState(() => {
     try {
+      if (!showLegacyDirectCount) return "inventarios";
       return localStorage.getItem("mnCheckCountingSubTab") || "inventarios";
     } catch (_) {
       return "inventarios";
@@ -2727,9 +2737,9 @@ function Counting({
     )
   );
 
-  if (countingSubTab === "inventarios") {
+  if (!showLegacyDirectCount || countingSubTab === "inventarios") {
     return h("div", { className: "section-grid counting-layout" },
-      subtabsNav,
+      showLegacyDirectCount ? subtabsNav : null,
       h("div", { style: { gridColumn: "1 / -1" } },
         h(InventariosManager, { request, user, token })
       )

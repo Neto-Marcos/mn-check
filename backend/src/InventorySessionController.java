@@ -142,6 +142,18 @@ public class InventorySessionController {
     return countingService.recordOccurrence(id, rodadaId, branchCode, request.toCommand(), user.name());
   }
 
+  @PostMapping("/{id}/rodadas/{rodadaId}/contagem-composta")
+  public InventoryCountingService.OccurrenceResult recordCompoundCount(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable long rodadaId,
+      @RequestParam String branchCode,
+      @RequestBody RecordCompoundRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    return countingService.recordCompoundOccurrence(id, rodadaId, branchCode, request.toCommand(), user.name());
+  }
+
   @PostMapping("/{id}/rodadas/{rodadaId}/encerrar")
   public InventoryCountingService.RoundAuditResult closeRound(
       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
@@ -509,6 +521,31 @@ public class InventorySessionController {
       String cat = condicao != null && !condicao.isBlank() ? condicao : categoria;
       return new InventoryCountingService.RecordOccurrenceCommand(
           sku, quantidade, localizacao, cat, tipoAcao, clientEventId, origem, dispositivo, clientTimestamp, referenciaId);
+    }
+  }
+
+  public record RecordCompoundRequest(
+      String sku,
+      String localizacao,
+      int total,
+      int avaria,
+      int assistencia,
+      int outros,
+      Object clientEventId,
+      String origem,
+      String dispositivo,
+      Instant clientTimestamp,
+      Long referenciaId
+  ) {
+    public InventoryCountingService.RecordCompoundCommand toCommand() {
+      UUID eventId;
+      try {
+        eventId = clientEventId instanceof UUID u ? u : UUID.fromString(clientEventId.toString());
+      } catch (Exception ex) {
+        throw new InventoryCountingService.ValidationException("client_event_id inválido ou ausente. Deve ser um UUID.");
+      }
+      return new InventoryCountingService.RecordCompoundCommand(
+          sku, localizacao, total, avaria, assistencia, outros, eventId, origem, dispositivo, clientTimestamp, referenciaId);
     }
   }
 }
