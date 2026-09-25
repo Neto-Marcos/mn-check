@@ -16,6 +16,15 @@ function generateUUID() {
   });
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo PDF."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function InventariosManager({
   branchCode: initialBranch = "281",
   request,
@@ -32,11 +41,38 @@ export function InventariosManager({
   });
 
   const [inventarios, setInventarios] = useState([]);
-  const [activeView, setActiveView] = useState("list"); // 'list' | 'counting' | 'audit' | 'investigations' | 'closing' | 'history' | 'report'
+  const [activeView, setActiveView] = useState(() => {
+    try {
+      return localStorage.getItem("mnCheckInventoryActiveView") || "list";
+    } catch (_) {
+      return "list";
+    }
+  });
   const [statusFilter, setStatusFilter] = useState("TODOS"); // 'TODOS' | 'EM_ANDAMENTO' | 'ENCERRADOS' | 'ABERTOS'
-  const [currentInventory, setCurrentInventory] = useState(null);
-  const [currentRoundId, setCurrentRoundId] = useState(null);
-  const [currentInvestigationId, setCurrentInvestigationId] = useState(null);
+  const [currentInventory, setCurrentInventory] = useState(() => {
+    try {
+      const stored = localStorage.getItem("mnCheckCurrentInventory");
+      return stored ? JSON.parse(stored) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+  const [currentRoundId, setCurrentRoundId] = useState(() => {
+    try {
+      const stored = localStorage.getItem("mnCheckCurrentRoundId");
+      return stored ? Number(stored) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+  const [currentInvestigationId, setCurrentInvestigationId] = useState(() => {
+    try {
+      const stored = localStorage.getItem("mnCheckCurrentInvestigationId");
+      return stored ? Number(stored) : null;
+    } catch (_) {
+      return null;
+    }
+  });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -89,8 +125,7 @@ export function InventariosManager({
       });
       setFeedback("Rodada 1 iniciada com sucesso!");
       loadInventarios();
-      setCurrentInventory(started.inventory || inv);
-      setActiveView("counting");
+      changeActiveView("counting", started.inventory || inv);
     } catch (err) {
       setError(err.message || "Não foi possível iniciar o inventário.");
     }
@@ -111,46 +146,60 @@ export function InventariosManager({
     }
   }
 
-  function handleOpenCounting(inv) {
+  function changeActiveView(view, inv = currentInventory, roundId = null, investigationId = null) {
+    setActiveView(view);
     setCurrentInventory(inv);
-    setActiveView("counting");
+    setCurrentRoundId(roundId);
+    setCurrentInvestigationId(investigationId);
+    try {
+      if (view === "list" || !inv) {
+        localStorage.removeItem("mnCheckInventoryActiveView");
+        localStorage.removeItem("mnCheckCurrentInventory");
+        localStorage.removeItem("mnCheckCurrentRoundId");
+        localStorage.removeItem("mnCheckCurrentInvestigationId");
+      } else {
+        localStorage.setItem("mnCheckInventoryActiveView", view);
+        localStorage.setItem("mnCheckCurrentInventory", JSON.stringify(inv));
+        if (roundId != null) localStorage.setItem("mnCheckCurrentRoundId", String(roundId));
+        else localStorage.removeItem("mnCheckCurrentRoundId");
+        if (investigationId != null) localStorage.setItem("mnCheckCurrentInvestigationId", String(investigationId));
+        else localStorage.removeItem("mnCheckCurrentInvestigationId");
+      }
+    } catch (_) {}
+  }
+
+  function handleOpenCounting(inv) {
+    changeActiveView("counting", inv);
   }
 
   function handleOpenAudit(inv, roundId = null) {
-    setCurrentInventory(inv);
-    setCurrentRoundId(roundId);
-    setActiveView("audit");
+    changeActiveView("audit", inv, roundId);
   }
 
   function handleOpenInvestigations(inv, investigationId = null) {
-    setCurrentInventory(inv);
-    setCurrentInvestigationId(investigationId);
-    setActiveView("investigations");
+    changeActiveView("investigations", inv, null, investigationId);
   }
 
   function handleOpenClosing(inv) {
-    setCurrentInventory(inv);
-    setActiveView("closing");
+    changeActiveView("closing", inv);
   }
 
   function handleOpenHistory(inv) {
-    setCurrentInventory(inv);
-    setActiveView("history");
+    changeActiveView("history", inv);
   }
 
   function handleOpenReport(inv) {
-    setCurrentInventory(inv);
-    setActiveView("report");
+    changeActiveView("report", inv);
   }
 
   if (activeView === "counting" && currentInventory) {
     return h(InventarioContagemScreen, {
       inventory: currentInventory,
-      branchCode,
+      branchCode: currentInventory.filialCodigo || branchCode,
       request,
       user,
       onBack: () => {
-        setActiveView("list");
+        changeActiveView("list", null);
         loadInventarios();
       },
       onRoundClosed: (closedRoundId) => {
@@ -163,15 +212,15 @@ export function InventariosManager({
     return h(ApuracaoScreen, {
       inventory: currentInventory,
       roundId: currentRoundId,
-      branchCode,
+      branchCode: currentInventory.filialCodigo || branchCode,
       request,
       user,
       onBack: () => {
-        setActiveView("list");
+        changeActiveView("list", null);
         loadInventarios();
       },
       onStartRecount: () => {
-        setActiveView("counting");
+        changeActiveView("counting", currentInventory);
       },
       onOpenInvestigations: (inv, invId) => {
         handleOpenInvestigations(inv, invId);
@@ -185,15 +234,15 @@ export function InventariosManager({
   if (activeView === "investigations" && currentInventory) {
     return h(InvestigacoesScreen, {
       inventory: currentInventory,
-      branchCode,
+      branchCode: currentInventory.filialCodigo || branchCode,
       request,
       user,
       initialInvestigationId: currentInvestigationId,
       onBack: () => {
-        setActiveView("audit");
+        changeActiveView("audit", currentInventory, currentRoundId);
       },
       onBackToList: () => {
-        setActiveView("list");
+        changeActiveView("list", null);
         loadInventarios();
       },
       onOpenClosing: (inv) => {
@@ -205,11 +254,11 @@ export function InventariosManager({
   if (activeView === "closing" && currentInventory) {
     return h(FechamentoScreen, {
       inventory: currentInventory,
-      branchCode,
+      branchCode: currentInventory.filialCodigo || branchCode,
       request,
       user,
       onBack: () => {
-        setActiveView("list");
+        changeActiveView("list", null);
         loadInventarios();
       },
       onGoToAudit: () => {
@@ -219,7 +268,7 @@ export function InventariosManager({
         handleOpenInvestigations(currentInventory);
       },
       onClosed: () => {
-        setActiveView("history");
+        changeActiveView("history", currentInventory);
         loadInventarios();
       }
     });
@@ -228,11 +277,11 @@ export function InventariosManager({
   if (activeView === "history" && currentInventory) {
     return h(HistoricoResultadoScreen, {
       inventory: currentInventory,
-      branchCode,
+      branchCode: currentInventory.filialCodigo || branchCode,
       request,
       user,
       onBack: () => {
-        setActiveView("list");
+        changeActiveView("list", null);
         loadInventarios();
       }
     });
@@ -241,11 +290,11 @@ export function InventariosManager({
   if (activeView === "report" && currentInventory) {
     return h(InventoryReportScreen, {
       inventory: currentInventory,
-      branchCode,
+      branchCode: currentInventory.filialCodigo || branchCode,
       request,
       token,
       onBack: () => {
-        setActiveView("list");
+        changeActiveView("list", null);
         loadInventarios();
       }
     });
@@ -503,23 +552,85 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
   const [nome, setNome] = useState("");
   const [tipo, setTipo] = useState("GERAL");
   const [modo, setModo] = useState("NORMAL");
+  const [sourceMode, setSourceMode] = useState("upload"); // 'upload' | 'history'
   const [importId, setImportId] = useState(latestImportId ? String(latestImportId) : "");
   const [availableImports, setAvailableImports] = useState([]);
+  const [uploadedSummary, setUploadedSummary] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     async function loadImports() {
       try {
-        const history = await request(`/api/historico/saldos?branchCode=${encodeURIComponent(branchCode)}&limit=10`);
-        if (Array.isArray(history) && history.length > 0) {
-          setAvailableImports(history);
-          if (!importId) setImportId(String(history[0].id));
+        const historyRes = await request(`/api/saldos/historico?branchCode=${encodeURIComponent(branchCode)}`);
+        const list = (historyRes && Array.isArray(historyRes.imports))
+          ? historyRes.imports
+          : (Array.isArray(historyRes) ? historyRes : []);
+        if (list.length > 0) {
+          setAvailableImports(list);
+          if (!importId) setImportId(String(list[0].id));
         }
-      } catch (_) {}
+      } catch (_) {
+        try {
+          const fallback = await request(`/api/historico/saldos?branchCode=${encodeURIComponent(branchCode)}&limit=10`);
+          const list = (fallback && Array.isArray(fallback.imports))
+            ? fallback.imports
+            : (Array.isArray(fallback) ? fallback : []);
+          if (list.length > 0) {
+            setAvailableImports(list);
+            if (!importId) setImportId(String(list[0].id));
+          }
+        } catch (_) {}
+      }
     }
     loadImports();
   }, [branchCode]);
+
+  async function handleFileSelect(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setError("O arquivo deve ser um documento PDF.");
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setError("O arquivo PDF deve ter no máximo 25 MB.");
+      return;
+    }
+
+    setUploading(true);
+    setError("");
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const res = await request("/api/importar", {
+        method: "POST",
+        body: {
+          fileName: file.name,
+          contentType: "application/pdf",
+          dataUrl,
+          divergentOnly: false
+        }
+      });
+      const summary = res?.importSummary || (res?.balanceHistory && res.balanceHistory[0]) || null;
+      if (!summary || !summary.id) {
+        throw new Error("Não foi possível identificar o saldo importado.");
+      }
+      setImportId(String(summary.id));
+      setUploadedSummary(summary);
+      if (!nome.trim()) {
+        const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+        setNome(`Inventário ${cleanName}`);
+      }
+    } catch (err) {
+      setError(err.message || "Falha ao processar arquivo PDF de saldo.");
+      setUploadedSummary(null);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -529,7 +640,9 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
     }
     const parsedImportId = parseInt(importId, 10);
     if (!parsedImportId || parsedImportId <= 0) {
-      setError("Selecione uma importação de saldo válida.");
+      setError(sourceMode === "upload"
+        ? "Selecione e envie o arquivo PDF de saldo da empresa antes de criar o inventário."
+        : "Selecione uma importação anterior de saldo válida.");
       return;
     }
 
@@ -556,14 +669,14 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
   }
 
   return h("div", { className: "modal-backdrop", onClick: onClose },
-    h("div", { className: "modal-card", onClick: (e) => e.stopPropagation(), style: { maxWidth: "460px", width: "95%" } },
+    h("div", { className: "modal-card", onClick: (e) => e.stopPropagation(), style: { maxWidth: "520px", width: "95%" } },
       h("h3", { style: { marginTop: 0 } }, "Novo Inventário Formal"),
-      h("p", { className: "hint" }, `Filial ativa: ${branchCode}`),
+      h("p", { className: "hint", style: { margin: "0 0 14px" } }, `Filial ativa: ${branchCode}`),
 
       error && h("div", { className: "notice-banner notice-danger", style: { marginBottom: "12px" } }, error),
 
       h("form", { onSubmit: handleSubmit },
-        h("div", { className: "form-group", style: { marginBottom: "12px" } },
+        h("div", { className: "form-group", style: { marginBottom: "14px" } },
           h("label", { style: { display: "block", marginBottom: "4px", fontWeight: "600" } }, "Nome do Inventário:"),
           h("input", {
             type: "text",
@@ -572,35 +685,111 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
             onChange: (e) => setNome(e.target.value),
             placeholder: "Ex: Inventário Geral Setembro 2026",
             required: true,
-            style: { width: "100%", padding: "8px", borderRadius: "6px" }
+            style: { width: "100%", padding: "8px 12px", borderRadius: "6px" }
           })
         ),
 
-        h("div", { className: "form-group", style: { marginBottom: "12px" } },
-          h("label", { style: { display: "block", marginBottom: "4px", fontWeight: "600" } }, "Importação de Saldo Base:"),
-          availableImports.length > 0
-            ? h("select", {
-                className: "form-control",
-                value: importId,
-                onChange: (e) => setImportId(e.target.value),
-                style: { width: "100%", padding: "8px", borderRadius: "6px" }
+        // Seleção de Origem do Saldo: Upload PDF (Padrão) vs Histórico Anterior
+        h("div", { className: "form-group", style: { marginBottom: "16px" } },
+          h("label", { style: { display: "block", marginBottom: "6px", fontWeight: "600" } }, "Saldo-Base do Estoque:"),
+          h("div", { style: { display: "flex", gap: "10px", marginBottom: "10px" } },
+            h("button", {
+              type: "button",
+              className: `btn ${sourceMode === "upload" ? "btn-primary" : "btn-secondary"}`,
+              onClick: () => setSourceMode("upload"),
+              style: { flex: 1, padding: "8px 12px", fontSize: "0.85rem", fontWeight: "600" }
+            }, "📄 Importar Novo PDF"),
+            h("button", {
+              type: "button",
+              className: `btn ${sourceMode === "history" ? "btn-primary" : "btn-secondary"}`,
+              onClick: () => {
+                setSourceMode("history");
+                if (availableImports.length > 0 && (!importId || uploadedSummary)) {
+                  setImportId(String(availableImports[0].id));
+                }
               },
-              availableImports.map((imp) => h("option", { key: imp.id, value: imp.id },
-                `#${imp.id} - ${imp.fileName || "Importação"} (${imp.skuCount} SKUs)`
-              ))
+              style: { flex: 1, padding: "8px 12px", fontSize: "0.85rem", fontWeight: "600" }
+            }, "🕒 Usar Importação Anterior")
+          ),
+
+          sourceMode === "upload" && h("div", null,
+            h("input", {
+              ref: fileInputRef,
+              type: "file",
+              accept: "application/pdf,.pdf",
+              onChange: handleFileSelect,
+              style: { display: "none" }
+            }),
+
+            !uploadedSummary && h("div", {
+              onClick: () => !uploading && fileInputRef.current && fileInputRef.current.click(),
+              style: {
+                border: "2px dashed var(--primary, #3b82f6)",
+                borderRadius: "8px",
+                padding: "24px 16px",
+                textAlign: "center",
+                cursor: uploading ? "wait" : "pointer",
+                background: "rgba(59, 130, 246, 0.04)",
+                transition: "all 0.2s ease"
+              }
+            },
+              uploading
+                ? h("div", null,
+                    h("span", { style: { fontSize: "1.4rem", display: "block", marginBottom: "6px" } }, "⏳"),
+                    h("strong", null, "Processando arquivo PDF de saldo..."),
+                    h("p", { className: "hint", style: { margin: "4px 0 0", fontSize: "0.85rem" } }, "Extraindo SKUs e saldos oficiais via PDFBox")
+                  )
+                : h("div", null,
+                    h("span", { style: { fontSize: "2rem", display: "block", marginBottom: "6px" } }, "📁"),
+                    h("strong", { style: { fontSize: "1rem", color: "var(--primary, #3b82f6)" } }, "Toque para selecionar o arquivo PDF da empresa"),
+                    h("p", { className: "hint", style: { margin: "4px 0 0", fontSize: "0.8rem" } }, "Documento oficial de saldo (.pdf até 25 MB)")
+                  )
+            ),
+
+            uploadedSummary && h("div", {
+              className: "notice-banner notice-success",
+              style: {
+                padding: "12px 14px",
+                borderRadius: "8px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
+              }
+            },
+              h("div", null,
+                h("strong", { style: { display: "block", fontSize: "0.95rem" } }, `✔ ${uploadedSummary.fileName}`),
+                h("span", { style: { fontSize: "0.85rem", opacity: 0.9 } },
+                  `Filial: ${branchCode} | ${uploadedSummary.skuCount} SKUs lidos com sucesso`
+                )
+              ),
+              h("button", {
+                type: "button",
+                className: "btn btn-secondary",
+                onClick: () => fileInputRef.current && fileInputRef.current.click(),
+                style: { padding: "4px 10px", fontSize: "0.8rem" }
+              }, "Substituir")
             )
-            : h("input", {
-                type: "number",
-                className: "form-control",
-                value: importId,
-                onChange: (e) => setImportId(e.target.value),
-                placeholder: "ID da Importação",
-                required: true,
-                style: { width: "100%", padding: "8px", borderRadius: "6px" }
-              })
+          ),
+
+          sourceMode === "history" && h("div", null,
+            availableImports.length > 0
+              ? h("select", {
+                  className: "form-control",
+                  value: importId,
+                  onChange: (e) => setImportId(e.target.value),
+                  style: { width: "100%", padding: "10px 12px", borderRadius: "6px", fontSize: "0.9rem" }
+                },
+                availableImports.map((imp) => h("option", { key: imp.id, value: imp.id },
+                  `${imp.fileName || "Importação"} — ${new Date(imp.updatedAt).toLocaleString("pt-BR")} (${imp.skuCount} SKUs)`
+                ))
+              )
+              : h("div", { className: "card-panel", style: { padding: "16px", textAlign: "center" } },
+                  h("p", { className: "hint", style: { margin: 0 } }, "Nenhuma importação anterior encontrada para esta filial. Utilize a opção 'Importar Novo PDF'.")
+                )
+          )
         ),
 
-        h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" } },
+        h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" } },
           h("div", null,
             h("label", { style: { display: "block", marginBottom: "4px", fontWeight: "600" } }, "Tipo:"),
             h("select", {
@@ -629,8 +818,12 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
         ),
 
         h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "18px" } },
-          h("button", { type: "button", className: "btn btn-secondary", onClick: onClose, disabled: saving }, "Cancelar"),
-          h("button", { type: "submit", className: "btn btn-primary", disabled: saving },
+          h("button", { type: "button", className: "btn btn-secondary", onClick: onClose, disabled: saving || uploading }, "Cancelar"),
+          h("button", {
+            type: "submit",
+            className: "btn btn-primary",
+            disabled: saving || uploading || !importId || (sourceMode === "upload" && !uploadedSummary)
+          },
             saving ? "Criando..." : "Criar Inventário"
           )
         )
@@ -695,9 +888,9 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
   function updateLocationBuckets(item, loc) {
     const locBuckets = (item.detalhes && item.detalhes[loc]) || {};
-    const curAvaria = locBuckets["AVARIA"] || 0;
-    const curAssistencia = locBuckets["ASSISTENCIA"] || 0;
-    const curOutros = locBuckets["OUTROS"] || 0;
+    let curAvaria = locBuckets["AVARIA"] || 0;
+    let curAssistencia = locBuckets["ASSISTENCIA"] || 0;
+    let curOutros = locBuckets["OUTROS"] || 0;
     let curBoa = locBuckets["BOA"] || 0;
 
     const hasSpecificLoc = locBuckets["BOA"] !== undefined ||
@@ -705,12 +898,21 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
       locBuckets["ASSISTENCIA"] !== undefined ||
       locBuckets["OUTROS"] !== undefined;
 
-    if (!hasSpecificLoc && loc === "GERAL" && isExplicitlyCounted(item) && item.quantidadeContada != null) {
+    if (!hasSpecificLoc && isExplicitlyCounted(item)) {
+      if (item.categorias) {
+        curBoa = item.categorias["BOA"] || 0;
+        curAvaria = item.categorias["AVARIA"] || 0;
+        curAssistencia = item.categorias["ASSISTENCIA"] || 0;
+        curOutros = item.categorias["OUTROS"] || 0;
+      } else if (item.quantidadeContada != null) {
+        curBoa = item.quantidadeContada;
+      }
+    } else if (!hasSpecificLoc && loc === "GERAL" && isExplicitlyCounted(item) && item.quantidadeContada != null) {
       curBoa = item.quantidadeContada;
     }
 
-    const hasAnyCount = isExplicitlyCounted(item) && (hasSpecificLoc || (loc === "GERAL" && item.quantidadeContada != null));
-    const total = hasAnyCount ? (curBoa + curAvaria + curAssistencia + curOutros) : (isExplicitlyCounted(item) ? (item.quantidadeContada ?? 1) : 1);
+    const hasAnyCount = isExplicitlyCounted(item);
+    const total = hasAnyCount ? (curBoa + curAvaria + curAssistencia + curOutros) : 1;
 
     setCompoundTotal(total);
     setCompoundAvaria(curAvaria);
@@ -777,7 +979,19 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   function openItemStepper(item, origin = "MANUAL") {
     setSelectedItem(item);
     setSelectedOrigin(origin);
-    updateLocationBuckets(item, activeLocation);
+    let targetLoc = activeLocation;
+    if (item && item.detalhes) {
+      const existingLocs = Object.keys(item.detalhes).filter(k => {
+        const buckets = item.detalhes[k];
+        return buckets && Object.values(buckets).some(v => (v || 0) > 0);
+      });
+      if (existingLocs.length > 0 && !existingLocs.includes(targetLoc)) {
+        targetLoc = existingLocs[0];
+        setActiveLocation(targetLoc);
+        try { localStorage.setItem("mnCheckActiveLocation", targetLoc); } catch (_) {}
+      }
+    }
+    updateLocationBuckets(item, targetLoc);
     setFeedback(null);
     setError("");
   }
@@ -857,6 +1071,9 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
       setSelectedItem(null);
       setSearch("");
+      if (itemsData && itemsData.itens && itemsData.itens.length < (itemsData.progresso?.totalSkus || 0)) {
+        loadActiveRoundAndItems("", estadoFilter);
+      }
     } catch (err) {
       setError(err.message || "Falha ao gravar contagem composta.");
     } finally {
@@ -910,8 +1127,19 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
       const q = search.trim().toLowerCase();
       list = list.filter(i => i.sku.toLowerCase().includes(q) || (i.descricao && i.descricao.toLowerCase().includes(q)));
     }
-    return list;
+    return [...list].sort((a, b) => {
+      const aCounted = isExplicitlyCounted(a);
+      const bCounted = isExplicitlyCounted(b);
+      if (aCounted && !bCounted) return -1;
+      if (!aCounted && bCounted) return 1;
+      return 0;
+    });
   }, [itemsData, estadoFilter, search]);
+
+  const recentlyCountedItems = useMemo(() => {
+    if (!itemsData || !itemsData.itens) return [];
+    return itemsData.itens.filter(i => isExplicitlyCounted(i)).slice(0, 10);
+  }, [itemsData]);
 
   const displayedItems = useMemo(() => {
     return filteredItems.slice(0, visibleLimit);
@@ -965,22 +1193,34 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
       h("div", { style: { marginTop: "10px" } },
         h("h3", { style: { margin: "0 0 4px", fontSize: "1.2rem" } }, inventory.nome),
-        progress && h("div", { className: "progress-metrics-wrapper", style: { marginTop: "8px" } },
-          h("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "var(--muted)", marginBottom: "4px" } },
-            h("span", null, `Progresso: ${progress.contados} de ${progress.totalSkus} SKUs contados`),
-            h("strong", { style: { color: "var(--text)" } }, `${progress.percentual}%`)
-          ),
-          h("div", { className: "progress-bar-container", style: { width: "100%", height: "8px", background: "var(--border, #333)", borderRadius: "4px", overflow: "hidden" } },
-            h("div", {
-              style: {
-                width: `${progress.percentual}%`,
-                height: "100%",
-                background: isRecount ? "#f59e0b" : "var(--accent-green, #10b981)",
-                transition: "width 0.3s ease"
-              }
-            })
-          )
-        )
+        progress && (() => {
+          const countNum = Number(progress.contados) || 0;
+          const totalNum = Number(progress.totalSkus) || 1;
+          const rawPct = (countNum / Math.max(totalNum, 1)) * 100;
+          const pctLabel = (countNum > 0 && progress.percentual === 0)
+            ? `${rawPct.toFixed(1)}%`
+            : `${progress.percentual}%`;
+          const barWidth = (countNum > 0 && progress.percentual === 0)
+            ? `${Math.max(1.5, rawPct).toFixed(1)}%`
+            : `${progress.percentual}%`;
+
+          return h("div", { className: "progress-metrics-wrapper", style: { marginTop: "8px" } },
+            h("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "var(--muted)", marginBottom: "4px" } },
+              h("span", null, `Progresso: ${progress.contados} de ${progress.totalSkus} SKUs contados`),
+              h("strong", { style: { color: "var(--text)" } }, pctLabel)
+            ),
+            h("div", { className: "progress-bar-container", style: { width: "100%", height: "8px", background: "var(--border, #333)", borderRadius: "4px", overflow: "hidden" } },
+              h("div", {
+                style: {
+                  width: barWidth,
+                  height: "100%",
+                  background: isRecount ? "#f59e0b" : "var(--accent-green, #10b981)",
+                  transition: "width 0.3s ease"
+                }
+              })
+            )
+          );
+        })()
       )
     ),
 
@@ -1229,6 +1469,30 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
     // Busca e Scanner
     h("div", { className: "card-panel search-scanner-panel", style: { padding: "12px", marginBottom: "12px" } },
+      recentlyCountedItems.length > 0 && h("div", {
+        className: "recent-counted-chips",
+        style: { marginBottom: "10px", paddingBottom: "8px", borderBottom: "1px solid var(--border, #333)", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }
+      },
+        h("span", { style: { fontSize: "0.8rem", color: "var(--muted)", fontWeight: "600", marginRight: "4px" } }, "⚡ Últimos contados:"),
+        recentlyCountedItems.map(item => h("button", {
+          key: "recent-" + item.id,
+          type: "button",
+          className: "btn btn-secondary",
+          onClick: () => openItemStepper(item),
+          style: {
+            padding: "3px 10px",
+            fontSize: "0.8rem",
+            borderRadius: "14px",
+            background: "rgba(16, 185, 129, 0.15)",
+            border: "1px solid var(--accent-green, #10b981)",
+            color: "var(--accent-green, #10b981)",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            cursor: "pointer"
+          }
+        }, `✔ ${item.sku} (${item.quantidadeFisica ?? 0} un)`))
+      ),
       h("form", { onSubmit: handleSearchSubmit, style: { display: "flex", gap: "8px" } },
         h("input", {
           ref: searchInputRef,
@@ -1259,9 +1523,9 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
       // Filtros de Estado
       h("div", { style: { display: "flex", gap: "8px", marginTop: "10px" } },
         [
-          { id: "all", label: "Todos" },
-          { id: "pendente", label: "Pendentes" },
-          { id: "contado", label: "Contados" }
+          { id: "all", label: `Todos (${progress ? progress.totalSkus : (itemsData?.itens?.length || 0)})` },
+          { id: "pendente", label: `Pendentes (${progress ? progress.pendentes : (itemsData?.itens?.filter(i => !isExplicitlyCounted(i)).length || 0)})` },
+          { id: "contado", label: `Contados (${progress ? progress.contados : (itemsData?.itens?.filter(i => isExplicitlyCounted(i)).length || 0)})` }
         ].map(f => h("button", {
           key: f.id,
           type: "button",

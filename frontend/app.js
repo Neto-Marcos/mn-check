@@ -122,7 +122,13 @@ function App() {
   const [online, setOnline] = React.useState(navigator.onLine);
   const [user, setUser] = React.useState(null);
   const [data, setData] = React.useState(emptyData());
-  const [view, setView] = React.useState("overview");
+  const [view, setView] = React.useState(() => {
+    try {
+      return localStorage.getItem("mnCheckActiveView") || "overview";
+    } catch (_) {
+      return "overview";
+    }
+  });
   const [toast, setToast] = React.useState("");
   const [waitingWorker, setWaitingWorker] = React.useState(null);
   const [mapImportOpen, setMapImportOpen] = React.useState(false);
@@ -384,12 +390,23 @@ function App() {
     setData(body);
     setAppVersion(body.version || APP_VERSION);
     setDeployInfo({ version: body.version || APP_VERSION, buildAt: body.buildAt || "", commit: body.commit || "" });
-    setView(preferredView === "settings" || body.user.allowedViews.includes(preferredView)
-      ? preferredView
+    const activeStoredView = (() => {
+      try {
+        return localStorage.getItem("mnCheckActiveView");
+      } catch (_) {
+        return null;
+      }
+    })();
+    const candidateView = preferredView || activeStoredView;
+    setView(candidateView === "settings" || (candidateView && body.user.allowedViews.includes(candidateView))
+      ? candidateView
       : body.user.allowedViews[0]);
   }
 
   async function selectView(nextView) {
+    try {
+      localStorage.setItem("mnCheckActiveView", nextView);
+    } catch (_) {}
     setView(nextView);
     setMobileNavOpen(false);
     if (nextView === "settings") return;

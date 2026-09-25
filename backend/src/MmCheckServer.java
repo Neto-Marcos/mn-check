@@ -238,7 +238,7 @@ public class MmCheckServer {
       return;
     }
 
-    if ("GET".equals(method) && "/api/saldos/historico".equals(path)) {
+    if ("GET".equals(method) && List.of("/api/saldos/historico", "/api/historico/saldos").contains(path)) {
       requireRole(user, "admin", "stock");
       String branchCode = requestedBranchCode(exchange);
       json(exchange, 200, Map.of(
@@ -629,7 +629,15 @@ public class MmCheckServer {
           + " alterados=" + importSummary.changedItems()
           + " removidos=" + importSummary.removedItems()
           + " atualizado_em=" + importSummary.updatedAt());
-      json(exchange, 200, visibleData(user));
+      Map<String, Object> responseData = new LinkedHashMap<>(visibleData(user));
+      responseData.put("importSummary", Map.of(
+          "id", importSummary.id(),
+          "fileName", safeFileName(fileName),
+          "skuCount", importSummary.skuCount(),
+          "branchCode", branchCode,
+          "updatedAt", importSummary.updatedAt().toString()
+      ));
+      json(exchange, 200, responseData);
       return;
     }
 
