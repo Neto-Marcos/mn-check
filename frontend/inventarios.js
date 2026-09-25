@@ -1166,8 +1166,8 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
               ...it,
               estado: "CONTADO",
               quantidadeContada: result.quantidadeItemProjetada,
-              categorias: result.categorias,
-              detalhes: result.detalhes,
+              categorias: result.categoriasItem || result.categorias,
+              detalhes: result.detalhesItem || result.detalhes,
               ultimaOcorrenciaId: result.id,
               ultimaOcorrenciaEm: result.serverTimestamp
             };
