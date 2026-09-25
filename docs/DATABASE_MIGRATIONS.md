@@ -101,6 +101,15 @@ Principais garantias do modelo V4:
    inventario_itens. A contagem de SKUs finalizados é calculada diretamente como o número de itens distintos
    presentes em ocorrencias_contagem para a rodada em andamento.
 6. **Contagem Cega REAL:** Tanto o detalhe da sessão (GET /api/inventarios/{id}) quanto as rotas
-   operacionais de contagem (/itens e /contagens) sanitizam e definem saldoSnapshot como
-ull
+   operacionais de contagem (/itens e /contagens) sanitizam e definem saldoSnapshot como null
    sempre que o inventário estiver em modo CEGO.
+
+## V5 — dimensão de localização, escopo de recontagem e apuração materializada
+
+`V5__create_inventory_recount_and_locations.sql` adiciona a dimensão física de localização, delimitação de escopo de rodadas e persistência de apurações materializadas:
+
+1. **Localização nas ocorrências:** Adiciona `localizacao` (`GERAL`, `VENDAS`, `DEPOSITO`, `TROCAS`, `OUTRO`) com padrão `GERAL` em `ocorrencias_contagem`. Ocorrências prévias continuam válidas com `localizacao = 'GERAL'`.
+2. **Auditoria de encerramento:** Adiciona `encerramento_forcado` e `pendentes_no_fechamento` em `rodadas_contagem`.
+3. **Escopo delimitado de recontagem (`rodada_itens`):** Quando uma rodada possui registros em `rodada_itens`, apenas os itens ali presentes entram no escopo e podem ser contados e visualizados. Permite delimitar a Rodada 2 exclusivamente para itens divergentes ou não contados.
+4. **Apuração materializada auditável (`apuracoes_rodada`):** Registra o snapshot do encerramento com `saldo_snapshot`, `quantidade_fisica`, `diferenca`, `estado` (`CONFORME`, `DIVERGENTE`, `NAO_CONTADO`, `CONFORME_APOS_RECONTAGEM`, `DIVERGENCIA_CONFIRMADA`) e o detalhamento JSONB dos buckets `(localizacao, condicao)`.
+

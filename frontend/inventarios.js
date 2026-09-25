@@ -2,6 +2,9 @@
 // React 18 sem build step (React.createElement)
 const { createElement: h, useState, useEffect, useRef, useMemo } = React;
 
+const LOCATIONS = ["GERAL", "VENDAS", "DEPOSITO", "TROCAS", "OUTRO"];
+const CONDITIONS = ["BOA", "AVARIA", "ASSISTENCIA", "OUTROS"];
+
 function generateUUID() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -29,7 +32,10 @@ export function InventariosManager({
   });
 
   const [inventarios, setInventarios] = useState([]);
-  const [selectedInventory, setSelectedInventory] = useState(null);
+  const [activeView, setActiveView] = useState("list"); // 'list' | 'counting' | 'audit'
+  const [currentInventory, setCurrentInventory] = useState(null);
+  const [currentRoundId, setCurrentRoundId] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -80,7 +86,8 @@ export function InventariosManager({
       });
       setFeedback("Rodada 1 iniciada com sucesso!");
       loadInventarios();
-      setSelectedInventory(started.inventory || inv);
+      setCurrentInventory(started.inventory || inv);
+      setActiveView("counting");
     } catch (err) {
       setError(err.message || "Não foi possível iniciar o inventário.");
     }
@@ -101,44 +108,68 @@ export function InventariosManager({
     }
   }
 
-  if (selectedInventory) {
+  function handleOpenCounting(inv) {
+    setCurrentInventory(inv);
+    setActiveView("counting");
+  }
+
+  function handleOpenAudit(inv, roundId = null) {
+    setCurrentInventory(inv);
+    setCurrentRoundId(roundId);
+    setActiveView("audit");
+  }
+
+  if (activeView === "counting" && currentInventory) {
     return h(InventarioContagemScreen, {
-      inventory: selectedInventory,
+      inventory: currentInventory,
       branchCode,
       request,
       user,
       onBack: () => {
-        setSelectedInventory(null);
+        setActiveView("list");
         loadInventarios();
+      },
+      onRoundClosed: (closedRoundId) => {
+        handleOpenAudit(currentInventory, closedRoundId);
       }
     });
   }
 
-  return h("div", { className: "inventarios-container" },
-    h("div", { className: "inventarios-header card-panel" },
-      h("div", { className: "inventarios-title-row" },
+  if (activeView === "audit" && currentInventory) {
+    return h(ApuracaoScreen, {
+      inventory: currentInventory,
+      roundId: currentRoundId,
+      branchCode,
+      request,
+      user,
+      onBack: () => {
+        setActiveView("list");
+        loadInventarios();
+      },
+      onStartRecount: () => {
+        setActiveView("counting");
+      }
+    });
+  }
+
+  return h("div", { className: "inventarios-manager" },
+    h("div", { className: "inventarios-header card-panel", style: { padding: "16px", marginBottom: "16px" } },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" } },
         h("div", null,
-          h("h2", { style: { margin: 0, fontSize: "1.35rem", display: "flex", alignItems: "center", gap: "8px" }, "data-testid": "title-inventarios" },
-            "Sessões de Inventário 3.0"
-          ),
-          h("p", { className: "hint", style: { margin: "4px 0 0" } },
-            "Ciclo auditável por rodadas de contagem imutáveis."
-          )
+          h("h2", { style: { margin: "0 0 4px" } }, "Inventários Formais 3.0"),
+          h("p", { className: "hint", style: { margin: 0 } }, "Sessões congeladas, rodadas auditáveis e recontagem cega.")
         ),
         h("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
-          h("label", { style: { fontSize: "0.85rem", color: "var(--muted)" } }, "Filial:"),
-          h("input", {
-            type: "text",
-            value: branchCode,
-            onChange: (e) => setBranchCode(e.target.value.trim()),
-            style: { width: "70px", padding: "6px 8px", borderRadius: "6px", textAlign: "center", fontWeight: "bold" },
-            placeholder: "281"
-          }),
           h("button", {
             className: "btn btn-primary",
             onClick: () => setShowCreateModal(true),
-            style: { padding: "8px 14px" }
-          }, "+ Novo Inventário")
+            style: { fontWeight: "bold" }
+          }, "+ Novo Inventário"),
+          h("button", {
+            className: "btn btn-secondary",
+            onClick: loadInventarios,
+            disabled: loading
+          }, "↻ Atualizar")
         )
       )
     ),
@@ -197,11 +228,17 @@ export function InventariosManager({
             onClick: () => handleStart(inv)
           }, "▶ Iniciar Rodada 1"),
 
-          inv.status === "EM_CONTAGEM" && h("button", {
+          (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM") && h("button", {
             className: "btn btn-primary",
-            onClick: () => setSelectedInventory(inv),
+            onClick: () => handleOpenCounting(inv),
             style: { background: "var(--accent-green, #10b981)", borderColor: "var(--accent-green, #10b981)" }
-          }, "🔍 Abrir Contagem"),
+          }, inv.status === "EM_RECONTAGEM" ? "🔍 Recontagem (R2)" : "🔍 Abrir Contagem"),
+
+          (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM" || inv.status === "FINALIZADO" || inv.status === "EM_INVESTIGACAO") && h("button", {
+            className: "btn btn-secondary",
+            onClick: () => handleOpenAudit(inv),
+            style: { fontWeight: "600" }
+          }, "📊 Apuração"),
 
           (inv.status === "RASCUNHO" || inv.status === "ABERTO") && h("button", {
             className: "btn btn-danger-outline",
@@ -365,18 +402,33 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
   );
 }
 
-function InventarioContagemScreen({ inventory, branchCode, request, user, onBack }) {
+function InventarioContagemScreen({ inventory, branchCode, request, user, onBack, onRoundClosed }) {
   const [roundDetail, setRoundDetail] = useState(null);
   const [itemsData, setItemsData] = useState(null);
   const [search, setSearch] = useState("");
   const [estadoFilter, setEstadoFilter] = useState("all");
   const [selectedItem, setSelectedItem] = useState(null);
+
+  // Localização ativa com persistência no localStorage
+  const [activeLocation, setActiveLocation] = useState(() => {
+    try {
+      return localStorage.getItem("mnCheckActiveLocation") || "GERAL";
+    } catch (_) {
+      return "GERAL";
+    }
+  });
+
   const [stepperQuantity, setStepperQuantity] = useState(1);
   const [stepperCategory, setStepperCategory] = useState("BOA");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState("");
+
+  // Modais de encerramento
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [uncountedConflict, setUncountedConflict] = useState(null);
+  const [closing, setClosing] = useState(false);
 
   const searchInputRef = useRef(null);
 
@@ -389,6 +441,13 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
       searchInputRef.current.focus();
     }
   }, [selectedItem]);
+
+  function handleSetLocation(loc) {
+    setActiveLocation(loc);
+    try {
+      localStorage.setItem("mnCheckActiveLocation", loc);
+    } catch (_) {}
+  }
 
   async function loadActiveRoundAndItems(query = search, estado = estadoFilter) {
     setLoading(true);
@@ -456,6 +515,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         body: {
           sku: selectedItem.sku,
           quantidade: Math.max(0, parseInt(stepperQuantity, 10) || 0),
+          localizacao: activeLocation,
           categoria: stepperCategory,
           tipoAcao,
           clientEventId,
@@ -468,7 +528,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
       setFeedback({
         type: "success",
-        text: `Item ${selectedItem.sku} registrado com ${result.quantidadeItemProjetada} unidades!`
+        text: `Item ${selectedItem.sku} registrado com ${result.quantidadeItemProjetada} un em [${activeLocation} / ${stepperCategory}]!`
       });
 
       setSelectedItem(null);
@@ -481,25 +541,83 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
     }
   }
 
-  const isBlind = inventory.modo === "CEGO";
+  async function handleCloseRound(force = false) {
+    if (!roundDetail) return;
+    setClosing(true);
+    setError("");
+    try {
+      const audit = await request(`/api/inventarios/${inventory.id}/rodadas/${roundDetail.id}/encerrar?branchCode=${encodeURIComponent(branchCode)}`, {
+        method: "POST",
+        body: { forcar: force }
+      });
+      setShowCloseModal(false);
+      setUncountedConflict(null);
+      if (onRoundClosed) {
+        onRoundClosed(roundDetail.id);
+      }
+    } catch (err) {
+      if (err.pendentes != null && err.bloqueado) {
+        setUncountedConflict(err);
+      } else {
+        setError(err.message || "Não foi possível encerrar a rodada.");
+        setShowCloseModal(false);
+      }
+    } finally {
+      setClosing(false);
+    }
+  }
+
+  const isBlind = inventory.modo === "CEGO" || (roundDetail && roundDetail.numero >= 2);
+  const isRecount = roundDetail && roundDetail.numero >= 2;
   const progress = itemsData?.progresso || roundDetail?.progresso;
 
+  // Verificação de restrição de GERAL x Detalhada no item selecionado
+  const itemHasGeral = selectedItem?.detalhes && Object.keys(selectedItem.detalhes).includes("GERAL");
+  const itemHasDetailed = selectedItem?.detalhes && Object.keys(selectedItem.detalhes).some(k => k !== "GERAL");
+
   return h("div", { className: "inventario-contagem-view" },
+    // Banner de Recontagem Cega (R2)
+    isRecount && h("div", {
+      className: "notice-banner notice-warning recount-blind-banner",
+      style: {
+        marginBottom: "12px",
+        padding: "14px 18px",
+        borderRadius: "10px",
+        background: "rgba(245, 158, 11, 0.15)",
+        border: "2px solid #f59e0b",
+        color: "#d97706"
+      }
+    },
+      h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
+        h("span", { style: { fontSize: "1.6rem" } }, "🔒"),
+        h("div", null,
+          h("strong", { style: { fontSize: "1.1rem", display: "block" } }, "RECONTAGEM — RODADA 2 (MODO CEGO OBRIGATÓRIO)"),
+          h("span", { style: { fontSize: "0.85rem" } }, "Esta rodada contém apenas itens com divergências ou não contados na Rodada 1. O saldo esperado e contagens prévias estão estritamente ocultos para garantir auditoria imparcial.")
+        )
+      )
+    ),
+
     // Barra superior
-    h("div", { className: "card-panel contagem-header-card", style: { padding: "12px 16px", marginBottom: "12px" } },
-      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+    h("div", { className: "card-panel contagem-header-card", style: { padding: "14px 16px", marginBottom: "12px" } },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" } },
         h("button", {
           className: "btn btn-secondary",
           onClick: onBack,
           style: { padding: "6px 12px", fontSize: "0.9rem" }
         }, "← Voltar aos Inventários"),
+
         h("div", { style: { display: "flex", gap: "6px", alignItems: "center" } },
-          h("span", { className: "badge badge-primary", style: { fontSize: "0.85rem" } },
+          h("span", { className: `badge ${isRecount ? "badge-warning" : "badge-primary"}`, style: { fontSize: "0.9rem", fontWeight: "bold" } },
             roundDetail ? `Rodada ${roundDetail.numero} (${roundDetail.tipo})` : "Rodada Ativa"
           ),
           h("span", { className: `badge badge-${isBlind ? "warning" : "info"}`, style: { fontSize: "0.85rem" } },
-            isBlind ? "CEGO" : "NORMAL"
-          )
+            isBlind ? "MODO CEGO" : "NORMAL"
+          ),
+          h("button", {
+            className: "btn btn-danger-outline",
+            onClick: () => setShowCloseModal(true),
+            style: { marginLeft: "6px", fontWeight: "bold", padding: "6px 12px", fontSize: "0.85rem" }
+          }, `⏹ Encerrar Rodada ${roundDetail ? roundDetail.numero : ""}`)
         )
       ),
 
@@ -515,7 +633,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
               style: {
                 width: `${progress.percentual}%`,
                 height: "100%",
-                background: "var(--accent-green, #10b981)",
+                background: isRecount ? "#f59e0b" : "var(--accent-green, #10b981)",
                 transition: "width 0.3s ease"
               }
             })
@@ -544,7 +662,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           className: "btn btn-secondary",
           onClick: () => setSelectedItem(null),
           style: { padding: "4px 10px" }
-        }, "Fechar")
+        }, "✕ Fechar")
       ),
 
       h("div", { className: "item-info-row", style: { display: "flex", gap: "10px", margin: "10px 0", flexWrap: "wrap" } },
@@ -556,18 +674,43 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           h("span", { style: { fontSize: "0.8rem", fontWeight: "bold" } }, "🔒 Modo Cego (Saldo Oculto)")
         ),
         h("div", { className: "metric-tag" },
-          h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Última Leitura:"),
+          h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Contagem Atual nesta Rodada:"),
           h("strong", { style: { fontSize: "1.1rem", color: "var(--accent-green, #10b981)" } },
             selectedItem.quantidadeContada ? `${selectedItem.quantidadeContada} un` : "Pendente"
           )
         )
       ),
 
-      // Seletor de Categoria
+      // Seletor Rápido de Localização
       h("div", { style: { margin: "12px 0 8px" } },
-        h("label", { style: { fontSize: "0.85rem", fontWeight: "bold", display: "block", marginBottom: "4px" } }, "Categoria do Produto:"),
+        h("label", { style: { fontSize: "0.85rem", fontWeight: "bold", display: "block", marginBottom: "4px" } }, "Localização Física:"),
         h("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
-          ["BOA", "AVARIA", "ASSISTENCIA", "OUTROS"].map((cat) => h("button", {
+          LOCATIONS.map((loc) => {
+            const isGeral = loc === "GERAL";
+            const isDisabled = (isGeral && itemHasDetailed) || (!isGeral && itemHasGeral);
+            return h("button", {
+              key: loc,
+              type: "button",
+              disabled: isDisabled,
+              className: `btn ${activeLocation === loc ? "btn-primary" : "btn-secondary"}`,
+              onClick: () => handleSetLocation(loc),
+              style: { padding: "6px 12px", fontSize: "0.85rem", opacity: isDisabled ? 0.4 : 1 }
+            }, loc);
+          })
+        ),
+        itemHasGeral && h("span", { className: "hint", style: { fontSize: "0.75rem", color: "#f59e0b", display: "block", marginTop: "2px" } },
+          "Item já possui registro em GERAL. Localizações detalhadas bloqueadas para este item."
+        ),
+        itemHasDetailed && h("span", { className: "hint", style: { fontSize: "0.75rem", color: "#f59e0b", display: "block", marginTop: "2px" } },
+          "Item possui registro em local detalhado. GERAL bloqueado para este item."
+        )
+      ),
+
+      // Seletor Rápido de Condição
+      h("div", { style: { margin: "12px 0 8px" } },
+        h("label", { style: { fontSize: "0.85rem", fontWeight: "bold", display: "block", marginBottom: "4px" } }, "Condição do Produto:"),
+        h("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
+          CONDITIONS.map((cat) => h("button", {
             key: cat,
             type: "button",
             className: `btn ${stepperCategory === cat ? "btn-primary" : "btn-secondary"}`,
@@ -638,7 +781,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           background: "var(--accent-green, #10b981)",
           borderColor: "var(--accent-green, #10b981)"
         }
-      }, submitting ? "Gravando..." : "✔ Confirmar Contagem")
+      }, submitting ? "Gravando..." : `✔ Confirmar [${activeLocation} / ${stepperCategory}]`)
     ),
 
     // Busca e Scanner
@@ -679,7 +822,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
       )
     ),
 
-    // Lista de Itens do Inventário
+    // Lista de Itens da Rodada
     h("div", { className: "inventory-items-list" },
       loading && h("div", { className: "card-panel", style: { textAlign: "center", padding: "20px" } },
         "Carregando itens..."
@@ -723,6 +866,343 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           h("span", { style: { fontSize: "0.85rem", color: "var(--primary, #3b82f6)" } }, "Toque para contar →")
         )
       ))
+    ),
+
+    // Modal de Confirmação de Encerramento
+    showCloseModal && h("div", { className: "modal-backdrop", onClick: () => setShowCloseModal(false) },
+      h("div", { className: "modal-card", onClick: e => e.stopPropagation(), style: { maxWidth: "460px", width: "95%" } },
+        h("h3", { style: { marginTop: 0, color: "var(--danger, #ef4444)" } }, `Encerrar Rodada ${roundDetail ? roundDetail.numero : ""}?`),
+        h("p", null, "Esta operação é ", h("strong", null, "irreversível"), ". Após o encerramento, nenhuma nova contagem ou correção poderá ser registrada nesta rodada."),
+
+        uncountedConflict && h("div", { className: "notice-banner notice-danger", style: { marginBottom: "14px", textAlign: "left" } },
+          h("strong", { style: { display: "block", marginBottom: "4px" } }, "Atenção: Itens Não Contados!"),
+          `Existem ${uncountedConflict.pendentes} itens pendentes que não foram bipados ou contados. O encerramento normal foi bloqueado.`,
+          h("p", { style: { fontSize: "0.85rem", marginTop: "6px" } }, "Para prosseguir, utilize o Encerramento Forçado. O sistema registrará seu usuário na auditoria e preservará estes itens com o estado 'NÃO CONTADO'.")
+        ),
+
+        h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "20px" } },
+          h("button", {
+            type: "button",
+            className: "btn btn-secondary",
+            onClick: () => {
+              setShowCloseModal(false);
+              setUncountedConflict(null);
+            },
+            disabled: closing
+          }, "Voltar"),
+
+          uncountedConflict
+            ? h("button", {
+                type: "button",
+                className: "btn btn-danger",
+                onClick: () => handleCloseRound(true),
+                disabled: closing
+              }, closing ? "Forçando..." : "⚠ Confirmar Encerramento Forçado")
+            : h("button", {
+                type: "button",
+                className: "btn btn-danger",
+                onClick: () => handleCloseRound(false),
+                disabled: closing
+              }, closing ? "Encerrando..." : "Confirmar Encerramento")
+        )
+      )
+    )
+  );
+}
+
+function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack, onStartRecount }) {
+  const [audit, setAudit] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("divergentes"); // 'divergentes' | 'todos' | 'nao_contados' | 'conformes'
+  const [selectedItemIds, setSelectedItemIds] = useState(new Set());
+  const [startingRecount, setStartingRecount] = useState(false);
+
+  useEffect(() => {
+    loadAudit();
+  }, [roundId, inventory.id]);
+
+  async function loadAudit() {
+    setLoading(true);
+    setError("");
+    try {
+      let url = `/api/inventarios/${inventory.id}`;
+      // Se roundId foi informado, busca a apuração específica. Se não, busca a rodada ativa ou rodada 1
+      const activeRound = await request(`/api/inventarios/${inventory.id}/rodada-ativa?branchCode=${encodeURIComponent(branchCode)}`).catch(() => null);
+      const targetRoundId = roundId || (activeRound ? activeRound.id : 1);
+
+      const res = await request(`/api/inventarios/${inventory.id}/rodadas/${targetRoundId}/apuracao?branchCode=${encodeURIComponent(branchCode)}`);
+      setAudit(res);
+
+      // Pré-selecionar divergentes para R2 se for Rodada 1
+      if (res.rodadaNumero === 1) {
+        const divIds = new Set(
+          res.itens.filter(i => i.estado === "DIVERGENTE").map(i => i.inventarioItemId)
+        );
+        setSelectedItemIds(divIds);
+      }
+    } catch (err) {
+      setError(err.message || "Erro ao carregar apuração da rodada.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggleItemSelection(itemId, estado) {
+    if (estado === "CONFORME") return;
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  function selectAllDivergentes() {
+    if (!audit) return;
+    const divIds = new Set(audit.itens.filter(i => i.estado === "DIVERGENTE").map(i => i.inventarioItemId));
+    setSelectedItemIds(divIds);
+  }
+
+  function includeNaoContados() {
+    if (!audit) return;
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      audit.itens.filter(i => i.estado === "NAO_CONTADO").forEach(i => next.add(i.inventarioItemId));
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedItemIds(new Set());
+  }
+
+  async function handleCreateRecount() {
+    if (selectedItemIds.size === 0) {
+      alert("Selecione pelo menos um item para a recontagem.");
+      return;
+    }
+    if (!confirm(`Deseja iniciar a Rodada 2 (Recontagem Cega) com ${selectedItemIds.size} itens selecionados?`)) return;
+
+    setStartingRecount(true);
+    setError("");
+    try {
+      await request(`/api/inventarios/${inventory.id}/criar-recontagem?branchCode=${encodeURIComponent(branchCode)}`, {
+        method: "POST",
+        body: { itemIds: Array.from(selectedItemIds) }
+      });
+      if (onStartRecount) {
+        onStartRecount();
+      }
+    } catch (err) {
+      setError(err.message || "Não foi possível criar a Rodada 2 de recontagem.");
+      setStartingRecount(false);
+    }
+  }
+
+  if (loading) {
+    return h("div", { className: "card-panel", style: { textAlign: "center", padding: "40px" } },
+      "Carregando dados da apuração..."
+    );
+  }
+
+  if (!audit) {
+    return h("div", { className: "card-panel", style: { padding: "20px", textAlign: "center" } },
+      error && h("div", { className: "notice-banner notice-danger" }, error),
+      h("button", { className: "btn btn-secondary", onClick: onBack, style: { marginTop: "12px" } }, "← Voltar")
+    );
+  }
+
+  const { resumo, itens, rodadaNumero, rodadaTipo, encerramentoForcado, pendentesNoFechamento } = audit;
+  const isR2 = rodadaNumero >= 2;
+
+  const filteredItems = itens.filter(item => {
+    if (activeTab === "divergentes") return item.estado === "DIVERGENTE" || item.estado === "DIVERGENCIA_CONFIRMADA";
+    if (activeTab === "nao_contados") return item.estado === "NAO_CONTADO";
+    if (activeTab === "conformes") return item.estado === "CONFORME" || item.estado === "CONFORME_APOS_RECONTAGEM";
+    return true;
+  });
+
+  return h("div", { className: "apuracao-screen-view" },
+    // Top Bar
+    h("div", { className: "card-panel apuracao-header", style: { padding: "14px 18px", marginBottom: "14px" } },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" } },
+        h("button", {
+          className: "btn btn-secondary",
+          onClick: onBack,
+          style: { padding: "6px 12px", fontSize: "0.9rem" }
+        }, "← Voltar aos Inventários"),
+
+        h("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
+          h("span", { className: `badge ${isR2 ? "badge-warning" : "badge-primary"}`, style: { fontSize: "0.9rem", fontWeight: "bold" } },
+            `Apuração da Rodada ${rodadaNumero} (${rodadaTipo})`
+          ),
+          encerramentoForcado && h("span", { className: "badge badge-danger", style: { fontSize: "0.85rem" } },
+            `Encerramento Forçado (${pendentesNoFechamento} pendentes)`
+          )
+        )
+      ),
+
+      h("div", { style: { marginTop: "10px" } },
+        h("h3", { style: { margin: "0 0 2px" } }, inventory.nome),
+        h("p", { className: "hint", style: { margin: 0, fontSize: "0.85rem" } },
+          `Apurado por ${audit.finalizadaPor || "Supervisor"} em ${audit.finalizadaEm ? new Date(audit.finalizadaEm).toLocaleString("pt-BR") : "agora"}`
+        )
+      )
+    ),
+
+    error && h("div", { className: "notice-banner notice-danger", style: { margin: "10px 0" } }, error),
+
+    // Cards de Métricas Consolidadas
+    h("div", { className: "audit-card-metrics", style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px", marginBottom: "14px" } },
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Total SKUs"),
+        h("strong", { style: { fontSize: "1.4rem" } }, resumo.totalItens)
+      ),
+
+      !isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #10b981" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Conformes"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#10b981" } }, resumo.conformes)
+      ),
+
+      !isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #ef4444" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Divergentes"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#ef4444" } }, resumo.divergentes)
+      ),
+
+      isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #10b981" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Conforme pós-R2"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#10b981" } }, resumo.conformesAposRecontagem)
+      ),
+
+      isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #ef4444" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Divergência Confirmada"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#ef4444" } }, resumo.divergenciasConfirmadas)
+      ),
+
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #6b7280" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Não Contados"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#6b7280" } }, resumo.naoContados)
+      ),
+
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Falta / Sobra"),
+        h("span", { style: { fontSize: "1.1rem", fontWeight: "bold" } },
+          h("span", { style: { color: "#ef4444" } }, `-${resumo.totalFalta}`),
+          " / ",
+          h("span", { style: { color: "#10b981" } }, `+${resumo.totalSobra}`)
+        )
+      )
+    ),
+
+    // Ações de Seleção de Recontagem (somente na Rodada 1)
+    !isR2 && h("div", { className: "card-panel", style: { padding: "12px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" } },
+      h("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
+        h("button", { className: "btn btn-secondary", onClick: selectAllDivergentes, style: { fontSize: "0.85rem" } },
+          `Selecionar Divergentes (${resumo.divergentes})`
+        ),
+        h("button", { className: "btn btn-secondary", onClick: includeNaoContados, style: { fontSize: "0.85rem" } },
+          `Incluir Não Contados (${resumo.naoContados})`
+        ),
+        h("button", { className: "btn btn-secondary", onClick: clearSelection, style: { fontSize: "0.85rem" } },
+          "Limpar Seleção"
+        )
+      ),
+      h("button", {
+        className: "btn btn-primary",
+        onClick: handleCreateRecount,
+        disabled: startingRecount || selectedItemIds.size === 0,
+        style: { fontWeight: "bold", background: "#f59e0b", borderColor: "#f59e0b" }
+      }, startingRecount ? "Iniciando R2..." : `🚀 Iniciar Recontagem (R2) com ${selectedItemIds.size} itens`)
+    ),
+
+    // Filtros de Abas
+    h("div", { style: { display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" } },
+      [
+        { id: "divergentes", label: isR2 ? "Divergências Confirmadas" : "Divergentes" },
+        { id: "todos", label: "Todos os Itens" },
+        { id: "nao_contados", label: "Não Contados" },
+        { id: "conformes", label: isR2 ? "Conformes pós-R2" : "Conformes" }
+      ].map(tab => h("button", {
+        key: tab.id,
+        type: "button",
+        className: `btn ${activeTab === tab.id ? "btn-primary" : "btn-secondary"}`,
+        onClick: () => setActiveTab(tab.id),
+        style: { borderRadius: "20px", fontSize: "0.85rem", padding: "6px 14px" }
+      }, tab.label))
+    ),
+
+    // Tabela de Apuração
+    h("div", { className: "card-panel", style: { padding: 0, overflowX: "auto" } },
+      h("table", { className: "table", style: { width: "100%", borderCollapse: "collapse" } },
+        h("thead", null,
+          h("tr", { style: { borderBottom: "1px solid var(--border)", background: "rgba(0,0,0,0.02)" } },
+            !isR2 && h("th", { style: { padding: "10px", width: "40px", textAlign: "center" } }, "R2"),
+            h("th", { style: { padding: "10px", textAlign: "left" } }, "SKU"),
+            h("th", { style: { padding: "10px", textAlign: "left" } }, "Descrição"),
+            h("th", { style: { padding: "10px", textAlign: "right" } }, "Saldo Esp."),
+            h("th", { style: { padding: "10px", textAlign: "right" } }, "Físico Contado"),
+            h("th", { style: { padding: "10px", textAlign: "right" } }, "Diferença"),
+            h("th", { style: { padding: "10px", textAlign: "center" } }, "Estado"),
+            h("th", { style: { padding: "10px", textAlign: "left" } }, "Localização / Condição")
+          )
+        ),
+        h("tbody", null,
+          filteredItems.length === 0 && h("tr", null,
+            h("td", { colSpan: 8, style: { textAlign: "center", padding: "30px" }, className: "hint" },
+              "Nenhum item encontrado nesta categoria."
+            )
+          ),
+          filteredItems.map(item => {
+            const isSelected = selectedItemIds.has(item.inventarioItemId);
+            const isConforme = item.estado === "CONFORME" || item.estado === "CONFORME_APOS_RECONTAGEM";
+            const isDivergente = item.estado === "DIVERGENTE" || item.estado === "DIVERGENCIA_CONFIRMADA";
+
+            return h("tr", {
+              key: item.inventarioItemId,
+              style: {
+                borderBottom: "1px solid var(--border)",
+                background: isSelected ? "rgba(245, 158, 11, 0.06)" : "transparent"
+              }
+            },
+              !isR2 && h("td", { style: { padding: "10px", textAlign: "center" } },
+                h("input", {
+                  type: "checkbox",
+                  checked: isSelected,
+                  disabled: isConforme,
+                  onChange: () => toggleItemSelection(item.inventarioItemId, item.estado)
+                })
+              ),
+              h("td", { style: { padding: "10px", fontWeight: "bold" } }, item.sku),
+              h("td", { style: { padding: "10px", fontSize: "0.85rem" } }, item.descricao),
+              h("td", { style: { padding: "10px", textAlign: "right" } }, item.saldoSnapshot),
+              h("td", { style: { padding: "10px", textAlign: "right", fontWeight: "bold" } },
+                item.quantidadeFisica != null ? `${item.quantidadeFisica} un` : "—"
+              ),
+              h("td", { style: { padding: "10px", textAlign: "right", fontWeight: "bold" } },
+                item.diferenca != null
+                  ? h("span", { style: { color: item.diferenca === 0 ? "#10b981" : item.diferenca < 0 ? "#ef4444" : "#f59e0b" } },
+                      item.diferenca > 0 ? `+${item.diferenca}` : item.diferenca
+                    )
+                  : "—"
+              ),
+              h("td", { style: { padding: "10px", textAlign: "center" } },
+                h("span", {
+                  className: `badge ${isConforme ? "badge-success" : isDivergente ? "badge-danger" : "badge-neutral"}`,
+                  style: { fontSize: "0.75rem", fontWeight: "bold" }
+                }, item.estado)
+              ),
+              h("td", { style: { padding: "10px", fontSize: "0.8rem", color: "var(--muted)" } },
+                item.detalhes && Object.keys(item.detalhes).length > 0
+                  ? Object.entries(item.detalhes).map(([loc, cats]) =>
+                      `${loc}: [${Object.entries(cats).filter(([_, q]) => q > 0).map(([c, q]) => `${c}: ${q}`).join(", ")}]`
+                    ).join(" | ")
+                  : "—"
+              )
+            );
+          })
+        )
+      )
     )
   );
 }
@@ -731,6 +1211,7 @@ if (typeof window !== "undefined") {
   window.MNCheckInventarios = {
     InventariosManager,
     InventarioContagemScreen,
+    ApuracaoScreen,
     CreateInventoryModal
   };
 }

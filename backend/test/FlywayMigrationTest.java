@@ -52,15 +52,15 @@ class FlywayMigrationTest {
     try {
       Flyway emptyFlyway = flyway(config, emptySchema);
       MigrateResult emptyResult = emptyFlyway.migrate();
-      assertEquals(4, emptyResult.migrationsExecuted);
+      assertEquals(5, emptyResult.migrationsExecuted);
       assertBranchCreatedOnce(config, emptySchema);
       assertRootTablesHaveBranch(config, emptySchema);
       assertInventorySessionTables(config, emptySchema);
 
       Flyway existingFlyway = flyway(config, existingSchema);
       MigrateResult existingResult = existingFlyway.migrate();
-      assertEquals(4, existingResult.migrationsExecuted,
-          "schema existente deve receber V1, V2, V3 e V4 depois do baseline 0");
+      assertEquals(5, existingResult.migrationsExecuted,
+          "schema existente deve receber V1, V2, V3, V4 e V5 depois do baseline 0");
       assertBranchCreatedOnce(config, existingSchema);
       assertRootTablesHaveBranch(config, existingSchema);
       assertInventorySessionTables(config, existingSchema);
@@ -73,8 +73,8 @@ class FlywayMigrationTest {
       MigrateResult repeated = existingFlyway.migrate();
       assertEquals(0, repeated.migrationsExecuted);
       assertBranchCreatedOnce(config, existingSchema);
-      assertTrue(existingFlyway.info().applied().length >= 5,
-          "schema existente deve registrar baseline, V1, V2, V3 e V4");
+      assertTrue(existingFlyway.info().applied().length >= 6,
+          "schema existente deve registrar baseline, V1, V2, V3, V4 e V5");
 
       String scopedUrl = withCurrentSchema(databaseUrl, existingSchema);
       PostgresDatabase legacyInitialization = new PostgresDatabase(scopedUrl);
@@ -129,9 +129,16 @@ class FlywayMigrationTest {
 
   private void assertInventorySessionTables(DatabaseUrlParser.JdbcConfig config, String schema)
       throws Exception {
-    assertEquals("4", scalar(config, """
+    assertEquals("6", scalar(config, """
         SELECT COUNT(*)::text FROM information_schema.tables
-        WHERE table_schema = '%s' AND table_name IN ('inventarios', 'inventario_itens', 'rodadas_contagem', 'ocorrencias_contagem')
+        WHERE table_schema = '%s' AND table_name IN (
+          'inventarios', 'inventario_itens', 'rodadas_contagem',
+          'ocorrencias_contagem', 'rodada_itens', 'apuracoes_rodada'
+        )
+        """.formatted(schema)));
+    assertEquals("1", scalar(config, """
+        SELECT COUNT(*)::text FROM information_schema.columns
+        WHERE table_schema = '%s' AND table_name = 'ocorrencias_contagem' AND column_name = 'localizacao'
         """.formatted(schema)));
   }
 

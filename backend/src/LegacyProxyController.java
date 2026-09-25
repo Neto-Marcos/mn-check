@@ -1,5 +1,6 @@
 package br.com.mncheck;
 
+import java.net.ConnectException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -49,11 +50,29 @@ public class LegacyProxyController {
       }
     });
 
-    HttpResponse<byte[]> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+    HttpResponse<byte[]> response = sendWithRetry(builder.build());
     HttpHeaders headers = new HttpHeaders();
     response.headers().map().forEach((name, values) -> {
       if (!BLOCKED_HEADERS.contains(name.toLowerCase())) headers.put(name, List.copyOf(values));
     });
     return ResponseEntity.status(response.statusCode()).headers(headers).body(response.body());
+  }
+
+  private HttpResponse<byte[]> sendWithRetry(HttpRequest request) throws Exception {
+    ConnectException lastConnectError = null;
+    for (int attempt = 0; attempt < 30; attempt++) {
+      try {
+        return client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+      } catch (ConnectException error) {
+        lastConnectError = error;
+        try {
+          Thread.sleep(200);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw error;
+        }
+      }
+    }
+    throw lastConnectError;
   }
 }

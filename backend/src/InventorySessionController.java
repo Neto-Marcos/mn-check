@@ -128,9 +128,53 @@ public class InventorySessionController {
     return countingService.recordOccurrence(id, rodadaId, branchCode, request.toCommand(), user.name());
   }
 
+  @PostMapping("/{id}/rodadas/{rodadaId}/encerrar")
+  public InventoryCountingService.RoundAuditResult closeRound(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable long rodadaId,
+      @RequestParam String branchCode,
+      @RequestBody(required = false) CloseRoundRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    boolean force = request != null && Boolean.TRUE.equals(request.forcar());
+    return countingService.closeRound(id, rodadaId, branchCode, force, user.name());
+  }
+
+  @GetMapping("/{id}/rodadas/{rodadaId}/apuracao")
+  public InventoryCountingService.RoundAuditResult audit(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable long rodadaId,
+      @RequestParam String branchCode
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return countingService.getRoundAudit(id, rodadaId, branchCode);
+  }
+
+  @PostMapping("/{id}/criar-recontagem")
+  public InventoryCountingService.RoundDetail createRecount(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode,
+      @RequestBody CreateRecountRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    return countingService.createRecountRound(id, branchCode, request.itemIds(), user.name());
+  }
+
   @ExceptionHandler(InventorySessionService.InventoryException.class)
   ResponseEntity<Map<String, Object>> inventoryError(InventorySessionService.InventoryException error) {
     return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
+  }
+
+  @ExceptionHandler(InventoryCountingService.UncountedItemsConflictException.class)
+  ResponseEntity<Map<String, Object>> uncountedError(InventoryCountingService.UncountedItemsConflictException error) {
+    return ResponseEntity.status(409).body(Map.of(
+        "error", error.getMessage(),
+        "pendentes", error.pendentes(),
+        "bloqueado", true
+    ));
   }
 
   @ExceptionHandler(InventoryCountingService.CountingException.class)
@@ -147,11 +191,15 @@ public class InventorySessionController {
   public record CreateRequest(long importacaoSaldoId, String branchCode, String nome, String tipo,
                               String modo, List<String> skus) {}
   public record TransitionRequest(String branchCode, long expectedVersion) {}
+  public record CloseRoundRequest(Boolean forcar) {}
+  public record CreateRecountRequest(List<Long> itemIds) {}
 
   public record RecordOccurrenceRequest(
       String sku,
       int quantidade,
+      String localizacao,
       String categoria,
+      String condicao,
       String tipoAcao,
       Object clientEventId,
       String origem,
@@ -160,8 +208,9 @@ public class InventorySessionController {
       Long referenciaId
   ) {
     public InventoryCountingService.RecordOccurrenceCommand toCommand() {
+      String cat = condicao != null && !condicao.isBlank() ? condicao : categoria;
       return new InventoryCountingService.RecordOccurrenceCommand(
-          sku, quantidade, categoria, tipoAcao, clientEventId, origem, dispositivo, clientTimestamp, referenciaId);
+          sku, quantidade, localizacao, cat, tipoAcao, clientEventId, origem, dispositivo, clientTimestamp, referenciaId);
     }
   }
 }

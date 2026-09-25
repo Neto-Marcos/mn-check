@@ -24,7 +24,9 @@ public class InventorySessionService {
   private static final Set<String> MODES = Set.of("NORMAL", "CEGO");
   private static final Map<String, Set<String>> TRANSITIONS = Map.of(
       "RASCUNHO", Set.of("ABERTO", "CANCELADO"),
-      "ABERTO", Set.of("EM_CONTAGEM", "CANCELADO")
+      "ABERTO", Set.of("EM_CONTAGEM", "CANCELADO"),
+      "EM_CONTAGEM", Set.of("EM_RECONTAGEM", "FINALIZADO"),
+      "EM_RECONTAGEM", Set.of("FINALIZADO", "EM_INVESTIGACAO")
   );
 
   private final DatabaseUrlParser.JdbcConfig database;
@@ -173,6 +175,7 @@ public class InventorySessionService {
     String lifecycle = switch (targetStatus) {
       case "ABERTO" -> ", aberto_por = ?, aberto_em = now()";
       case "CANCELADO" -> ", cancelado_por = ?, cancelado_em = now()";
+      case "FINALIZADO" -> ", encerrado_por = ?, encerrado_em = now()";
       default -> "";
     };
     String sql = "UPDATE inventarios SET status = ?, version = version + 1" + lifecycle

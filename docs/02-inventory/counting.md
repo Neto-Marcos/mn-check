@@ -31,9 +31,10 @@ Ao invés de atualizar linhas mutáveis em tabelas de saldo, toda leitura/bipage
 - `inventario_item_id`: vínculo com o item congelado no snapshot da sessão (`ON DELETE RESTRICT`).
 - `sku`: SKU contado.
 - `quantidade`: quantidade numérica (inteiro $\ge 0$).
-- `categoria`: `BOA`, `AVARIA`, `ASSISTENCIA`, `OUTROS`.
+- `categoria`: condição física do produto (`BOA`, `AVARIA`, `ASSISTENCIA`, `OUTROS`).
+- `localizacao`: localização física do produto (`GERAL`, `VENDAS`, `DEPOSITO`, `TROCAS`, `OUTRO`).
 - `tipo_acao`: `DEFINIR`, `SOMAR`, `CORRECAO`.
-- `operador`: nome do operador autenticado obtido via `LegacyAuthenticationClient` (`/api/bootstrap`) a partir do header `Authorization` (nunca aceito do payload do cliente).
+- `operador`: nome do operador autenticado obtido via `LegacyAuthenticationClient` com cache local em memória (TTL 60s).
 - `client_event_id`: UUID v4 gerado pelo cliente para garantia de idempotência.
 - `origem`: `SCANNER`, `MANUAL`, `OFFLINE`.
 - `dispositivo`: identificação opcional do terminal/coletor.
@@ -42,21 +43,38 @@ Ao invés de atualizar linhas mutáveis em tabelas de saldo, toda leitura/bipage
 
 ---
 
-## 4. Semântica de Projeção do Valor Vigente
+## 4. Semântica de Projeção Multidimensional
 
-Quando há múltiplas ocorrências do mesmo SKU na mesma rodada, nenhuma ocorrência é excluída ou sobrescrita.
+O valor projetado é calculado sobre o bucket:
+```
+(localizacao, condicao)
+```
 
-Para obter a quantidade projetada atual de um SKU em uma rodada:
 1. Carregam-se todas as ocorrências do item ordenadas cronologicamente por `server_timestamp ASC, id ASC`.
-2. Para cada categoria (`BOA`, `AVARIA`, etc.):
-   - Se `tipo_acao == 'DEFINIR'`: a quantidade da categoria torna-se este valor.
-   - Se `tipo_acao == 'SOMAR'`: o valor é somado à quantidade acumulada da categoria.
-   - Se `tipo_acao == 'CORRECAO'`: a quantidade da categoria é ajustada diretamente para este novo valor, e o registro armazena `referencia_id` apontando para a ocorrência sendo corrigida.
-3. A quantidade total do item é a soma das quantidades projetadas de suas categorias.
+2. Para cada bucket `(localizacao, condicao)`:
+   - Se `tipo_acao == 'DEFINIR'`: a quantidade daquele bucket torna-se este valor.
+   - Se `tipo_acao == 'SOMAR'`: o valor é somado à quantidade acumulada daquele bucket.
+   - Se `tipo_acao == 'CORRECAO'`: a quantidade daquele bucket é ajustada diretamente para este novo valor, preservando a referência ao registro anterior.
+3. A quantidade total física do item é a soma de todos os buckets não negativos.
+
+### Regra Especial de GERAL
+- `GERAL` significa contagem não segmentada por localização.
+- Proibida a mistura de `GERAL` com localizações detalhadas (`VENDAS`, `DEPOSITO`, `TROCAS`, `OUTRO`) para o mesmo item/rodada.
+- Se o item possui ocorrência em `GERAL`: qualquer tentativa de registrar em localização detalhada é rejeitada com HTTP 409.
+- Se possui ocorrência em localização detalhada: qualquer tentativa de registrar em `GERAL` é rejeitada com HTTP 409.
 
 ---
 
-## 5. Fonte da Verdade do Progresso
+## 5. Encerramento e Apuração da Rodada 1
+
+- O encerramento da rodada é uma transação explícita com `SELECT ... FOR UPDATE`.
+- **Bloqueio de Não Contados:** Se houver itens sem ocorrência (`NAO_CONTADO`), o encerramento normal é bloqueado com HTTP 409. Encerramento forçado exige confirmação explícita (`forcar: true`) e audita `encerramento_forcado = true`.
+- **Snapshot Auditável:** Persistido na tabela `apuracoes_rodada` com `saldo_snapshot`, `quantidade_fisica`, `diferenca` e `estado` (`CONFORME`, `DIVERGENTE`, `NAO_CONTADO`).
+- Após `FINALIZADA`, a rodada torna-se imutável e novas ocorrências são rejeitadas.
+
+---
+
+## 6. Fonte da Verdade do Progresso
 
 O progresso da rodada não é computado via flags mutáveis em `inventario_itens.estado`.
 
