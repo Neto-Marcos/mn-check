@@ -768,10 +768,7 @@ public class InventoryCountingService {
 
       try (ResultSet result = statement.executeQuery()) {
         if (result.next()) {
-          OccurrenceRecord existing = mapOccurrence(result);
-          assertSameEvent(connection, existing, inventoryId, branchCode, roundId, itemId, sku,
-              quantidade, localizacao, categoria, tipoAcao, origem, dispositivo, clientTimestamp, referenciaId);
-          return existing;
+          return mapOccurrence(result);
         }
       }
     }
@@ -787,7 +784,10 @@ public class InventoryCountingService {
       statement.setObject(1, clientEventId);
       try (ResultSet result = statement.executeQuery()) {
         if (result.next()) {
-          return mapOccurrence(result);
+          OccurrenceRecord existing = mapOccurrence(result);
+          assertSameEvent(connection, existing, inventoryId, branchCode, roundId, itemId, sku,
+              quantidade, localizacao, categoria, tipoAcao, origem, dispositivo, clientTimestamp, referenciaId);
+          return existing;
         }
       }
     }
