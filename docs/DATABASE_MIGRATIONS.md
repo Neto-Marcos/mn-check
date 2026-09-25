@@ -132,4 +132,24 @@ Principais garantias do modelo V4:
 4. **Histórico e Linha do Tempo (`eventos_investigacao`):**
    - Tabela append-only registrando cada marco do ciclo de vida: `CRIADA`, `INICIADA`, `STATUS_ALTERADO`, `CAUSA_SUSPEITA_ALTERADA`, `EVIDENCIA_ADICIONADA`, `PRODUTO_RELACIONADO`, `RESOLVIDA`, `ENCERRADA_SEM_CAUSA`, `REABERTA`.
 
+## V7 — fechamento formal, resultado consolidado, snapshot por item e eventos de inventário
+
+`V7__create_inventory_closing_and_results.sql` implementa o fechamento formal e imutável da sessão de inventário, transformando a execução em histórico permanente:
+
+1. **Status Terminal `ENCERRADO` e Metadados:**
+   - Atualiza a constraint de status em `inventarios` para incluir `ENCERRADO`.
+   - Adiciona colunas `tipo_fechamento` (`NORMAL`, `EXCEPCIONAL`) e `justificativa_fechamento` em `inventarios`.
+2. **Resultado Consolidado da Sessão (`resultados_inventario`):**
+   - Tabela única por inventário (`uk_resultados_inventario UNIQUE (inventario_id)`).
+   - Registra totais de itens e unidades, conformes em R1, enviados para R2, conformes pós-R2, divergências confirmadas, investigações resolvidas/sem causa/pendentes, itens não contados, contagem e quantidade positiva de faltas (`Math.abs`) e sobras.
+   - Registra início, fechamento, duração em segundos, usuário executor e snapshot JSONB de pendências arquivadas em caso de fechamento excepcional.
+3. **Snapshot Imutável por Item (`resultado_inventario_itens`):**
+   - Registra para cada item da sessão o histórico de R1 e R2 (`r1_fisico`, `r1_diferenca`, `r1_estado`, `houve_r2`, `r2_fisico`, `r2_diferenca`, `r2_estado`).
+   - Precedência de contagem: R2 tem prioridade sobre R1; itens não contados recebem `quantidade_fisica_final = NULL` e `diferenca_final = NULL`.
+   - Registra `estado_final` (`CONFORME`, `CONFORME_APOS_RECONTAGEM`, `DIVERGENCIA_CONFIRMADA`, `NAO_CONTADO`) e `tipo_divergencia` (`CONFORME`, `FALTA`, `SOBRA`, `NAO_CONTADO`).
+   - Vincula a investigação associada (`investigacao_id`), status final, causa confirmada e conclusão detalhada.
+4. **Eventos Globais da Sessão (`eventos_inventario`):**
+   - Registra marco a marco a evolução auditável da sessão: `CRIADO`, `ABERTO`, `INICIADO`, `RODADA_INICIADA`, `RODADA_ENCERRADA`, `RECONTAGEM_CRIADA`, `INVENTARIO_ENCERRADO`, `CANCELADO`.
+
+
 

@@ -23,17 +23,20 @@ public class InventorySessionController {
   private final InventorySessionService service;
   private final InventoryCountingService countingService;
   private final InventoryInvestigationService investigationService;
+  private final InventoryClosingService closingService;
   private final LegacyAuthenticationClient authentication;
 
   public InventorySessionController(
       InventorySessionService service,
       InventoryCountingService countingService,
       InventoryInvestigationService investigationService,
+      InventoryClosingService closingService,
       LegacyAuthenticationClient authentication
   ) {
     this.service = service;
     this.countingService = countingService;
     this.investigationService = investigationService != null ? investigationService : new InventoryInvestigationService();
+    this.closingService = closingService != null ? closingService : new InventoryClosingService();
     this.authentication = authentication;
   }
 
@@ -52,10 +55,13 @@ public class InventorySessionController {
   @GetMapping
   public Map<String, Object> list(
       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-      @RequestParam String branchCode
+      @RequestParam String branchCode,
+      @RequestParam(value = "filtro", required = false) String filtro,
+      @RequestParam(value = "status", required = false) String status
   ) {
     authentication.requireInventoryUser(authorization);
-    return Map.of("branchCode", branchCode, "inventarios", service.list(branchCode));
+    String statusFilter = filtro != null && !filtro.isBlank() ? filtro : status;
+    return Map.of("branchCode", branchCode, "inventarios", service.list(branchCode, statusFilter));
   }
 
   @GetMapping("/{id}")
@@ -327,6 +333,60 @@ public class InventorySessionController {
         user.name());
   }
 
+  @GetMapping("/{id}/fechamento/validacao")
+  public InventoryClosingService.ValidationResult validateClosing(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return closingService.validateClosing(id, branchCode);
+  }
+
+  @PostMapping("/{id}/fechar")
+  public InventoryClosingService.ClosingResult close(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam(required = false) String branchCode,
+      @RequestBody CloseInventoryRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    String effectiveBranch = branchCode != null && !branchCode.isBlank() ? branchCode : request.branchCode();
+    String effectiveType = request.tipoFechamento() != null && !request.tipoFechamento().isBlank()
+        ? request.tipoFechamento()
+        : request.tipo();
+    return closingService.closeInventory(
+        id, effectiveBranch,
+        new InventoryClosingService.CloseCommand(effectiveType, request.justificativa()),
+        user
+    );
+  }
+
+  @GetMapping("/{id}/resultado")
+  public InventoryClosingService.ClosingResult getResult(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return closingService.getResult(id, branchCode);
+  }
+
+  @GetMapping({"/{id}/detalhe-historico", "/{id}/historico-detalhado"})
+  public InventoryClosingService.DetailedHistoryResult getDetailedHistory(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return closingService.getDetailedHistory(id, branchCode);
+  }
+
+  @ExceptionHandler(InventoryClosingService.ClosingException.class)
+  ResponseEntity<Map<String, Object>> closingError(InventoryClosingService.ClosingException error) {
+    return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
+  }
+
   @ExceptionHandler(InventoryInvestigationService.InvestigationException.class)
   ResponseEntity<Map<String, Object>> investigationError(InventoryInvestigationService.InvestigationException error) {
     return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
@@ -362,6 +422,7 @@ public class InventorySessionController {
   public record TransitionRequest(String branchCode, long expectedVersion) {}
   public record CloseRoundRequest(Boolean forcar) {}
   public record CreateRecountRequest(List<Long> itemIds) {}
+  public record CloseInventoryRequest(String tipo, String tipoFechamento, String justificativa, String branchCode) {}
 
   public record CreateInvestigationRequest(long apuracaoId, String causaSuspeita, String justificativa) {}
   public record StartInvestigationRequest(String responsavelId, String responsavelNome, String causaSuspeita, String justificativa) {}

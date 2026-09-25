@@ -117,7 +117,14 @@ class InventorySessionServiceTest {
 
   private Seed seed(String databaseUrl) throws Exception {
     DatabaseUrlParser.JdbcConfig config = DatabaseUrlParser.parse(databaseUrl);
-    try (Connection connection = connect(config)) {
+    try (Connection connection = connect(config); Statement st = connection.createStatement()) {
+      int idx = databaseUrl.indexOf("currentSchema=");
+      if (idx >= 0) {
+        String sc = databaseUrl.substring(idx + "currentSchema=".length());
+        int amp = sc.indexOf('&');
+        if (amp >= 0) sc = sc.substring(0, amp);
+        st.execute("SET search_path TO " + sc + ", public");
+      }
       long branch281 = scalarId(connection, "SELECT id FROM filiais WHERE codigo = '281'");
       long branch282;
       long branch283;
@@ -178,6 +185,13 @@ class InventorySessionServiceTest {
   private void mutateCurrentBalance(String databaseUrl, long importId) throws Exception {
     DatabaseUrlParser.JdbcConfig config = DatabaseUrlParser.parse(databaseUrl);
     try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
+      int idx = databaseUrl.indexOf("currentSchema=");
+      if (idx >= 0) {
+        String sc = databaseUrl.substring(idx + "currentSchema=".length());
+        int amp = sc.indexOf('&');
+        if (amp >= 0) sc = sc.substring(0, amp);
+        statement.execute("SET search_path TO " + sc + ", public");
+      }
       statement.executeUpdate("UPDATE saldos SET saldo = 17 WHERE importacao_id = " + importId
           + " AND sku = 'SKU-A'");
       statement.executeUpdate("UPDATE estoque_produtos SET saldo_sistema = 17 WHERE sku = 'SKU-A'"
@@ -187,13 +201,22 @@ class InventorySessionServiceTest {
 
   private void assertUniqueInventorySku(String databaseUrl, long inventoryId) throws Exception {
     DatabaseUrlParser.JdbcConfig config = DatabaseUrlParser.parse(databaseUrl);
-    try (Connection connection = connect(config); PreparedStatement statement = connection.prepareStatement("""
-        INSERT INTO inventario_itens
-          (inventario_id, sku, descricao_snapshot, saldo_snapshot)
-        VALUES (?, 'SKU-A', 'Duplicado', 1)
-        """)) {
-      statement.setLong(1, inventoryId);
-      assertThrows(SQLException.class, statement::executeUpdate);
+    try (Connection connection = connect(config); Statement st = connection.createStatement()) {
+      int idx = databaseUrl.indexOf("currentSchema=");
+      if (idx >= 0) {
+        String sc = databaseUrl.substring(idx + "currentSchema=".length());
+        int amp = sc.indexOf('&');
+        if (amp >= 0) sc = sc.substring(0, amp);
+        st.execute("SET search_path TO " + sc + ", public");
+      }
+      try (PreparedStatement statement = connection.prepareStatement("""
+          INSERT INTO inventario_itens
+            (inventario_id, sku, descricao_snapshot, saldo_snapshot)
+          VALUES (?, 'SKU-A', 'Duplicado', 1)
+          """)) {
+        statement.setLong(1, inventoryId);
+        assertThrows(SQLException.class, statement::executeUpdate);
+      }
     }
   }
 
@@ -222,7 +245,8 @@ class InventorySessionServiceTest {
   }
 
   private String withCurrentSchema(String databaseUrl, String schema) {
-    return databaseUrl + (databaseUrl.contains("?") ? "&" : "?") + "currentSchema=" + schema;
+    return databaseUrl + (databaseUrl.contains("?") ? "&" : "?") + "currentSchema=" + schema
+        + "&options=-c%20search_path%3D" + schema + ",public";
   }
 
   private record Seed(long import281, long import282) {}

@@ -337,7 +337,8 @@ class InventoryRecountIntegrationTest {
   }
 
   private String withCurrentSchema(String databaseUrl, String schema) {
-    return databaseUrl + (databaseUrl.contains("?") ? "&" : "?") + "currentSchema=" + schema;
+    return databaseUrl + (databaseUrl.contains("?") ? "&" : "?") + "currentSchema=" + schema
+        + "&options=-c%20search_path%3D" + schema + ",public";
   }
 
   private long findItemId(String databaseUrl, long inventoryId, String sku) throws SQLException {

@@ -277,16 +277,32 @@ class InventoryCountingRoundTest {
   private int countRows(String scopedUrl, String tableName) throws Exception {
     DatabaseUrlParser.JdbcConfig config = DatabaseUrlParser.parse(scopedUrl);
     try (Connection connection = connect(config);
-         Statement statement = connection.createStatement();
-         ResultSet result = statement.executeQuery("SELECT COUNT(*) FROM " + tableName)) {
-      result.next();
-      return result.getInt(1);
+         Statement statement = connection.createStatement()) {
+      int idx = scopedUrl.indexOf("currentSchema=");
+      if (idx >= 0) {
+        String sc = scopedUrl.substring(idx + "currentSchema=".length());
+        int amp = sc.indexOf('&');
+        if (amp >= 0) sc = sc.substring(0, amp);
+        statement.execute("SET search_path TO " + sc + ", public");
+      }
+      try (ResultSet result = statement.executeQuery("SELECT COUNT(*) FROM " + tableName)) {
+        result.next();
+        return result.getInt(1);
+      }
     }
   }
 
   private Seed seed(String databaseUrl) throws Exception {
     DatabaseUrlParser.JdbcConfig config = DatabaseUrlParser.parse(databaseUrl);
-    try (Connection connection = connect(config)) {
+    try (Connection connection = connect(config);
+         Statement st = connection.createStatement()) {
+      int idx = databaseUrl.indexOf("currentSchema=");
+      if (idx >= 0) {
+        String sc = databaseUrl.substring(idx + "currentSchema=".length());
+        int amp = sc.indexOf('&');
+        if (amp >= 0) sc = sc.substring(0, amp);
+        st.execute("SET search_path TO " + sc + ", public");
+      }
       long branch281 = scalarId(connection, "SELECT id FROM filiais WHERE codigo = '281'");
       long branch282;
       try (PreparedStatement statement = connection.prepareStatement("""
@@ -367,7 +383,8 @@ class InventoryCountingRoundTest {
   }
 
   private String withCurrentSchema(String databaseUrl, String schema) {
-    return databaseUrl + (databaseUrl.contains("?") ? "&" : "?") + "currentSchema=" + schema;
+    return databaseUrl + (databaseUrl.contains("?") ? "&" : "?") + "currentSchema=" + schema
+        + "&options=-c%20search_path%3D" + schema + ",public";
   }
 
   private record Seed(long import281, long branch282Id) {}

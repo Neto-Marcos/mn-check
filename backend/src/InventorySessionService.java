@@ -25,8 +25,9 @@ public class InventorySessionService {
   private static final Map<String, Set<String>> TRANSITIONS = Map.of(
       "RASCUNHO", Set.of("ABERTO", "CANCELADO"),
       "ABERTO", Set.of("EM_CONTAGEM", "CANCELADO"),
-      "EM_CONTAGEM", Set.of("EM_RECONTAGEM", "FINALIZADO"),
-      "EM_RECONTAGEM", Set.of("FINALIZADO", "EM_INVESTIGACAO")
+      "EM_CONTAGEM", Set.of("EM_RECONTAGEM", "EM_INVESTIGACAO", "ENCERRADO", "FINALIZADO"),
+      "EM_RECONTAGEM", Set.of("FINALIZADO", "EM_INVESTIGACAO", "ENCERRADO"),
+      "EM_INVESTIGACAO", Set.of("ENCERRADO", "FINALIZADO")
   );
 
   private final DatabaseUrlParser.JdbcConfig database;
@@ -81,9 +82,24 @@ public class InventorySessionService {
   }
 
   public List<InventorySummary> list(String branchCode) {
+    return list(branchCode, null);
+  }
+
+  public List<InventorySummary> list(String branchCode, String statusFilter) {
     String normalizedBranch = normalizeBranchCode(branchCode);
+    StringBuilder filter = new StringBuilder();
+    if (statusFilter != null && !statusFilter.isBlank() && !"TODOS".equalsIgnoreCase(statusFilter)) {
+      String upper = statusFilter.trim().toUpperCase(Locale.ROOT);
+      switch (upper) {
+        case "ABERTOS" -> filter.append(" AND i.status IN ('RASCUNHO', 'ABERTO')");
+        case "EM_ANDAMENTO" -> filter.append(" AND i.status IN ('EM_CONTAGEM', 'EM_RECONTAGEM', 'EM_INVESTIGACAO')");
+        case "ENCERRADOS", "HISTORICO" -> filter.append(" AND i.status IN ('ENCERRADO', 'FINALIZADO')");
+        default -> filter.append(" AND i.status = '").append(upper.replace("'", "")).append("'");
+      }
+    }
     String sql = summarySelect() + """
         WHERE f.codigo = ?
+        """ + filter + """
         GROUP BY i.id, f.codigo
         ORDER BY i.criado_em DESC, i.id DESC
         """;
@@ -175,7 +191,7 @@ public class InventorySessionService {
     String lifecycle = switch (targetStatus) {
       case "ABERTO" -> ", aberto_por = ?, aberto_em = now()";
       case "CANCELADO" -> ", cancelado_por = ?, cancelado_em = now()";
-      case "FINALIZADO" -> ", encerrado_por = ?, encerrado_em = now()";
+      case "FINALIZADO", "ENCERRADO" -> ", encerrado_por = ?, encerrado_em = now()";
       default -> "";
     };
     String sql = "UPDATE inventarios SET status = ?, version = version + 1" + lifecycle

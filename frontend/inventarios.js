@@ -32,7 +32,8 @@ export function InventariosManager({
   });
 
   const [inventarios, setInventarios] = useState([]);
-  const [activeView, setActiveView] = useState("list"); // 'list' | 'counting' | 'audit' | 'investigations'
+  const [activeView, setActiveView] = useState("list"); // 'list' | 'counting' | 'audit' | 'investigations' | 'closing' | 'history'
+  const [statusFilter, setStatusFilter] = useState("TODOS"); // 'TODOS' | 'EM_ANDAMENTO' | 'ENCERRADOS' | 'ABERTOS'
   const [currentInventory, setCurrentInventory] = useState(null);
   const [currentRoundId, setCurrentRoundId] = useState(null);
   const [currentInvestigationId, setCurrentInvestigationId] = useState(null);
@@ -46,14 +47,15 @@ export function InventariosManager({
     try {
       localStorage.setItem("mnCheckActiveBranch", branchCode);
     } catch (_) {}
-    loadInventarios();
-  }, [branchCode]);
+    loadInventarios(statusFilter);
+  }, [branchCode, statusFilter]);
 
-  async function loadInventarios() {
+  async function loadInventarios(filter = statusFilter) {
     setLoading(true);
     setError("");
     try {
-      const res = await request(`/api/inventarios?branchCode=${encodeURIComponent(branchCode)}`);
+      const queryParam = filter && filter !== "TODOS" ? `&status=${encodeURIComponent(filter)}` : "";
+      const res = await request(`/api/inventarios?branchCode=${encodeURIComponent(branchCode)}${queryParam}`);
       setInventarios(res.inventarios || []);
     } catch (err) {
       setError(err.message || "Erro ao carregar inventários.");
@@ -126,6 +128,16 @@ export function InventariosManager({
     setActiveView("investigations");
   }
 
+  function handleOpenClosing(inv) {
+    setCurrentInventory(inv);
+    setActiveView("closing");
+  }
+
+  function handleOpenHistory(inv) {
+    setCurrentInventory(inv);
+    setActiveView("history");
+  }
+
   if (activeView === "counting" && currentInventory) {
     return h(InventarioContagemScreen, {
       inventory: currentInventory,
@@ -158,6 +170,9 @@ export function InventariosManager({
       },
       onOpenInvestigations: (inv, invId) => {
         handleOpenInvestigations(inv, invId);
+      },
+      onOpenClosing: (inv) => {
+        handleOpenClosing(inv || currentInventory);
       }
     });
   }
@@ -173,6 +188,45 @@ export function InventariosManager({
         setActiveView("audit");
       },
       onBackToList: () => {
+        setActiveView("list");
+        loadInventarios();
+      },
+      onOpenClosing: (inv) => {
+        handleOpenClosing(inv || currentInventory);
+      }
+    });
+  }
+
+  if (activeView === "closing" && currentInventory) {
+    return h(FechamentoScreen, {
+      inventory: currentInventory,
+      branchCode,
+      request,
+      user,
+      onBack: () => {
+        setActiveView("list");
+        loadInventarios();
+      },
+      onGoToAudit: () => {
+        handleOpenAudit(currentInventory);
+      },
+      onGoToInvestigations: () => {
+        handleOpenInvestigations(currentInventory);
+      },
+      onClosed: () => {
+        setActiveView("history");
+        loadInventarios();
+      }
+    });
+  }
+
+  if (activeView === "history" && currentInventory) {
+    return h(HistoricoResultadoScreen, {
+      inventory: currentInventory,
+      branchCode,
+      request,
+      user,
+      onBack: () => {
         setActiveView("list");
         loadInventarios();
       }
@@ -211,12 +265,26 @@ export function InventariosManager({
       h("button", { className: "btn-link", onClick: () => setError(""), style: { float: "right" } }, "✕")
     ),
 
+    h("div", { className: "filter-tabs", style: { display: "flex", gap: "8px", margin: "14px 0", flexWrap: "wrap" } },
+      [
+        { id: "TODOS", label: "Todos os Inventários" },
+        { id: "EM_ANDAMENTO", label: "Em Andamento" },
+        { id: "ENCERRADOS", label: "Encerrados / Histórico" },
+        { id: "ABERTOS", label: "Abertos / Rascunhos" }
+      ].map(tab => h("button", {
+        key: tab.id,
+        className: `btn ${statusFilter === tab.id ? "btn-primary" : "btn-secondary"}`,
+        onClick: () => setStatusFilter(tab.id),
+        style: { borderRadius: "20px", fontSize: "0.85rem", padding: "6px 14px" }
+      }, tab.label))
+    ),
+
     loading && h("div", { className: "card-panel", style: { textAlign: "center", padding: "30px" } },
       "Carregando inventários da filial ", branchCode, "..."
     ),
 
     !loading && inventarios.length === 0 && h("div", { className: "card-panel empty-state", style: { textAlign: "center", padding: "40px 20px" } },
-      h("p", { style: { fontSize: "1.1rem", fontWeight: "600", color: "var(--text)" } }, "Nenhum inventário formal cadastrado nesta filial."),
+      h("p", { style: { fontSize: "1.1rem", fontWeight: "600", color: "var(--text)" } }, "Nenhum inventário formal encontrado nesta filial para o filtro selecionado."),
       h("p", { className: "hint" }, "Clique em '+ Novo Inventário' para criar uma sessão congelada a partir do saldo importado."),
       h("button", { className: "btn btn-primary", onClick: () => setShowCreateModal(true), style: { marginTop: "12px" } },
         "Criar Primeiro Inventário"
@@ -245,6 +313,12 @@ export function InventariosManager({
           )
         ),
         h("div", { className: "inventory-card-actions", style: { display: "flex", gap: "8px", marginTop: "14px", flexWrap: "wrap" } },
+          inv.status === "ENCERRADO" && h("button", {
+            className: "btn btn-primary",
+            onClick: () => handleOpenHistory(inv),
+            style: { background: "#4f46e5", borderColor: "#4f46e5", fontWeight: "bold" }
+          }, "🏆 Ver Resultado / Histórico"),
+
           inv.status === "RASCUNHO" && h("button", {
             className: "btn btn-secondary",
             onClick: () => handleOpen(inv)
@@ -261,17 +335,23 @@ export function InventariosManager({
             style: { background: "var(--accent-green, #10b981)", borderColor: "var(--accent-green, #10b981)" }
           }, inv.status === "EM_RECONTAGEM" ? "🔍 Recontagem (R2)" : "🔍 Abrir Contagem"),
 
-          (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM" || inv.status === "FINALIZADO" || inv.status === "EM_INVESTIGACAO") && h("button", {
+          (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM" || inv.status === "FINALIZADO" || inv.status === "EM_INVESTIGACAO" || inv.status === "ENCERRADO") && h("button", {
             className: "btn btn-secondary",
             onClick: () => handleOpenAudit(inv),
             style: { fontWeight: "600" }
           }, "📊 Apuração"),
 
-          (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM" || inv.status === "FINALIZADO" || inv.status === "EM_INVESTIGACAO") && h("button", {
+          (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM" || inv.status === "FINALIZADO" || inv.status === "EM_INVESTIGACAO" || inv.status === "ENCERRADO") && h("button", {
             className: "btn btn-secondary",
             onClick: () => handleOpenInvestigations(inv),
             style: { fontWeight: "600" }
           }, "🔎 Investigações"),
+
+          (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM" || inv.status === "FINALIZADO" || inv.status === "EM_INVESTIGACAO") && h("button", {
+            className: "btn btn-secondary",
+            onClick: () => handleOpenClosing(inv),
+            style: { fontWeight: "bold" }
+          }, "🏁 Fechamento"),
 
           (inv.status === "RASCUNHO" || inv.status === "ABERTO") && h("button", {
             className: "btn btn-danger-outline",
@@ -943,7 +1023,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   );
 }
 
-function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack, onStartRecount, onOpenInvestigations }) {
+function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack, onStartRecount, onOpenInvestigations, onOpenClosing }) {
   const [audit, setAudit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1089,6 +1169,11 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
             onClick: () => onOpenInvestigations ? onOpenInvestigations(inventory) : null,
             style: { padding: "6px 12px", fontSize: "0.9rem" }
           }, "🔎 Investigações"),
+          h("button", {
+            className: "btn btn-secondary",
+            onClick: () => onOpenClosing ? onOpenClosing(inventory) : null,
+            style: { padding: "6px 12px", fontSize: "0.9rem", fontWeight: "600" }
+          }, "🏁 Fechamento"),
           h("span", { className: `badge ${isR2 ? "badge-warning" : "badge-primary"}`, style: { fontSize: "0.9rem", fontWeight: "bold" } },
             `Apuração da Rodada ${rodadaNumero} (${rodadaTipo})`
           ),
@@ -1319,7 +1404,8 @@ function InvestigacoesScreen({
   user,
   initialInvestigationId = null,
   onBack,
-  onBackToList
+  onBackToList,
+  onOpenClosing
 }) {
   const [investigations, setInvestigations] = useState([]);
   const [selectedId, setSelectedId] = useState(initialInvestigationId);
@@ -1617,6 +1703,9 @@ function InvestigacoesScreen({
           ),
           h("button", { className: "btn btn-secondary", onClick: onBackToList, style: { fontSize: "0.85rem", padding: "6px 12px" } },
             "📋 Lista de Inventários"
+          ),
+          h("button", { className: "btn btn-secondary", onClick: () => onOpenClosing ? onOpenClosing(inventory) : null, style: { fontSize: "0.85rem", padding: "6px 12px", fontWeight: "600" } },
+            "🏁 Fechamento"
           ),
           h("h3", { style: { margin: 0 } }, "Investigação de Divergências"),
           h("span", { className: "badge badge-neutral" }, inventory.nome),
@@ -2242,12 +2331,668 @@ function InvestigacoesScreen({
   );
 }
 
+function FechamentoScreen({
+  inventory,
+  branchCode,
+  request,
+  user,
+  onBack,
+  onClosed,
+  onGoToAudit,
+  onGoToInvestigations
+}) {
+  const [validation, setValidation] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [closing, setClosing] = useState(false);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+
+  const [showNormalModal, setShowNormalModal] = useState(false);
+  const [showExceptionalModal, setShowExceptionalModal] = useState(false);
+  const [justificativaExcepcional, setJustificativaExcepcional] = useState("");
+
+  const isAdmin = user && (
+    (user.role && user.role.toLowerCase() === "admin") ||
+    (user.perfil && user.perfil.toLowerCase() === "admin")
+  );
+
+  useEffect(() => {
+    loadValidation();
+  }, [inventory.id, branchCode]);
+
+  async function loadValidation() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await request(`/api/inventarios/${inventory.id}/fechamento/validacao?branchCode=${encodeURIComponent(branchCode)}`);
+      setValidation(res);
+    } catch (err) {
+      setError(err.message || "Erro ao consultar validação de fechamento.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleClose(tipo, justificativa = null) {
+    setClosing(true);
+    setError("");
+    try {
+      const res = await request(`/api/inventarios/${inventory.id}/fechar?branchCode=${encodeURIComponent(branchCode)}`, {
+        method: "POST",
+        body: {
+          branchCode,
+          tipo,
+          tipoFechamento: tipo,
+          justificativa: justificativa ? justificativa.trim() : null
+        }
+      });
+      setFeedback(`Inventário encerrado com sucesso (${tipo})!`);
+      setShowNormalModal(false);
+      setShowExceptionalModal(false);
+      if (onClosed) {
+        onClosed(res);
+      }
+    } catch (err) {
+      setError(err.message || "Erro ao encerrar inventário.");
+    } finally {
+      setClosing(false);
+    }
+  }
+
+  const pendencias = validation?.pendencias || [];
+  const resumo = validation?.resumo || {};
+  const podeFechar = validation?.podeFechar === true;
+
+  return h("div", { className: "fechamento-screen-view" },
+    // Header
+    h("div", { className: "card-panel", style: { padding: "14px 18px", marginBottom: "14px" } },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" } },
+        h("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } },
+          h("button", { className: "btn btn-secondary", onClick: onBack, style: { fontSize: "0.85rem", padding: "6px 12px" } },
+            "← Voltar"
+          ),
+          h("h3", { style: { margin: 0 } }, "🏁 Fechamento Formal do Inventário"),
+          h("span", { className: "badge badge-neutral" }, inventory.nome),
+          h("span", { className: "badge badge-primary" }, `Filial ${branchCode}`)
+        ),
+        h("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
+          h("button", { className: "btn btn-secondary", onClick: loadValidation, disabled: loading, style: { fontSize: "0.85rem" } },
+            "↻ Atualizar Validação"
+          )
+        )
+      )
+    ),
+
+    feedback && h("div", { className: "notice-banner notice-success", style: { margin: "10px 0" } },
+      feedback,
+      h("button", { className: "btn-link", onClick: () => setFeedback(""), style: { float: "right" } }, "✕")
+    ),
+
+    error && h("div", { className: "notice-banner notice-danger", style: { margin: "10px 0" } },
+      error,
+      h("button", { className: "btn-link", onClick: () => setError(""), style: { float: "right" } }, "✕")
+    ),
+
+    loading && h("div", { className: "card-panel", style: { textAlign: "center", padding: "40px" } },
+      "Analisando regras de fechamento da sessão de inventário..."
+    ),
+
+    !loading && validation && h("div", { style: { display: "grid", gap: "14px" } },
+      // Banner de Status da Validação
+      h("div", {
+        className: `card-panel ${podeFechar ? "status-ok" : "status-blocked"}`,
+        style: {
+          padding: "16px",
+          borderLeft: `6px solid ${podeFechar ? "#10b981" : "#ef4444"}`,
+          background: podeFechar ? "rgba(16, 185, 129, 0.05)" : "rgba(239, 68, 68, 0.05)"
+        }
+      },
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" } },
+          h("div", null,
+            h("h4", { style: { margin: "0 0 6px 0", color: podeFechar ? "#10b981" : "#ef4444", fontSize: "1.1rem" } },
+              podeFechar ? "✔ Sessão Apta para Fechamento Formal Normal" : "⛔ Pendências Impeditivas Detectadas"
+            ),
+            h("p", { className: "hint", style: { margin: 0, fontSize: "0.9rem" } },
+              podeFechar
+                ? "Todas as rodadas foram apuradas, sem divergências não investigadas ou pendências ativas. O fechamento gerará o snapshot histórico definitivo e imutável."
+                : "Existem pendências operacionais ativas que impedem o fechamento normal. Resolva-as ou utilize o Fechamento Excepcional (requer permissão de Administrador e justificativa formal)."
+            )
+          ),
+          h("span", {
+            className: `badge ${podeFechar ? "badge-success" : "badge-danger"}`,
+            style: { padding: "8px 14px", fontSize: "0.9rem", fontWeight: "bold" }
+          }, podeFechar ? "APTO PARA FECHAR" : `${pendencias.length} PENDÊNCIA(S)`)
+        )
+      ),
+
+      // Resumo de Métricas Operacionais
+      h("div", { className: "card-panel", style: { padding: "16px" } },
+        h("h4", { style: { margin: "0 0 12px 0", fontSize: "0.95rem", color: "var(--text-secondary)" } }, "Balanço Operacional da Sessão"),
+        h("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px" } },
+          h("div", { style: { padding: "10px", background: "rgba(0,0,0,0.02)", borderRadius: "6px", textAlign: "center" } },
+            h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Total SKUs"),
+            h("strong", { style: { fontSize: "1.2rem" } }, resumo.totalSkus ?? 0)
+          ),
+          h("div", { style: { padding: "10px", background: "rgba(16, 185, 129, 0.08)", borderRadius: "6px", textAlign: "center" } },
+            h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Conformes"),
+            h("strong", { style: { fontSize: "1.2rem", color: "#10b981" } }, resumo.conformes ?? 0)
+          ),
+          h("div", { style: { padding: "10px", background: "rgba(239, 68, 68, 0.08)", borderRadius: "6px", textAlign: "center" } },
+            h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Divergências"),
+            h("strong", { style: { fontSize: "1.2rem", color: "#ef4444" } }, resumo.divergencias ?? 0)
+          ),
+          h("div", { style: { padding: "10px", background: "rgba(107, 114, 128, 0.08)", borderRadius: "6px", textAlign: "center" } },
+            h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Não Contados"),
+            h("strong", { style: { fontSize: "1.2rem", color: "#6b7280" } }, resumo.naoContados ?? 0)
+          ),
+          h("div", { style: { padding: "10px", background: "rgba(59, 130, 246, 0.08)", borderRadius: "6px", textAlign: "center" } },
+            h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Investigações Resolvidas"),
+            h("strong", { style: { fontSize: "1.2rem", color: "#3b82f6" } }, (resumo.investigacoesResolvidas ?? 0) + (resumo.investigacoesSemCausa ?? 0))
+          ),
+          h("div", { style: { padding: "10px", background: "rgba(245, 158, 11, 0.08)", borderRadius: "6px", textAlign: "center" } },
+            h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Investigações Pendentes"),
+            h("strong", { style: { fontSize: "1.2rem", color: "#f59e0b" } }, resumo.investigacoesPendentes ?? 0)
+          )
+        )
+      ),
+
+      // Lista Detalhada de Pendências (se houver)
+      pendencias.length > 0 && h("div", { className: "card-panel", style: { padding: "16px" } },
+        h("h4", { style: { margin: "0 0 12px 0", color: "#ef4444" } }, "⚠️ Pendências Encontradas"),
+        h("div", { style: { display: "grid", gap: "10px" } },
+          pendencias.map((p, idx) => {
+            const isRound = p.tipo === "RODADA_ATIVA" || p.tipo === "SEM_APURACAO_R1" || p.tipo === "RODADA_2_PENDENTE";
+            const isInvestigation = p.tipo === "DIVERGENCIA_SEM_INVESTIGACAO" || p.tipo === "INVESTIGACOES_PENDENTES";
+            const isUncounted = p.tipo === "ITENS_NAO_CONTADOS";
+
+            return h("div", {
+              key: idx,
+              style: {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "12px 14px",
+                background: "rgba(239, 68, 68, 0.04)",
+                border: "1px solid rgba(239, 68, 68, 0.2)",
+                borderRadius: "6px",
+                flexWrap: "wrap",
+                gap: "10px"
+              }
+            },
+              h("div", { style: { display: "grid", gap: "3px" } },
+                h("div", { style: { display: "flex", alignItems: "center", gap: "6px" } },
+                  h("span", { className: "badge badge-danger", style: { fontSize: "0.75rem" } }, p.tipo),
+                  h("strong", { style: { fontSize: "0.95rem" } }, p.mensagem)
+                ),
+                p.totalAfetado != null && h("span", { className: "hint", style: { fontSize: "0.85rem" } },
+                  `Total afetado: ${p.totalAfetado} item(ns)`
+                )
+              ),
+              h("div", null,
+                isRound && h("button", {
+                  className: "btn btn-secondary",
+                  onClick: onGoToAudit,
+                  style: { fontSize: "0.85rem", padding: "6px 12px" }
+                }, "Ir para Contagem/Apuração →"),
+
+                isInvestigation && h("button", {
+                  className: "btn btn-secondary",
+                  onClick: onGoToInvestigations,
+                  style: { fontSize: "0.85rem", padding: "6px 12px" }
+                }, "Ir para Investigações →"),
+
+                isUncounted && h("button", {
+                  className: "btn btn-secondary",
+                  onClick: onGoToAudit,
+                  style: { fontSize: "0.85rem", padding: "6px 12px" }
+                }, "Ver Itens Não Contados →")
+              )
+            );
+          })
+        )
+      ),
+
+      // Painel de Ações de Fechamento
+      h("div", { className: "card-panel", style: { padding: "18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" } },
+        h("div", null,
+          h("strong", { style: { display: "block", fontSize: "1rem" } }, "Ações de Fechamento"),
+          h("span", { className: "hint", style: { fontSize: "0.85rem" } },
+            "O fechamento encerra a sessão formalmente e bloqueia quaisquer alterações posteriores."
+          )
+        ),
+        h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap" } },
+          h("button", {
+            className: "btn btn-primary",
+            disabled: !podeFechar || closing,
+            onClick: () => setShowNormalModal(true),
+            style: {
+              background: podeFechar ? "#10b981" : "#9ca3af",
+              borderColor: podeFechar ? "#10b981" : "#9ca3af",
+              fontWeight: "bold",
+              padding: "10px 18px"
+            }
+          }, closing ? "Encerrando..." : "🔒 Fechamento Normal"),
+
+          h("button", {
+            className: "btn btn-danger-outline",
+            disabled: closing,
+            onClick: () => {
+              if (!isAdmin) {
+                alert("O Fechamento Excepcional requer perfil de Administrador.");
+                return;
+              }
+              setShowExceptionalModal(true);
+            },
+            title: isAdmin ? "Fechar sessão gravando snapshot de pendências" : "Requer perfil de Administrador",
+            style: { fontWeight: "bold", padding: "10px 18px" }
+          }, "⚠️ Fechamento Excepcional (Admin)")
+        )
+      )
+    ),
+
+    // Modal Fechamento Normal
+    showNormalModal && h("div", { className: "modal-backdrop", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 } },
+      h("div", { className: "card-panel modal-card", style: { width: "100%", maxWidth: "480px", padding: "20px" } },
+        h("h3", { style: { margin: "0 0 12px 0", color: "#10b981" } }, "🔒 Confirmar Fechamento Formal Normal"),
+        h("div", { style: { display: "grid", gap: "10px", fontSize: "0.9rem" } },
+          h("p", { style: { margin: 0 } }, "Atenção: Ao confirmar o fechamento formal:"),
+          h("ul", { style: { margin: "4px 0 12px 18px", padding: 0 } },
+            h("li", null, "O status da sessão passará para ", h("strong", null, "ENCERRADO"), "."),
+            h("li", null, "A sessão se tornará ", h("strong", null, "estritamente imutável"), " (nenhuma contagem, rodada ou investigação poderá ser criada ou modificada)."),
+            h("li", null, "Os resultados consolidados de sobra, falta e acurácia serão gravados no relatório definitivo.")
+          )
+        ),
+        h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "16px" } },
+          h("button", { className: "btn btn-secondary", onClick: () => setShowNormalModal(false), disabled: closing }, "Cancelar"),
+          h("button", {
+            className: "btn btn-primary",
+            onClick: () => handleClose("NORMAL"),
+            disabled: closing,
+            style: { background: "#10b981", borderColor: "#10b981", fontWeight: "bold" }
+          }, closing ? "Fechando..." : "Confirmar Fechamento")
+        )
+      )
+    ),
+
+    // Modal Fechamento Excepcional
+    showExceptionalModal && h("div", { className: "modal-backdrop", style: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 } },
+      h("div", { className: "card-panel modal-card", style: { width: "100%", maxWidth: "520px", padding: "20px" } },
+        h("h3", { style: { margin: "0 0 12px 0", color: "#ef4444" } }, "⚠️ Confirmar Fechamento Excepcional"),
+        h("p", { className: "hint", style: { fontSize: "0.85rem", marginTop: 0 } },
+          "O Fechamento Excepcional encerra a sessão mesmo com pendências impeditivas. Esta operação é restrita a Administradores, auditada e irreversível."
+        ),
+        pendencias.length > 0 && h("div", { style: { padding: "10px", background: "rgba(239, 68, 68, 0.08)", borderRadius: "6px", marginBottom: "12px" } },
+          h("strong", { style: { fontSize: "0.85rem", color: "#ef4444", display: "block", marginBottom: "4px" } }, "Snapshot de Pendências que serão registradas:"),
+          h("ul", { style: { margin: "0 0 0 16px", padding: 0, fontSize: "0.8rem" } },
+            pendencias.map((p, idx) => h("li", { key: idx }, `${p.tipo}: ${p.mensagem}`))
+          )
+        ),
+        h("div", { style: { display: "grid", gap: "8px" } },
+          h("label", { style: { fontSize: "0.85rem", fontWeight: "bold", display: "block" } },
+            "Justificativa Formal da Auditoria * (mínimo 15 caracteres):"
+          ),
+          h("textarea", {
+            rows: 4,
+            placeholder: "Descreva formalmente o motivo pelo qual a sessão está sendo encerrada com pendências...",
+            value: justificativaExcepcional,
+            onChange: e => setJustificativaExcepcional(e.target.value),
+            style: { width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid var(--border)", boxSizing: "border-box" }
+          }),
+          h("div", { style: { fontSize: "0.75rem", color: justificativaExcepcional.trim().length >= 15 ? "#10b981" : "#ef4444", textAlign: "right" } },
+            `${justificativaExcepcional.trim().length} / 15 caracteres mínimos`
+          )
+        ),
+        h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "16px" } },
+          h("button", { className: "btn btn-secondary", onClick: () => setShowExceptionalModal(false), disabled: closing }, "Cancelar"),
+          h("button", {
+            className: "btn btn-danger",
+            onClick: () => handleClose("EXCEPCIONAL", justificativaExcepcional),
+            disabled: closing || justificativaExcepcional.trim().length < 15,
+            style: { fontWeight: "bold" }
+          }, closing ? "Encerrando..." : "Confirmar Fechamento Excepcional")
+        )
+      )
+    )
+  );
+}
+
+function HistoricoResultadoScreen({ inventory, branchCode, request, user, onBack }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("itens"); // 'itens' | 'eventos'
+  const [statusFilter, setStatusFilter] = useState("TODOS");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    loadData();
+  }, [inventory.id, branchCode]);
+
+  async function loadData() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await request(`/api/inventarios/${inventory.id}/detalhe-historico?branchCode=${encodeURIComponent(branchCode)}`);
+      setData(res);
+    } catch (err) {
+      setError(err.message || "Erro ao carregar histórico consolidado.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) {
+    return h("div", { className: "card-panel", style: { textAlign: "center", padding: "40px" } },
+      "Carregando resultado consolidado e histórico oficial do inventário..."
+    );
+  }
+
+  if (!data || !data.resultado) {
+    return h("div", { className: "card-panel", style: { padding: "20px", textAlign: "center" } },
+      error && h("div", { className: "notice-banner notice-danger" }, error),
+      h("button", { className: "btn btn-secondary", onClick: onBack, style: { marginTop: "12px" } }, "← Voltar")
+    );
+  }
+
+  const { resultado, itens, eventos } = data;
+  const isExcepcional = resultado.tipoFechamento === "EXCEPCIONAL";
+
+  // Calcular acurácia
+  const totalValidos = resultado.totalItens - resultado.itensNaoContados;
+  const totalConformesFinal = resultado.itensConformesR1 + resultado.itensConformesAposR2;
+  const acuraciaPercent = totalValidos > 0
+    ? Math.round((totalConformesFinal / totalValidos) * 100)
+    : 0;
+
+  // Filtragem dos itens
+  const filteredItems = (itens || []).filter(item => {
+    if (statusFilter !== "TODOS") {
+      if (statusFilter === "CONFORME" && !(item.estadoFinal === "CONFORME" || item.estadoFinal === "CONFORME_APOS_RECONTAGEM")) return false;
+      if (statusFilter === "DIVERGENTE" && item.estadoFinal !== "DIVERGENCIA_CONFIRMADA") return false;
+      if (statusFilter === "NAO_CONTADO" && item.estadoFinal !== "NAO_CONTADO") return false;
+      if (statusFilter === "FALTA" && item.tipoDivergencia !== "FALTA") return false;
+      if (statusFilter === "SOBRA" && item.tipoDivergencia !== "SOBRA") return false;
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchSku = item.sku && item.sku.toLowerCase().includes(q);
+      const matchDesc = item.descricao && item.descricao.toLowerCase().includes(q);
+      return matchSku || matchDesc;
+    }
+    return true;
+  });
+
+  function formatDuration(seconds) {
+    if (seconds == null) return "-";
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hrs > 0) return `${hrs}h ${mins}m`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+  }
+
+  return h("div", { className: "historico-resultado-view" },
+    // Header
+    h("div", { className: "card-panel", style: { padding: "14px 18px", marginBottom: "14px" } },
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" } },
+        h("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } },
+          h("button", { className: "btn btn-secondary", onClick: onBack, style: { fontSize: "0.85rem", padding: "6px 12px" } },
+            "← Voltar aos Inventários"
+          ),
+          h("h3", { style: { margin: 0 } }, "🏆 Resultado & Histórico Oficial"),
+          h("span", { className: "badge badge-status badge-encerrado", style: { fontWeight: "bold" } }, "ENCERRADO"),
+          h("span", { className: `badge ${isExcepcional ? "badge-warning" : "badge-success"}` },
+            isExcepcional ? "FECHAMENTO EXCEPCIONAL" : "FECHAMENTO NORMAL"
+          ),
+          h("span", { className: "badge badge-primary" }, `Filial ${branchCode}`)
+        ),
+        h("button", { className: "btn btn-secondary", onClick: loadData, style: { fontSize: "0.85rem" } },
+          "↻ Atualizar"
+        )
+      ),
+
+      h("div", { style: { marginTop: "10px" } },
+        h("h4", { style: { margin: "0 0 4px" } }, resultado.inventarioNome || inventory.nome),
+        h("p", { className: "hint", style: { margin: 0, fontSize: "0.85rem" } },
+          `Encerrado por ${resultado.fechadoPorNome} em ${new Date(resultado.fechadoEm).toLocaleString("pt-BR")}`
+        )
+      )
+    ),
+
+    // Banner de Fechamento Excepcional (se houver)
+    isExcepcional && h("div", {
+      className: "card-panel",
+      style: {
+        padding: "16px",
+        marginBottom: "14px",
+        borderLeft: "6px solid #f59e0b",
+        background: "rgba(245, 158, 11, 0.05)"
+      }
+    },
+      h("h4", { style: { margin: "0 0 6px 0", color: "#f59e0b" } }, "⚠️ Inventário Fechado em Caráter Excepcional"),
+      h("p", { style: { margin: "0 0 8px 0", fontSize: "0.9rem" } },
+        h("strong", null, "Justificativa da Auditoria: "),
+        resultado.justificativaExcepcional || "-"
+      ),
+      resultado.pendenciasSnapshot && resultado.pendenciasSnapshot.length > 0 && h("div", null,
+        h("strong", { style: { fontSize: "0.85rem", color: "#6b7280", display: "block", marginBottom: "4px" } }, "Pendências Registradas no Snapshot de Fechamento:"),
+        h("ul", { style: { margin: "0 0 0 16px", padding: 0, fontSize: "0.85rem", color: "#374151" } },
+          resultado.pendenciasSnapshot.map((p, idx) => h("li", { key: idx }, `${p.tipo || p.code || 'PENDENCIA'}: ${p.mensagem || p.message || JSON.stringify(p)}`))
+        )
+      )
+    ),
+
+    // Métricas Consolidadas (Cards)
+    h("div", { className: "historico-metrics-grid", style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px", marginBottom: "14px" } },
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Total SKUs"),
+        h("strong", { style: { fontSize: "1.4rem" } }, resultado.totalItens)
+      ),
+
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #10b981" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Total Conformes"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#10b981" } }, totalConformesFinal),
+        h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, `R1: ${resultado.itensConformesR1} | R2: ${resultado.itensConformesAposR2}`)
+      ),
+
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #ef4444" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Divergências Confirmadas"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#ef4444" } }, resultado.divergenciasConfirmadas)
+      ),
+
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #6b7280" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Não Contados"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#6b7280" } }, resultado.itensNaoContados)
+      ),
+
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #3b82f6" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Acurácia Global"),
+        h("strong", { style: { fontSize: "1.4rem", color: "#3b82f6" } }, `${acuraciaPercent}%`)
+      ),
+
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Falta / Sobra (Un)"),
+        h("span", { style: { fontSize: "1.1rem", fontWeight: "bold" } },
+          h("span", { style: { color: "#ef4444" } }, `-${resultado.quantidadeFalta}`),
+          " / ",
+          h("span", { style: { color: "#10b981" } }, `+${resultado.quantidadeSobra}`)
+        ),
+        h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, `${resultado.itensComFalta} falta | ${resultado.itensComSobra} sobra`)
+      ),
+
+      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
+        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Duração da Sessão"),
+        h("strong", { style: { fontSize: "1.1rem" } }, formatDuration(resultado.duracaoSegundos))
+      )
+    ),
+
+    // Abas de Navegação
+    h("div", { style: { display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" } },
+      h("button", {
+        className: `btn ${activeTab === "itens" ? "btn-primary" : "btn-secondary"}`,
+        onClick: () => setActiveTab("itens"),
+        style: { borderRadius: "20px", fontSize: "0.9rem", padding: "6px 16px" }
+      }, `📦 Itens Auditados & Resultado (${itens ? itens.length : 0})`),
+
+      h("button", {
+        className: `btn ${activeTab === "eventos" ? "btn-primary" : "btn-secondary"}`,
+        onClick: () => setActiveTab("eventos"),
+        style: { borderRadius: "20px", fontSize: "0.9rem", padding: "6px 16px" }
+      }, `📜 Linha do Tempo de Auditoria (${eventos ? eventos.length : 0})`)
+    ),
+
+    // Aba Itens
+    activeTab === "itens" && h("div", null,
+      // Filtros
+      h("div", { className: "card-panel", style: { padding: "12px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" } },
+        h("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } },
+          h("input", {
+            type: "search",
+            placeholder: "Pesquisar por SKU ou descrição...",
+            value: searchQuery,
+            onChange: e => setSearchQuery(e.target.value),
+            style: { padding: "6px 12px", borderRadius: "4px", border: "1px solid var(--border)", width: "240px" }
+          }),
+          [
+            { id: "TODOS", label: "Todos" },
+            { id: "CONFORME", label: "Conformes" },
+            { id: "DIVERGENTE", label: "Divergentes" },
+            { id: "FALTA", label: "Faltas" },
+            { id: "SOBRA", label: "Sobras" },
+            { id: "NAO_CONTADO", label: "Não Contados" }
+          ].map(f => h("button", {
+            key: f.id,
+            className: `btn ${statusFilter === f.id ? "btn-primary" : "btn-secondary"}`,
+            onClick: () => setStatusFilter(f.id),
+            style: { fontSize: "0.8rem", padding: "4px 10px", borderRadius: "14px" }
+          }, f.label))
+        ),
+        h("span", { className: "hint", style: { fontSize: "0.85rem" } },
+          `Exibindo ${filteredItems.length} de ${itens ? itens.length : 0} itens`
+        )
+      ),
+
+      // Tabela de Itens do Resultado
+      h("div", { className: "card-panel", style: { padding: 0, overflowX: "auto" } },
+        h("table", { className: "table", style: { width: "100%", borderCollapse: "collapse" } },
+          h("thead", null,
+            h("tr", { style: { borderBottom: "1px solid var(--border)", background: "rgba(0,0,0,0.02)" } },
+              h("th", { style: { padding: "10px", textAlign: "left" } }, "SKU"),
+              h("th", { style: { padding: "10px", textAlign: "left" } }, "Descrição"),
+              h("th", { style: { padding: "10px", textAlign: "right" } }, "Saldo Esp."),
+              h("th", { style: { padding: "10px", textAlign: "right" } }, "R1 Físico"),
+              h("th", { style: { padding: "10px", textAlign: "right" } }, "R2 Físico"),
+              h("th", { style: { padding: "10px", textAlign: "right" } }, "Físico Final"),
+              h("th", { style: { padding: "10px", textAlign: "right" } }, "Diferença"),
+              h("th", { style: { padding: "10px", textAlign: "center" } }, "Status Final"),
+              h("th", { style: { padding: "10px", textAlign: "left" } }, "Investigação / Conclusão")
+            )
+          ),
+          h("tbody", null,
+            filteredItems.length === 0 && h("tr", null,
+              h("td", { colSpan: 9, style: { textAlign: "center", padding: "30px" }, className: "hint" },
+                "Nenhum item corresponde aos critérios de pesquisa."
+              )
+            ),
+            filteredItems.map(item => {
+              const diff = item.diferencaFinal;
+              const isConforme = item.estadoFinal === "CONFORME" || item.estadoFinal === "CONFORME_APOS_RECONTAGEM";
+              const isDivergente = item.estadoFinal === "DIVERGENCIA_CONFIRMADA";
+
+              let diffColor = "var(--text-secondary)";
+              let diffPrefix = "";
+              if (diff > 0) {
+                diffColor = "#10b981";
+                diffPrefix = "+";
+              } else if (diff < 0) {
+                diffColor = "#ef4444";
+              }
+
+              return h("tr", { key: item.id, style: { borderBottom: "1px solid var(--border)" } },
+                h("td", { style: { padding: "10px", fontWeight: "bold" } }, item.sku),
+                h("td", { style: { padding: "10px" } }, item.descricao),
+                h("td", { style: { padding: "10px", textAlign: "right", color: "var(--text-secondary)" } }, item.saldoSnapshot),
+                h("td", { style: { padding: "10px", textAlign: "right" } }, item.r1Fisico != null ? `${item.r1Fisico} un` : "-"),
+                h("td", { style: { padding: "10px", textAlign: "right" } }, item.houveR2 ? (item.r2Fisico != null ? `${item.r2Fisico} un` : "-") : "N/A"),
+                h("td", { style: { padding: "10px", textAlign: "right", fontWeight: "bold" } },
+                  item.quantidadeFisicaFinal != null ? `${item.quantidadeFisicaFinal} un` : "-"
+                ),
+                h("td", { style: { padding: "10px", textAlign: "right", fontWeight: "bold", color: diffColor } },
+                  diff != null ? `${diffPrefix}${diff}` : "-"
+                ),
+                h("td", { style: { padding: "10px", textAlign: "center" } },
+                  h("span", {
+                    className: `badge ${isConforme ? "badge-success" : isDivergente ? "badge-danger" : "badge-neutral"}`,
+                    style: { fontSize: "0.75rem" }
+                  }, item.estadoFinal)
+                ),
+                h("td", { style: { padding: "10px", fontSize: "0.85rem" } },
+                  item.causaConfirmada && h("div", { style: { fontWeight: "bold", color: "#374151" } },
+                    CAUSES_MAP[item.causaConfirmada] || item.causaConfirmada
+                  ),
+                  item.conclusao && h("div", { className: "hint", style: { fontSize: "0.8rem" } },
+                    item.conclusao
+                  ),
+                  !item.causaConfirmada && !item.conclusao && h("span", { className: "hint" }, "-")
+                )
+              );
+            })
+          )
+        )
+      )
+    ),
+
+    // Aba Eventos (Linha do Tempo)
+    activeTab === "eventos" && h("div", { className: "card-panel", style: { padding: "20px" } },
+      h("h4", { style: { margin: "0 0 16px 0" } }, "Linha do Tempo Auditável da Sessão"),
+      (!eventos || eventos.length === 0) && h("p", { className: "hint" }, "Nenhum evento registrado."),
+      eventos && eventos.length > 0 && h("div", { style: { display: "grid", gap: "12px" } },
+        eventos.map((ev, idx) => {
+          let badgeColor = "badge-neutral";
+          if (ev.tipoEvento === "INVENTARIO_ENCERRADO") badgeColor = "badge-danger";
+          else if (ev.tipoEvento === "INICIADO" || ev.tipoEvento === "RODADA_INICIADA") badgeColor = "badge-primary";
+          else if (ev.tipoEvento === "RODADA_ENCERRADA") badgeColor = "badge-warning";
+          else if (ev.tipoEvento === "RECONTAGEM_CRIADA") badgeColor = "badge-warning";
+
+          return h("div", {
+            key: ev.id || idx,
+            style: {
+              display: "flex",
+              gap: "14px",
+              padding: "12px",
+              background: "rgba(0,0,0,0.02)",
+              borderRadius: "6px",
+              borderLeft: "4px solid var(--primary, #3b82f6)"
+            }
+          },
+            h("div", { style: { minWidth: "140px" } },
+              h("span", { className: `badge ${badgeColor}`, style: { display: "inline-block", marginBottom: "4px" } }, ev.tipoEvento),
+              h("div", { className: "hint", style: { fontSize: "0.75rem" } },
+                new Date(ev.criadoEm).toLocaleString("pt-BR")
+              )
+            ),
+            h("div", { style: { flex: 1 } },
+              h("div", { style: { fontSize: "0.85rem", fontWeight: "bold" } }, `Operador: ${ev.criadoPor}`),
+              ev.detalhes && h("div", { style: { fontSize: "0.8rem", color: "var(--text-secondary)", marginTop: "4px" } },
+                typeof ev.detalhes === "object" ? JSON.stringify(ev.detalhes) : ev.detalhes
+              )
+            )
+          );
+        })
+      )
+    )
+  );
+}
+
 if (typeof window !== "undefined") {
   window.MNCheckInventarios = {
     InventariosManager,
     InventarioContagemScreen,
     ApuracaoScreen,
     InvestigacoesScreen,
+    FechamentoScreen,
+    HistoricoResultadoScreen,
     CreateInventoryModal
   };
 }

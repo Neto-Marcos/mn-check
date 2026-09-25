@@ -874,6 +874,9 @@ public final class PostgresDatabase {
     List<String> statements = List.of(
         "DELETE FROM historico_scanner",
         "DELETE FROM conferencias",
+        "DELETE FROM resultado_inventario_itens",
+        "DELETE FROM resultados_inventario",
+        "DELETE FROM eventos_inventario",
         "DELETE FROM eventos_investigacao",
         "DELETE FROM investigacao_vinculos",
         "DELETE FROM evidencias_investigacao",
@@ -1058,7 +1061,7 @@ public final class PostgresDatabase {
         lastError = error;
         System.err.println(
             "PostgreSQL indisponível na tentativa " + attempt + "/6: "
-                + rootMessage(error)
+                + error.getMessage()
         );
         if (attempt < 6) sleepBeforeRetry(attempt);
       }
@@ -1078,7 +1081,7 @@ public final class PostgresDatabase {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """,
-        "INSERT INTO filiais (codigo, nome, ativa) VALUES ('281', 'Filial 281', TRUE) ON CONFLICT (codigo) DO NOTHING",
+        "INSERT INTO filiais (codigo, nome, ativa) SELECT '281', 'Filial 281', TRUE WHERE NOT EXISTS (SELECT 1 FROM filiais WHERE codigo = '281')",
         """
         CREATE TABLE IF NOT EXISTS importacoes_saldo (
           id BIGSERIAL PRIMARY KEY,
@@ -1100,6 +1103,12 @@ public final class PostgresDatabase {
         "ALTER TABLE importacoes_saldo ADD COLUMN IF NOT EXISTS total_linhas_lidas INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE importacoes_saldo ADD COLUMN IF NOT EXISTS itens_alterados INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE importacoes_saldo ADD COLUMN IF NOT EXISTS itens_removidos INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE importacoes_saldo ADD COLUMN IF NOT EXISTS filial_id BIGINT REFERENCES filiais(id)",
+        "UPDATE importacoes_saldo SET filial_id = (SELECT id FROM filiais WHERE codigo = '281') WHERE filial_id IS NULL",
+        "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS filial_id BIGINT REFERENCES filiais(id)",
+        "UPDATE contagens SET filial_id = (SELECT id FROM filiais WHERE codigo = '281') WHERE filial_id IS NULL",
+        "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS filial_id BIGINT REFERENCES filiais(id)",
+        "UPDATE estoque_produtos SET filial_id = (SELECT id FROM filiais WHERE codigo = '281') WHERE filial_id IS NULL",
         """
         CREATE TABLE IF NOT EXISTS saldos (
           id BIGSERIAL PRIMARY KEY,
@@ -1174,6 +1183,23 @@ public final class PostgresDatabase {
         "ALTER TABLE estoque_produtos DROP CONSTRAINT IF EXISTS estoque_produtos_saldo_outros_check",
         "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS descricao TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_assistencia INTEGER NOT NULL DEFAULT 0 CHECK (saldo_assistencia >= 0)",
+        """
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON c.conrelid = t.oid
+            JOIN pg_namespace n ON t.relnamespace = n.oid
+            WHERE t.relname = 'estoque_produtos'
+              AND c.contype = 'p'
+              AND n.nspname = current_schema()
+              AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (sku)'
+          ) THEN
+            ALTER TABLE estoque_produtos DROP CONSTRAINT estoque_produtos_pkey;
+            ALTER TABLE estoque_produtos ADD CONSTRAINT estoque_produtos_pkey PRIMARY KEY (filial_id, sku);
+          END IF;
+        END $$;
+        """,
         "ALTER TABLE itens_contagem ADD COLUMN IF NOT EXISTS quantidade_assistencia INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_assistencia >= 0)",
         """
         CREATE TABLE IF NOT EXISTS conferencias (
@@ -1203,6 +1229,7 @@ public final class PostgresDatabase {
         "CREATE INDEX IF NOT EXISTS idx_historico_scanner_mapa ON historico_scanner(mapa_id, criado_em DESC)"
         ,"CREATE INDEX IF NOT EXISTS idx_estoque_produtos_ativo ON estoque_produtos(filial_id, ativo, sku)"
         ,"CREATE INDEX IF NOT EXISTS idx_conferencias_status ON conferencias(status, atualizado_em DESC)"
+        ,"CREATE UNIQUE INDEX IF NOT EXISTS idx_estoque_produtos_filial_sku ON estoque_produtos(filial_id, sku)"
     };
     try (Connection connection = connect(); Statement statement = connection.createStatement()) {
       for (String sql : statements) statement.execute(sql);

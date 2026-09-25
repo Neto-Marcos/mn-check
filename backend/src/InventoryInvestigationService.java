@@ -128,7 +128,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        Branch branch = requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        Branch branch = requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
 
         // Carrega e valida apuração
         ApuracaoRecord apuracao = findApuracao(connection, command.apuracaoId(), inventoryId);
@@ -195,7 +195,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
         InvestigationRecord record = lockInvestigation(connection, investigationId, inventoryId);
 
         if (!"PENDENTE".equals(record.status())) {
@@ -266,7 +266,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
         InvestigationRecord record = lockInvestigation(connection, investigationId, inventoryId);
         assertNotFinalized(record);
 
@@ -318,7 +318,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
         InvestigationRecord record = lockInvestigation(connection, investigationId, inventoryId);
         assertNotFinalized(record);
 
@@ -374,7 +374,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
         InvestigationRecord record = lockInvestigation(connection, investigationId, inventoryId);
         assertNotFinalized(record);
 
@@ -438,7 +438,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
         InvestigationRecord record = lockInvestigation(connection, investigationId, inventoryId);
         assertNotFinalized(record);
 
@@ -529,7 +529,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
         InvestigationRecord record = lockInvestigation(connection, investigationId, inventoryId);
         assertNotFinalized(record);
 
@@ -588,7 +588,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
         InvestigationRecord record = lockInvestigation(connection, investigationId, inventoryId);
         assertNotFinalized(record);
 
@@ -645,7 +645,7 @@ public class InventoryInvestigationService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
-        requireBranchAndInventory(connection, inventoryId, normalizedBranch);
+        requireBranchAndInventoryForMutation(connection, inventoryId, normalizedBranch);
         InvestigationRecord record = lockInvestigation(connection, investigationId, inventoryId);
 
         if (!"RESOLVIDA".equals(record.status()) && !"SEM_CAUSA_IDENTIFICADA".equals(record.status())) {
@@ -976,6 +976,29 @@ public class InventoryInvestigationService {
       try (ResultSet rs = statement.executeQuery()) {
         if (!rs.next()) {
           throw new NotFoundException("Inventário não encontrado na filial " + branchCode + ".");
+        }
+        return new Branch(rs.getLong("filial_id"), rs.getString("filial_codigo"));
+      }
+    }
+  }
+
+  private Branch requireBranchAndInventoryForMutation(Connection connection, long inventoryId, String branchCode) throws SQLException {
+    String sql = """
+        SELECT i.id, i.filial_id, f.codigo AS filial_codigo, i.status
+        FROM inventarios i
+        JOIN filiais f ON f.id = i.filial_id
+        WHERE i.id = ? AND f.codigo = ?
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, inventoryId);
+      statement.setString(2, branchCode);
+      try (ResultSet rs = statement.executeQuery()) {
+        if (!rs.next()) {
+          throw new NotFoundException("Inventário não encontrado na filial " + branchCode + ".");
+        }
+        String status = rs.getString("status");
+        if ("ENCERRADO".equalsIgnoreCase(status) || "FINALIZADO".equalsIgnoreCase(status) || "CANCELADO".equalsIgnoreCase(status)) {
+          throw new ConflictException("Inventário está " + status + " e não permite alterações em investigações.");
         }
         return new Branch(rs.getLong("filial_id"), rs.getString("filial_codigo"));
       }
