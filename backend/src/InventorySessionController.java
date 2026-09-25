@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +25,7 @@ public class InventorySessionController {
   private final InventoryCountingService countingService;
   private final InventoryInvestigationService investigationService;
   private final InventoryClosingService closingService;
+  private final InventoryReportService reportService;
   private final LegacyAuthenticationClient authentication;
 
   public InventorySessionController(
@@ -31,12 +33,14 @@ public class InventorySessionController {
       InventoryCountingService countingService,
       InventoryInvestigationService investigationService,
       InventoryClosingService closingService,
+      InventoryReportService reportService,
       LegacyAuthenticationClient authentication
   ) {
     this.service = service;
     this.countingService = countingService;
     this.investigationService = investigationService != null ? investigationService : new InventoryInvestigationService();
     this.closingService = closingService != null ? closingService : new InventoryClosingService();
+    this.reportService = reportService != null ? reportService : new InventoryReportService();
     this.authentication = authentication;
   }
 
@@ -382,8 +386,54 @@ public class InventorySessionController {
     return closingService.getDetailedHistory(id, branchCode);
   }
 
+  @GetMapping("/{id}/relatorio")
+  public InventoryReportService.ReportProjection report(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode,
+      @RequestParam(defaultValue = "R1") String contexto,
+      @RequestParam(defaultValue = "TODOS") String status,
+      @RequestParam(defaultValue = "TODAS") String localizacao,
+      @RequestParam(defaultValue = "TODAS") String condicao,
+      @RequestParam(defaultValue = "TODAS") String investigacao,
+      @RequestParam(defaultValue = "") String busca,
+      @RequestParam(defaultValue = "SKU") String ordenarPor
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return reportService.project(id, branchCode,
+        new InventoryReportService.ReportFilter(contexto, status, localizacao, condicao, investigacao, busca, ordenarPor));
+  }
+
+  @GetMapping("/{id}/relatorio.xlsx")
+  public ResponseEntity<byte[]> reportXlsx(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode,
+      @RequestParam(defaultValue = "R1") String contexto,
+      @RequestParam(defaultValue = "TODOS") String status,
+      @RequestParam(defaultValue = "TODAS") String localizacao,
+      @RequestParam(defaultValue = "TODAS") String condicao,
+      @RequestParam(defaultValue = "TODAS") String investigacao,
+      @RequestParam(defaultValue = "") String busca,
+      @RequestParam(defaultValue = "SKU") String ordenarPor
+  ) {
+    authentication.requireInventoryUser(authorization);
+    InventoryReportService.ReportProjection projection = reportService.project(id, branchCode,
+        new InventoryReportService.ReportFilter(contexto, status, localizacao, condicao, investigacao, busca, ordenarPor));
+    byte[] workbook = reportService.exportXlsx(projection);
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType(InventoryReportService.XLSX_CONTENT_TYPE))
+        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=inventario-" + id + "-" + contexto.toLowerCase() + ".xlsx")
+        .body(workbook);
+  }
+
   @ExceptionHandler(InventoryClosingService.ClosingException.class)
   ResponseEntity<Map<String, Object>> closingError(InventoryClosingService.ClosingException error) {
+    return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
+  }
+
+  @ExceptionHandler(InventoryReportService.ReportException.class)
+  ResponseEntity<Map<String, Object>> reportError(InventoryReportService.ReportException error) {
     return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
   }
 

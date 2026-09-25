@@ -32,7 +32,7 @@ export function InventariosManager({
   });
 
   const [inventarios, setInventarios] = useState([]);
-  const [activeView, setActiveView] = useState("list"); // 'list' | 'counting' | 'audit' | 'investigations' | 'closing' | 'history'
+  const [activeView, setActiveView] = useState("list"); // 'list' | 'counting' | 'audit' | 'investigations' | 'closing' | 'history' | 'report'
   const [statusFilter, setStatusFilter] = useState("TODOS"); // 'TODOS' | 'EM_ANDAMENTO' | 'ENCERRADOS' | 'ABERTOS'
   const [currentInventory, setCurrentInventory] = useState(null);
   const [currentRoundId, setCurrentRoundId] = useState(null);
@@ -138,6 +138,11 @@ export function InventariosManager({
     setActiveView("history");
   }
 
+  function handleOpenReport(inv) {
+    setCurrentInventory(inv);
+    setActiveView("report");
+  }
+
   if (activeView === "counting" && currentInventory) {
     return h(InventarioContagemScreen, {
       inventory: currentInventory,
@@ -226,6 +231,19 @@ export function InventariosManager({
       branchCode,
       request,
       user,
+      onBack: () => {
+        setActiveView("list");
+        loadInventarios();
+      }
+    });
+  }
+
+  if (activeView === "report" && currentInventory) {
+    return h(InventoryReportScreen, {
+      inventory: currentInventory,
+      branchCode,
+      request,
+      token,
       onBack: () => {
         setActiveView("list");
         loadInventarios();
@@ -347,6 +365,12 @@ export function InventariosManager({
             style: { fontWeight: "600" }
           }, "🔎 Investigações"),
 
+          (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM" || inv.status === "FINALIZADO" || inv.status === "EM_INVESTIGACAO" || inv.status === "ENCERRADO") && h("button", {
+            className: "btn btn-secondary",
+            onClick: () => handleOpenReport(inv),
+            style: { fontWeight: "600" }
+          }, "🖨 Relatório / Exportar"),
+
           (inv.status === "EM_CONTAGEM" || inv.status === "EM_RECONTAGEM" || inv.status === "FINALIZADO" || inv.status === "EM_INVESTIGACAO") && h("button", {
             className: "btn btn-secondary",
             onClick: () => handleOpenClosing(inv),
@@ -374,6 +398,106 @@ export function InventariosManager({
     })
   );
 }
+
+function InventoryReportScreen({ inventory, branchCode, request, token, onBack }) {
+  const [filters, setFilters] = useState({
+    contexto: inventory.status === "ENCERRADO" ? "RESULTADO_FINAL" : (inventory.status === "EM_RECONTAGEM" ? "R2" : "R1"),
+    status: "TODOS", localizacao: "TODAS", condicao: "TODAS", investigacao: "TODAS", busca: "", ordenarPor: "SKU"
+  });
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function queryString() {
+    const params = new URLSearchParams({ branchCode, ...filters });
+    return params.toString();
+  }
+
+  async function loadReport() {
+    setLoading(true); setError("");
+    try { setReport(await request(`/api/inventarios/${inventory.id}/relatorio?${queryString()}`)); }
+    catch (err) { setReport(null); setError(err.message || "Não foi possível gerar o relatório."); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadReport(); }, [filters.contexto, filters.status, filters.localizacao, filters.condicao, filters.investigacao, filters.ordenarPor]);
+
+  async function exportXlsx() {
+    setError("");
+    try {
+      const response = await fetch(`/api/inventarios/${inventory.id}/relatorio.xlsx?${queryString()}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "Falha ao exportar XLSX."); }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
+      anchor.href = url; anchor.download = `inventario-${inventory.id}-${filters.contexto.toLowerCase()}.xlsx`; anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) { setError(err.message || "Falha ao exportar XLSX."); }
+  }
+
+  const update = (key) => (event) => setFilters(current => ({ ...current, [key]: event.target.value }));
+  const filterLabel = report ? `Status ${report.filtros.status} · Localização ${report.filtros.localizacao} · Condição ${report.filtros.condicao} · Investigação ${report.filtros.investigacao}` : "";
+
+  return h("div", { className: "inventory-report-view" },
+    h("div", { className: "card-panel inventory-report-controls" },
+      h("div", { className: "inventory-report-toolbar" },
+        h("button", { className: "btn btn-secondary", onClick: onBack }, "← Voltar"),
+        h("h2", null, "Relatório do Inventory 3.0"),
+        h("div", { className: "inventory-report-actions" },
+          h("button", { className: "btn btn-secondary", onClick: loadReport, disabled: loading }, "Atualizar"),
+          h("button", { className: "btn btn-secondary", onClick: () => window.print(), disabled: !report }, "🖨 Imprimir / PDF"),
+          h("button", { className: "btn btn-primary", onClick: exportXlsx, disabled: !report }, "⬇ Exportar XLSX")
+        )
+      ),
+      h("div", { className: "inventory-report-filters" },
+        reportSelect("Contexto", filters.contexto, update("contexto"), [["R1","Rodada 1"],["R2","Rodada 2"],["RESULTADO_FINAL","Resultado final"]]),
+        reportSelect("Status", filters.status, update("status"), [["TODOS","Todos"],["CONTADOS","Contados"],["NAO_CONTADOS","Não contados"],["CONFORMES","Conformes"],["DIVERGENTES","Divergentes"]]),
+        reportSelect("Localização", filters.localizacao, update("localizacao"), ["TODAS","GERAL","VENDAS","DEPOSITO","TROCAS","OUTRO"].map(v => [v,v])),
+        reportSelect("Condição", filters.condicao, update("condicao"), ["TODAS","BOA","AVARIA","ASSISTENCIA","OUTROS"].map(v => [v,v])),
+        reportSelect("Investigação", filters.investigacao, update("investigacao"), ["TODAS","SEM_INVESTIGACAO","PENDENTE","EM_INVESTIGACAO","AGUARDANDO_EVIDENCIA","RESOLVIDA","SEM_CAUSA_IDENTIFICADA"].map(v => [v,v.replaceAll("_"," ")])),
+        reportSelect("Ordenar", filters.ordenarPor, update("ordenarPor"), ["SKU","DESCRICAO","LOCALIZACAO","STATUS","DIFERENCA"].map(v => [v,v.replaceAll("_"," ")])),
+        h("label", null, h("span", null, "SKU ou descrição"), h("div", { style: { display: "flex", gap: "6px" } },
+          h("input", { type: "search", value: filters.busca, onChange: update("busca"), onKeyDown: e => { if (e.key === "Enter") loadReport(); }, placeholder: "Pesquisar..." }),
+          h("button", { className: "btn btn-secondary", onClick: loadReport }, "Buscar")
+        ))
+      )
+    ),
+    error && h("div", { className: "notice-banner notice-danger" }, error),
+    loading && h("div", { className: "card-panel", style: { padding: "30px", textAlign: "center" } }, "Gerando projeção somente leitura..."),
+    !loading && report && h("section", { className: "inventory-report-sheet" },
+      h("header", { className: "inventory-report-header" },
+        h("div", null, h("span", null, "MN-Check"), h("h1", null, "Relatório de Inventário 3.0"), h("p", null, `${report.inventarioNome} · Sessão #${report.inventarioId}`)),
+        h("strong", null, `Filial ${report.filial}`)
+      ),
+      h("div", { className: "inventory-report-meta" },
+        h("span", null, `Contexto: ${report.contexto}`), h("span", null, `Emitido: ${new Date(report.emitidoEm).toLocaleString("pt-BR")}`), h("span", null, filterLabel)
+      ),
+      report.camposProtegidos && h("div", { className: "notice-banner notice-warning" }, "🔒 Modo cego ativo: saldo, diferença, resultado esperado e investigação estão protegidos pelo servidor."),
+      h("div", { className: "inventory-report-summary" },
+        metric("Itens", report.resumo.total), metric("Contados", report.resumo.contados), metric("Não contados", report.resumo.naoContados), metric("Conformes", report.resumo.conformes), metric("Divergentes", report.resumo.divergentes), metric("Quantidade", report.resumo.quantidadeTotal)
+      ),
+      report.itens.length === 0 ? h("div", { className: "empty-state" }, "Nenhum item corresponde aos filtros selecionados.") :
+      h("div", { className: "inventory-report-table-wrap" }, h("table", { className: "inventory-report-table" },
+        h("thead", null, h("tr", null, ["SKU","Descrição","Localização","Condição","Quantidade","Estado", ...(report.camposProtegidos ? [] : ["Saldo","Diferença"]), "Investigação","Conclusão"].map(label => h("th", { key: label }, label)))),
+        h("tbody", null, report.itens.map((item, index) => h("tr", { key: `${item.sku}-${index}` },
+          h("td", null, item.sku), h("td", null, item.descricao), h("td", null, reportItemLocations(item)), h("td", null, reportItemConditions(item)),
+          h("td", { className: "numeric" }, item.quantidade ?? "—"), h("td", null, item.estado),
+          !report.camposProtegidos && h("td", { className: "numeric" }, item.saldo ?? "—"), !report.camposProtegidos && h("td", { className: "numeric" }, item.diferenca ?? "—"),
+          h("td", null, item.statusInvestigacao || "—"), h("td", null, item.conclusao || "—")
+        )))
+      )),
+      h("footer", { className: "inventory-report-signatures" }, h("div", null, "Responsável pela contagem"), h("div", null, "Responsável pela validação"))
+    )
+  );
+}
+
+function reportSelect(label, value, onChange, options) {
+  return h("label", null, h("span", null, label), h("select", { value, onChange }, options.map(([id, text]) => h("option", { key: id, value: id }, text))));
+}
+function metric(label, value) { return h("div", null, h("span", null, label), h("strong", null, value)); }
+function reportItemLocations(item) { return Object.keys(item.detalhes || {}).join(", ") || "—"; }
+function reportItemConditions(item) { const values = new Set(); Object.values(item.detalhes || {}).forEach(group => Object.keys(group || {}).forEach(key => values.add(key))); return [...values].join(", ") || "—"; }
 
 function CreateInventoryModal({ branchCode, latestImportId, request, onClose, onCreated }) {
   const [nome, setNome] = useState("");
@@ -521,6 +645,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   const [search, setSearch] = useState("");
   const [estadoFilter, setEstadoFilter] = useState("all");
   const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedOrigin, setSelectedOrigin] = useState("MANUAL");
 
   // Localização ativa com persistência no localStorage
   const [activeLocation, setActiveLocation] = useState(() => {
@@ -544,6 +669,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   const [closing, setClosing] = useState(false);
 
   const searchInputRef = useRef(null);
+  const scanTimingRef = useRef({ first: 0, last: 0, keys: 0 });
 
   useEffect(() => {
     loadActiveRoundAndItems();
@@ -585,6 +711,10 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   function handleSearchSubmit(e) {
     if (e) e.preventDefault();
     const cleanSearch = search.trim();
+    const timing = scanTimingRef.current;
+    const elapsed = timing.last - timing.first;
+    const detectedOrigin = cleanSearch.length >= 4 && timing.keys >= cleanSearch.length && elapsed > 0
+      && elapsed / Math.max(1, timing.keys - 1) <= 55 ? "SCANNER" : "MANUAL";
     if (!cleanSearch) {
       loadActiveRoundAndItems("", estadoFilter);
       return;
@@ -595,7 +725,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         i.sku.toLowerCase() === cleanSearch.toLowerCase()
       );
       if (match) {
-        openItemStepper(match);
+        openItemStepper(match, detectedOrigin);
         return;
       }
     }
@@ -603,8 +733,9 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
     loadActiveRoundAndItems(cleanSearch, estadoFilter);
   }
 
-  function openItemStepper(item) {
+  function openItemStepper(item, origin = "MANUAL") {
     setSelectedItem(item);
+    setSelectedOrigin(origin);
     const existingVal = item.quantidadeContada || 0;
     setStepperQuantity(existingVal > 0 ? existingVal : 1);
     setStepperCategory("BOA");
@@ -632,7 +763,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           categoria: stepperCategory,
           tipoAcao,
           clientEventId,
-          origem: "SCANNER",
+          origem: selectedOrigin,
           dispositivo: "PWA Mobile",
           clientTimestamp: new Date().toISOString(),
           referenciaId: selectedItem.ultimaOcorrenciaId || null
@@ -905,7 +1036,16 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           type: "text",
           className: "form-control",
           value: search,
-          onChange: (e) => setSearch(e.target.value),
+          onChange: (e) => {
+            const now = Date.now();
+            const timing = scanTimingRef.current;
+            if (!timing.last || now - timing.last > 180 || e.target.value.length <= 1) {
+              scanTimingRef.current = { first: now, last: now, keys: e.target.value.length };
+            } else {
+              scanTimingRef.current = { first: timing.first, last: now, keys: timing.keys + 1 };
+            }
+            setSearch(e.target.value);
+          },
           placeholder: "Escanear código de barras ou digitar SKU...",
           style: { flex: 1, padding: "10px 14px", fontSize: "1rem", borderRadius: "8px" }
         }),
