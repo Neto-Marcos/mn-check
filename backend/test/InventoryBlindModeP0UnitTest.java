@@ -35,27 +35,27 @@ class InventoryBlindModeP0UnitTest {
   }
 
   @Test
-  @DisplayName("InventorySecurityPolicy: R2 é SEMPRE protegida (independente do modo) até ENCERRADO")
-  void testR2AlwaysProtectedUntilClosed() {
-    // Modo NORMAL com R2: R2 deve ser cega!
-    assertTrue(InventorySecurityPolicy.isRoundProtected("NORMAL", "EM_RECONTAGEM", 2));
-    assertTrue(InventorySecurityPolicy.isRoundProtected("NORMAL", "EM_INVESTIGACAO", 2));
-
-    // Modo CEGO com R2: R2 deve ser cega!
+  @DisplayName("InventorySecurityPolicy: R2 em inventário CEGO permanece SEMPRE protegida até ENCERRADO")
+  void testR2BlindProtectionUntilClosed() {
+    // Modo CEGO com R2: R2 deve ser cega mesmo após finalizada!
     assertTrue(InventorySecurityPolicy.isRoundProtected("CEGO", "EM_RECONTAGEM", 2));
     assertTrue(InventorySecurityPolicy.isRoundProtected("CEGO", "EM_INVESTIGACAO", 2));
 
-    // Somente após ENCERRADO R2 é liberada
-    assertFalse(InventorySecurityPolicy.isRoundProtected("NORMAL", "ENCERRADO", 2));
+    // Somente após ENCERRADO R2 é liberada em modo CEGO
     assertFalse(InventorySecurityPolicy.isRoundProtected("CEGO", "ENCERRADO", 2));
+
+    // Modo NORMAL com R2: apuração é visível (pois inventário é normal)
+    assertFalse(InventorySecurityPolicy.isRoundProtected("NORMAL", "EM_INVESTIGACAO", 2));
+    assertFalse(InventorySecurityPolicy.isRoundProtected("NORMAL", "ENCERRADO", 2));
   }
 
   @Test
-  @DisplayName("InventorySecurityPolicy: Investigações seguem proteção da rodada de origem")
+  @DisplayName("InventorySecurityPolicy: Investigações seguem proteção do inventário")
   void testInvestigationProtection() {
     assertTrue(InventorySecurityPolicy.isInvestigationProtected("CEGO", "EM_INVESTIGACAO", 1));
-    assertTrue(InventorySecurityPolicy.isInvestigationProtected("NORMAL", "EM_INVESTIGACAO", 2));
+    assertTrue(InventorySecurityPolicy.isInvestigationProtected("CEGO", "EM_INVESTIGACAO", 2));
     assertFalse(InventorySecurityPolicy.isInvestigationProtected("NORMAL", "EM_INVESTIGACAO", 1));
+    assertFalse(InventorySecurityPolicy.isInvestigationProtected("NORMAL", "EM_INVESTIGACAO", 2));
     assertFalse(InventorySecurityPolicy.isInvestigationProtected("CEGO", "ENCERRADO", 1));
   }
 

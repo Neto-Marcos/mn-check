@@ -4,9 +4,9 @@ package br.com.mncheck;
  * Política central de proteção e sigilo do modo cego do inventário.
  *
  * Regras fundamentais:
- * 1. O sigilo do inventário CEGO ou da Rodada 2 termina APENAS quando o inventário estiver com status 'ENCERRADO'.
- * 2. Rodada 1 de inventário CEGO: protegida enquanto não estiver ENCERRADO.
- * 3. Rodada 2: SEMPRE cega/protegida (independente de ser modo NORMAL ou CEGO) enquanto não estiver ENCERRADO.
+ * 1. O sigilo do inventário CEGO termina APENAS quando o inventário estiver com status 'ENCERRADO'.
+ * 2. Em inventário CEGO: todas as rodadas (R1, R2, etc.) permanecem protegidas enquanto o inventário não estiver ENCERRADO.
+ * 3. Encerrar uma rodada ('FINALIZADA') NÃO encerra o sigilo em inventário CEGO; apenas o encerramento formal da sessão ('ENCERRADO') encerra o sigilo.
  * 4. Nenhum endpoint operacional pode revelar saldo esperado, diferença ou conformidade/divergência em contexto protegido.
  * 5. Após o encerramento formal ('ENCERRADO'), o resultado histórico oficial e imutável pode ser consultado na íntegra.
  */
@@ -26,21 +26,17 @@ public final class InventorySecurityPolicy {
     if (isClosed(inventoryStatus)) {
       return false;
     }
-    boolean isBlind = "CEGO".equalsIgnoreCase(inventoryMode);
-    if (roundNumber == 1) {
-      return isBlind;
-    }
-    if (roundNumber >= 2) {
-      return true; // R2 é SEMPRE cega
-    }
-    return isBlind;
+    return "CEGO".equalsIgnoreCase(inventoryMode);
   }
 
   /**
    * Determina se a investigação de uma divergência está em contexto protegido.
    */
   public static boolean isInvestigationProtected(String inventoryMode, String inventoryStatus, int roundNumber) {
-    return isRoundProtected(inventoryMode, inventoryStatus, roundNumber);
+    if (isClosed(inventoryStatus)) {
+      return false;
+    }
+    return "CEGO".equalsIgnoreCase(inventoryMode);
   }
 
   /**
