@@ -183,13 +183,14 @@ public class InventoryCountingService {
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
+        rejectCrossContextEventId(connection, clientEventId, inventoryId, normalizedBranch);
         requireBranch(connection, normalizedBranch);
-        InventoryHeader inventory = requireInventory(connection, inventoryId, normalizedBranch);
+        InventoryHeader inventory = requireInventoryForUpdate(connection, inventoryId, normalizedBranch);
         if (!"EM_CONTAGEM".equalsIgnoreCase(inventory.status()) && !"EM_RECONTAGEM".equalsIgnoreCase(inventory.status())) {
           throw new ConflictException("Inventário não está em contagem (status atual: " + inventory.status() + ").");
         }
 
-        RoundRecord round = requireRound(connection, roundId, inventoryId);
+        RoundRecord round = requireRoundForUpdate(connection, roundId, inventoryId);
         if (!"EM_ANDAMENTO".equalsIgnoreCase(round.status())) {
           throw new ConflictException("Rodada " + round.numero() + " não está em andamento.");
         }
@@ -216,6 +217,8 @@ public class InventoryCountingService {
 
         OccurrenceRecord occurrence = insertOccurrenceIdempotent(
             connection,
+            inventoryId,
+            normalizedBranch,
             round.id(),
             item.id(),
             sku,
@@ -722,6 +725,8 @@ public class InventoryCountingService {
 
   private OccurrenceRecord insertOccurrenceIdempotent(
       Connection connection,
+      long inventoryId,
+      String branchCode,
       long roundId,
       long itemId,
       String sku,
@@ -763,7 +768,10 @@ public class InventoryCountingService {
 
       try (ResultSet result = statement.executeQuery()) {
         if (result.next()) {
-          return mapOccurrence(result);
+          OccurrenceRecord existing = mapOccurrence(result);
+          assertSameEvent(connection, existing, inventoryId, branchCode, roundId, itemId, sku,
+              quantidade, localizacao, categoria, tipoAcao, origem, dispositivo, clientTimestamp, referenciaId);
+          return existing;
         }
       }
     }
@@ -784,6 +792,57 @@ public class InventoryCountingService {
       }
     }
     throw new SQLException("Não foi possível recuperar a ocorrência idempotente gravada.");
+  }
+
+  private void assertSameEvent(Connection connection, OccurrenceRecord existing, long inventoryId,
+      String branchCode, long roundId, long itemId, String sku, int quantidade, String localizacao,
+      String categoria, String tipoAcao, String origem, String dispositivo, Instant clientTimestamp,
+      Long referenciaId) throws SQLException {
+    boolean sameContext;
+    try (PreparedStatement statement = connection.prepareStatement("""
+        SELECT r.inventario_id, f.codigo AS filial_codigo
+        FROM rodadas_contagem r
+        JOIN inventarios i ON i.id = r.inventario_id
+        JOIN filiais f ON f.id = i.filial_id
+        WHERE r.id = ?
+        """)) {
+      statement.setLong(1, existing.rodadaId());
+      try (ResultSet result = statement.executeQuery()) {
+        sameContext = result.next()
+            && result.getLong("inventario_id") == inventoryId
+            && branchCode.equals(result.getString("filial_codigo"));
+      }
+    }
+    String normalizedDevice = dispositivo == null ? "" : dispositivo.trim();
+    String existingDevice = existing.dispositivo() == null ? "" : existing.dispositivo();
+    if (!sameContext || existing.rodadaId() != roundId || existing.inventarioItemId() != itemId
+        || !existing.sku().equals(sku) || existing.quantidade() != quantidade
+        || !existing.localizacao().equals(localizacao) || !existing.categoria().equals(categoria)
+        || !existing.tipoAcao().equals(tipoAcao) || !existing.origem().equals(origem)
+        || !existingDevice.equals(normalizedDevice)
+        || !java.util.Objects.equals(existing.referenciaId(), referenciaId)) {
+      throw new ConflictException("client_event_id já foi utilizado por um evento diferente.");
+    }
+  }
+
+  private void rejectCrossContextEventId(Connection connection, UUID clientEventId, long inventoryId,
+      String branchCode) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement("""
+        SELECT r.inventario_id, f.codigo AS filial_codigo
+        FROM ocorrencias_contagem oc
+        JOIN rodadas_contagem r ON r.id = oc.rodada_id
+        JOIN inventarios i ON i.id = r.inventario_id
+        JOIN filiais f ON f.id = i.filial_id
+        WHERE oc.client_event_id = ?
+        """)) {
+      statement.setObject(1, clientEventId);
+      try (ResultSet result = statement.executeQuery()) {
+        if (result.next() && (result.getLong("inventario_id") != inventoryId
+            || !branchCode.equals(result.getString("filial_codigo")))) {
+          throw new ConflictException("client_event_id já foi utilizado por um evento diferente.");
+        }
+      }
+    }
   }
 
   private void validateReferenceOccurrence(Connection connection, long roundId, long itemId, long refId)
@@ -993,7 +1052,7 @@ public class InventoryCountingService {
         FROM inventarios i
         JOIN filiais f ON f.id = i.filial_id
         WHERE i.id = ? AND f.codigo = ?
-        FOR UPDATE
+        FOR UPDATE OF i
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, inventoryId);

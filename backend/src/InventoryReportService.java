@@ -62,8 +62,7 @@ public class InventoryReportService {
       } else {
         int roundNumber = "R2".equals(filter.contexto()) ? 2 : 1;
         Round round = loadRound(connection, inventoryId, roundNumber);
-        protectedFields = (roundNumber == 2 && "EM_ANDAMENTO".equals(round.status()))
-            || (roundNumber == 1 && "CEGO".equals(header.mode()) && "EM_ANDAMENTO".equals(round.status()));
+        protectedFields = roundNumber == 2 || (roundNumber == 1 && "CEGO".equals(header.mode()));
         source = loadRoundItems(connection, inventoryId, round, roundNumber == 2);
       }
       if (protectedFields && (Set.of("CONFORMES", "DIVERGENTES").contains(filter.status())
@@ -141,33 +140,64 @@ public class InventoryReportService {
     String sql = "SELECT ii.id, ii.sku, ii.descricao_snapshot, ii.saldo_snapshot FROM inventario_itens ii "
         + (scoped ? "JOIN rodada_itens ri ON ri.inventario_item_id=ii.id AND ri.rodada_id=? " : "")
         + "WHERE ii.inventario_id=? ORDER BY ii.sku";
-    List<ReportItem> result = new ArrayList<>();
+    List<RoundItem> items = new ArrayList<>();
     try (PreparedStatement ps = c.prepareStatement(sql)) {
       int p = 1; if (scoped) ps.setLong(p++, round.id()); ps.setLong(p, inventoryId);
       try (ResultSet rs = ps.executeQuery()) {
-        while (rs.next()) result.add(projectRoundItem(c, round, rs.getLong("id"), rs.getString("sku"), rs.getString("descricao_snapshot"), rs.getInt("saldo_snapshot")));
+        while (rs.next()) items.add(new RoundItem(rs.getLong("id"), rs.getString("sku"), rs.getString("descricao_snapshot"), rs.getInt("saldo_snapshot")));
+      }
+    }
+    Map<Long, ReportItem> audited = loadRoundAudits(c, round.id(), items);
+    Map<Long, List<InventoryCountingService.OccurrenceRecord>> occurrences = loadRoundOccurrences(c, round.id());
+    List<ReportItem> result = new ArrayList<>();
+    for (RoundItem item : items) {
+      ReportItem audit = audited.get(item.id());
+      if (audit != null) {
+        result.add(audit);
+        continue;
+      }
+      List<InventoryCountingService.OccurrenceRecord> itemOccurrences = occurrences.getOrDefault(item.id(), List.of());
+      if (itemOccurrences.isEmpty()) {
+        result.add(new ReportItem(item.sku(), item.description(), Map.of(), null, "NAO_CONTADO", item.balance(), null, null, null));
+      } else {
+        InventoryCountingService.ItemProjection projection = InventoryCountingService.calculateItemProjection(itemOccurrences);
+        int difference = projection.totalQuantity() - item.balance();
+        result.add(new ReportItem(item.sku(), item.description(), toObjectMap(projection.locationDetails()),
+            projection.totalQuantity(), difference == 0 ? "CONFORME" : "DIVERGENTE", item.balance(), difference, null, null));
       }
     }
     return result;
   }
 
-  private ReportItem projectRoundItem(Connection c, Round round, long itemId, String sku, String description, int balance) throws SQLException {
-    String auditSql = "SELECT contado, quantidade_fisica, diferenca, estado, detalhes_localizacao_condicao FROM apuracoes_rodada WHERE rodada_id=? AND inventario_item_id=?";
-    try (PreparedStatement ps = c.prepareStatement(auditSql)) {
-      ps.setLong(1, round.id()); ps.setLong(2, itemId);
+  private Map<Long, ReportItem> loadRoundAudits(Connection c, long roundId, List<RoundItem> items) throws SQLException {
+    Map<Long, RoundItem> byId = new LinkedHashMap<>();
+    for (RoundItem item : items) byId.put(item.id(), item);
+    Map<Long, ReportItem> result = new LinkedHashMap<>();
+    try (PreparedStatement ps = c.prepareStatement("SELECT inventario_item_id,contado,quantidade_fisica,diferenca,estado,detalhes_localizacao_condicao FROM apuracoes_rodada WHERE rodada_id=?")) {
+      ps.setLong(1, roundId);
       try (ResultSet rs = ps.executeQuery()) {
-        if (rs.next()) return new ReportItem(sku, description, locations(rs.getString("detalhes_localizacao_condicao")), rs.getBoolean("contado") ? (Integer) rs.getObject("quantidade_fisica") : null, rs.getString("estado"), balance, (Integer) rs.getObject("diferenca"), null, null);
+        while (rs.next()) {
+          long itemId = rs.getLong("inventario_item_id");
+          RoundItem item = byId.get(itemId);
+          if (item != null) result.put(itemId, new ReportItem(item.sku(), item.description(), locations(rs.getString("detalhes_localizacao_condicao")), rs.getBoolean("contado") ? (Integer) rs.getObject("quantidade_fisica") : null, rs.getString("estado"), item.balance(), (Integer) rs.getObject("diferenca"), null, null));
+        }
       }
     }
-    List<InventoryCountingService.OccurrenceRecord> occurrences = new ArrayList<>();
-    try (PreparedStatement ps = c.prepareStatement("SELECT id, rodada_id, inventario_item_id, sku, quantidade, localizacao, categoria, tipo_acao, operador, client_event_id, origem, dispositivo, client_timestamp, server_timestamp, referencia_id FROM ocorrencias_contagem WHERE rodada_id=? AND inventario_item_id=? ORDER BY server_timestamp,id")) {
-      ps.setLong(1, round.id()); ps.setLong(2, itemId);
-      try (ResultSet rs = ps.executeQuery()) { while (rs.next()) occurrences.add(mapOccurrence(rs)); }
+    return result;
+  }
+
+  private Map<Long, List<InventoryCountingService.OccurrenceRecord>> loadRoundOccurrences(Connection c, long roundId) throws SQLException {
+    Map<Long, List<InventoryCountingService.OccurrenceRecord>> result = new LinkedHashMap<>();
+    try (PreparedStatement ps = c.prepareStatement("SELECT id, rodada_id, inventario_item_id, sku, quantidade, localizacao, categoria, tipo_acao, operador, client_event_id, origem, dispositivo, client_timestamp, server_timestamp, referencia_id FROM ocorrencias_contagem WHERE rodada_id=? ORDER BY server_timestamp,id")) {
+      ps.setLong(1, roundId);
+      try (ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          InventoryCountingService.OccurrenceRecord occurrence = mapOccurrence(rs);
+          result.computeIfAbsent(occurrence.inventarioItemId(), ignored -> new ArrayList<>()).add(occurrence);
+        }
+      }
     }
-    if (occurrences.isEmpty()) return new ReportItem(sku, description, Map.of(), null, "NAO_CONTADO", balance, null, null, null);
-    InventoryCountingService.ItemProjection p = InventoryCountingService.calculateItemProjection(occurrences);
-    int difference = p.totalQuantity() - balance;
-    return new ReportItem(sku, description, toObjectMap(p.locationDetails()), p.totalQuantity(), difference == 0 ? "CONFORME" : "DIVERGENTE", balance, difference, null, null);
+    return result;
   }
 
   private List<ReportItem> loadFinalItems(Connection c, long inventoryId, long branchId) throws SQLException {
@@ -225,11 +255,13 @@ public class InventoryReportService {
   public record ReportItem(String sku,String descricao,Map<String,Object> detalhes,Integer quantidade,String estado,Integer saldo,Integer diferenca,String statusInvestigacao,String conclusao){
     ReportItem protect(){return new ReportItem(sku,descricao,detalhes,quantidade,quantidade==null?"NAO_CONTADO":"CONTADO",null,null,null,null);}
     String localizacao(){return detalhes==null||detalhes.isEmpty()?"":String.join(", ",detalhes.keySet());}
-    String condicao(){if(detalhes==null)return "";List<String> values=new ArrayList<>();for(Object v:detalhes.values())if(v instanceof Map<?,?>m)for(Object k:m.keySet())if(!values.contains(String.valueOf(k)))values.add(String.valueOf(k));return String.join(", ",values);}
+    String condicao(){if(detalhes==null)return "";List<String> values=new ArrayList<>();for(Object v:detalhes.values())if(v instanceof Map<?,?>m)for(Map.Entry<?,?>e:m.entrySet())if(positive(e.getValue())&&!values.contains(String.valueOf(e.getKey())))values.add(String.valueOf(e.getKey()));return String.join(", ",values);}
     boolean matchesLocation(String value){return detalhes!=null&&detalhes.containsKey(value);}
-    boolean matchesCondition(String value){if(detalhes==null)return false;for(Object v:detalhes.values())if(v instanceof Map<?,?>m&&m.containsKey(value))return true;return false;}
+    boolean matchesCondition(String value){if(detalhes==null)return false;for(Object v:detalhes.values())if(v instanceof Map<?,?>m&&positive(m.get(value)))return true;return false;}
+    private static boolean positive(Object value){return value instanceof Number n&&n.intValue()>0;}
   }
   private record Header(long branchId,String name,String mode,String status){}
   private record Round(long id,String status){}
+  private record RoundItem(long id,String sku,String description,int balance){}
   public static class ReportException extends RuntimeException {private final int status;ReportException(int status,String message){super(message);this.status=status;}ReportException(int status,String message,Throwable cause){super(message,cause);this.status=status;}public int status(){return status;}}
 }

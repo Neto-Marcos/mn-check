@@ -347,7 +347,7 @@ public class InventorySessionService {
         nullableInstant(result, "aberto_em"), result.getString("encerrado_por"),
         nullableInstant(result, "encerrado_em"), result.getString("cancelado_por"),
         nullableInstant(result, "cancelado_em"), result.getInt("total_skus"),
-        result.getLong("total_unidades"));
+        "CEGO".equalsIgnoreCase(result.getString("modo")) ? null : result.getLong("total_unidades"));
   }
 
   private Connection connect() throws SQLException {
@@ -410,7 +410,7 @@ public class InventorySessionService {
                                  String tipo, String modo, String status, long version,
                                  String criadoPor, Instant criadoEm, String abertoPor, Instant abertoEm,
                                  String encerradoPor, Instant encerradoEm, String canceladoPor,
-                                 Instant canceladoEm, int totalSkus, long totalUnidades) {}
+                                 Instant canceladoEm, int totalSkus, Long totalUnidades) {}
   public record InventoryDetail(InventorySummary inventory, List<InventoryItem> items) {}
   private record Branch(long id, String code) {}
   private record SessionState(String status, long version) {}

@@ -736,8 +736,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   function openItemStepper(item, origin = "MANUAL") {
     setSelectedItem(item);
     setSelectedOrigin(origin);
-    const existingVal = item.quantidadeContada || 0;
-    setStepperQuantity(existingVal > 0 ? existingVal : 1);
+    setStepperQuantity(initialCountQuantity(item));
     setStepperCategory("BOA");
     setFeedback(null);
     setError("");
@@ -750,8 +749,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
     setFeedback(null);
 
     const clientEventId = generateUUID();
-    const isCorrection = (selectedItem.quantidadeContada || 0) > 0;
-    const tipoAcao = isCorrection ? "CORRECAO" : "DEFINIR";
+    const tipoAcao = countActionType(selectedItem);
 
     try {
       const result = await request(`/api/inventarios/${inventory.id}/rodadas/${roundDetail.id}/contagens?branchCode=${encodeURIComponent(branchCode)}`, {
@@ -920,7 +918,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         h("div", { className: "metric-tag" },
           h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Contagem Atual nesta Rodada:"),
           h("strong", { style: { fontSize: "1.1rem", color: "var(--accent-green, #10b981)" } },
-            selectedItem.quantidadeContada ? `${selectedItem.quantidadeContada} un` : "Pendente"
+            countDisplay(selectedItem)
           )
         )
       ),
@@ -1110,8 +1108,8 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         ),
 
         h("div", { style: { textAlign: "right" } },
-          item.quantidadeContada > 0 && h("div", { style: { fontWeight: "bold", fontSize: "1.1rem", color: "var(--accent-green, #10b981)" } },
-            `${item.quantidadeContada} un`
+          isExplicitlyCounted(item) && h("div", { style: { fontWeight: "bold", fontSize: "1.1rem", color: "var(--accent-green, #10b981)" } },
+            `${item.quantidadeContada ?? 0} un`
           ),
           !isBlind && item.saldoSnapshot != null && h("div", { className: "hint", style: { fontSize: "0.8rem" } },
             `Esp: ${item.saldoSnapshot}`
@@ -3136,3 +3134,4 @@ if (typeof window !== "undefined") {
     CreateInventoryModal
   };
 }
+import { countActionType, countDisplay, initialCountQuantity, isExplicitlyCounted } from "./inventory_counting_logic.js?v=236-rc2";

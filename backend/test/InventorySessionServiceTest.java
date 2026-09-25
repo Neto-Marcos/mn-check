@@ -1,6 +1,7 @@
 package br.com.mncheck;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
@@ -77,6 +78,11 @@ class InventorySessionServiceTest {
           new InventorySessionService.CreateCommand(seed.import281(), "281", "Parcial",
               "PARCIAL", "CEGO", List.of("SKU-B")), "Operador");
       assertEquals(1, partial.inventory().totalSkus());
+      assertNull(partial.inventory().totalUnidades(),
+          "modo CEGO não pode expor o saldo agregado no resumo ou detalhe");
+      assertNull(service.list("281").stream()
+          .filter(summary -> summary.id() == partial.inventory().id()).findFirst().orElseThrow().totalUnidades(),
+          "GET da coleção também deve ocultar o agregado do modo CEGO");
       assertEquals("SKU-B", partial.items().get(0).sku());
 
       assertUniqueInventorySku(scopedUrl, general.inventory().id());

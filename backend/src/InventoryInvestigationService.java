@@ -988,6 +988,7 @@ public class InventoryInvestigationService {
         FROM inventarios i
         JOIN filiais f ON f.id = i.filial_id
         WHERE i.id = ? AND f.codigo = ?
+        FOR UPDATE OF i
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
       statement.setLong(1, inventoryId);

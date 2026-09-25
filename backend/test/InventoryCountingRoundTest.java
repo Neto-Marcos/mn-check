@@ -138,6 +138,7 @@ class InventoryCountingRoundTest {
 
       // 5. Sanitização de Modo CEGO: GET /api/inventarios/{id} e itens
       InventorySessionService.InventoryDetail loadedCegoDetail = sessionService.loadDetail(cegoId, "281");
+      assertNull(loadedCegoDetail.inventory().totalUnidades(), "modo CEGO não expõe agregado esperado");
       for (InventorySessionService.InventoryItem item : loadedCegoDetail.items()) {
         assertNull(item.saldoSnapshot(), "Em modo CEGO, saldoSnapshot deve ser null no detalhe da sessão");
       }
@@ -176,6 +177,21 @@ class InventoryCountingRoundTest {
       );
       assertEquals(occ1.id(), occ1Dupe.id());
       assertEquals(1, countRows(scopedUrl, "ocorrencias_contagem"));
+      assertEquals(409, assertThrows(InventoryCountingService.ConflictException.class,
+          () -> countingService.recordOccurrence(normalId, activeRound.id(), "281",
+              new InventoryCountingService.RecordOccurrenceCommand(
+                  "SKU-100", 11, "BOA", "DEFINIR", event1, "SCANNER", "Terminal 01", Instant.now(), null),
+              "Operador 01")).status());
+      assertEquals(409, assertThrows(InventoryCountingService.ConflictException.class,
+          () -> countingService.recordOccurrence(normalId, activeRound.id(), "281",
+              new InventoryCountingService.RecordOccurrenceCommand(
+                  "SKU-200", 10, "BOA", "DEFINIR", event1, "SCANNER", "Terminal 01", Instant.now(), null),
+              "Operador 01")).status());
+      assertEquals(409, assertThrows(InventoryCountingService.ConflictException.class,
+          () -> countingService.recordOccurrence(normalId, activeRound.id(), "282",
+              new InventoryCountingService.RecordOccurrenceCommand(
+                  "SKU-100", 10, "BOA", "DEFINIR", event1, "SCANNER", "Terminal 01", Instant.now(), null),
+              "Operador 01")).status());
 
       // 9. Semântica de Múltiplas Ocorrências: SOMAR cumulativo
       UUID event2 = UUID.randomUUID();

@@ -57,6 +57,27 @@ class InventoryReportServiceTest {
   }
 
   @Test
+  void conditionFilterRequiresPositiveQuantityAcrossLocations() {
+    Map<String, Object> onlyGood = Map.of("GERAL", Map.of("BOA", 5, "AVARIA", 0));
+    Map<String, Object> onlyDamaged = Map.of("DEPOSITO", Map.of("BOA", 0, "AVARIA", 2));
+    Map<String, Object> both = Map.of("VENDAS", Map.of("BOA", 3), "DEPOSITO", Map.of("AVARIA", 1));
+    Map<String, Object> allZero = Map.of("GERAL", Map.of("BOA", 0, "AVARIA", 0));
+    List<InventoryReportService.ReportItem> source = List.of(
+        new InventoryReportService.ReportItem("A", "Somente boa", onlyGood, 5, "DIVERGENTE", 4, 1, null, null),
+        new InventoryReportService.ReportItem("B", "Somente avaria", onlyDamaged, 2, "DIVERGENTE", 1, 1, null, null),
+        new InventoryReportService.ReportItem("C", "Ambas", both, 4, "DIVERGENTE", 3, 1, null, null),
+        new InventoryReportService.ReportItem("D", "Zeros", allZero, 0, "CONFORME", 0, 0, null, null));
+
+    assertEquals(List.of("A", "C"), InventoryReportService.applyFilters(source,
+        filter("R1", "TODOS", "TODAS", "BOA", "TODAS", "", "SKU"), false)
+        .stream().map(InventoryReportService.ReportItem::sku).toList());
+    assertEquals(List.of("B", "C"), InventoryReportService.applyFilters(source,
+        filter("R1", "TODOS", "TODAS", "AVARIA", "TODAS", "", "SKU"), false)
+        .stream().map(InventoryReportService.ReportItem::sku).toList());
+    assertEquals("", source.get(3).condicao());
+  }
+
+  @Test
   void blindProjectionRemovesEveryProtectedFieldBeforeApiOrExport() {
     InventoryReportService.ReportItem source = item("1.1.1", "Produto", 7, "DIVERGENTE", 10, -3, "PENDENTE", "GERAL", "BOA");
     InventoryReportService.ReportItem protectedItem = InventoryReportService.applyFilters(List.of(source),
