@@ -52,15 +52,15 @@ class FlywayMigrationTest {
     try {
       Flyway emptyFlyway = flyway(config, emptySchema);
       MigrateResult emptyResult = emptyFlyway.migrate();
-      assertEquals(5, emptyResult.migrationsExecuted);
+      assertEquals(6, emptyResult.migrationsExecuted);
       assertBranchCreatedOnce(config, emptySchema);
       assertRootTablesHaveBranch(config, emptySchema);
       assertInventorySessionTables(config, emptySchema);
 
       Flyway existingFlyway = flyway(config, existingSchema);
       MigrateResult existingResult = existingFlyway.migrate();
-      assertEquals(5, existingResult.migrationsExecuted,
-          "schema existente deve receber V1, V2, V3, V4 e V5 depois do baseline 0");
+      assertEquals(6, existingResult.migrationsExecuted,
+          "schema existente deve receber V1, V2, V3, V4, V5 e V6 depois do baseline 0");
       assertBranchCreatedOnce(config, existingSchema);
       assertRootTablesHaveBranch(config, existingSchema);
       assertInventorySessionTables(config, existingSchema);
@@ -73,8 +73,8 @@ class FlywayMigrationTest {
       MigrateResult repeated = existingFlyway.migrate();
       assertEquals(0, repeated.migrationsExecuted);
       assertBranchCreatedOnce(config, existingSchema);
-      assertTrue(existingFlyway.info().applied().length >= 6,
-          "schema existente deve registrar baseline, V1, V2, V3, V4 e V5");
+      assertTrue(existingFlyway.info().applied().length >= 7,
+          "schema existente deve registrar baseline, V1, V2, V3, V4, V5 e V6");
 
       String scopedUrl = withCurrentSchema(databaseUrl, existingSchema);
       PostgresDatabase legacyInitialization = new PostgresDatabase(scopedUrl);
@@ -86,6 +86,52 @@ class FlywayMigrationTest {
       try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
         statement.execute("DROP SCHEMA IF EXISTS " + emptySchema + " CASCADE");
         statement.execute("DROP SCHEMA IF EXISTS " + existingSchema + " CASCADE");
+      }
+    }
+  }
+
+  @Test
+  void testUpgradeFromV5ToV6() throws Exception {
+    String databaseUrl = authorizedDatabaseUrl();
+    DatabaseUrlParser.JdbcConfig config = DatabaseUrlParser.parse(databaseUrl);
+    String upgradeSchema = schemaName("upgrade_v5_v6");
+
+    try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
+      statement.execute("CREATE SCHEMA " + upgradeSchema);
+    }
+
+    try {
+      // 1. Migra até a versão 5
+      Flyway v5Flyway = Flyway.configure()
+          .dataSource(config.url(), config.username(), config.password())
+          .schemas(upgradeSchema)
+          .defaultSchema(upgradeSchema)
+          .locations("classpath:db/migration")
+          .baselineOnMigrate(true)
+          .baselineVersion("0")
+          .target("5")
+          .load();
+
+      MigrateResult v5Result = v5Flyway.migrate();
+      assertEquals(5, v5Result.migrationsExecuted, "Deve executar 5 migrações até a V5");
+      assertEquals("5", v5Flyway.info().current().getVersion().getVersion());
+
+      // 2. Aplica upgrade para V6
+      Flyway v6Flyway = Flyway.configure()
+          .dataSource(config.url(), config.username(), config.password())
+          .schemas(upgradeSchema)
+          .defaultSchema(upgradeSchema)
+          .locations("classpath:db/migration")
+          .target("6")
+          .load();
+
+      MigrateResult v6Result = v6Flyway.migrate();
+      assertEquals(1, v6Result.migrationsExecuted, "Upgrade de V5 para V6 deve executar exatamente 1 migration");
+      assertEquals("6", v6Flyway.info().current().getVersion().getVersion());
+      assertInventorySessionTables(config, upgradeSchema);
+    } finally {
+      try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
+        statement.execute("DROP SCHEMA IF EXISTS " + upgradeSchema + " CASCADE");
       }
     }
   }
@@ -129,16 +175,22 @@ class FlywayMigrationTest {
 
   private void assertInventorySessionTables(DatabaseUrlParser.JdbcConfig config, String schema)
       throws Exception {
-    assertEquals("6", scalar(config, """
+    assertEquals("10", scalar(config, """
         SELECT COUNT(*)::text FROM information_schema.tables
         WHERE table_schema = '%s' AND table_name IN (
           'inventarios', 'inventario_itens', 'rodadas_contagem',
-          'ocorrencias_contagem', 'rodada_itens', 'apuracoes_rodada'
+          'ocorrencias_contagem', 'rodada_itens', 'apuracoes_rodada',
+          'investigacoes_divergencia', 'evidencias_investigacao',
+          'investigacao_vinculos', 'eventos_investigacao'
         )
         """.formatted(schema)));
     assertEquals("1", scalar(config, """
         SELECT COUNT(*)::text FROM information_schema.columns
         WHERE table_schema = '%s' AND table_name = 'ocorrencias_contagem' AND column_name = 'localizacao'
+        """.formatted(schema)));
+    assertEquals("1", scalar(config, """
+        SELECT COUNT(*)::text FROM information_schema.columns
+        WHERE table_schema = '%s' AND table_name = 'investigacoes_divergencia' AND column_name = 'causa_confirmada'
         """.formatted(schema)));
   }
 

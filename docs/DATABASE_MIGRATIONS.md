@@ -113,3 +113,23 @@ Principais garantias do modelo V4:
 3. **Escopo delimitado de recontagem (`rodada_itens`):** Quando uma rodada possui registros em `rodada_itens`, apenas os itens ali presentes entram no escopo e podem ser contados e visualizados. Permite delimitar a Rodada 2 exclusivamente para itens divergentes ou não contados.
 4. **Apuração materializada auditável (`apuracoes_rodada`):** Registra o snapshot do encerramento com `saldo_snapshot`, `quantidade_fisica`, `diferenca`, `estado` (`CONFORME`, `DIVERGENTE`, `NAO_CONTADO`, `CONFORME_APOS_RECONTAGEM`, `DIVERGENCIA_CONFIRMADA`) e o detalhamento JSONB dos buckets `(localizacao, condicao)`.
 
+## V6 — investigação e tratativa de divergências
+
+`V6__create_inventory_investigations.sql` adiciona a estrutura relacional para o ciclo de vida investigativo de divergências confirmadas sem alterar contagens físicas ou apurações:
+
+1. **Investigações de Divergência (`investigacoes_divergencia`):**
+   - Entidade central associada a `apuracoes_rodada(id)` com restrição `UNIQUE (apuracao_id)`, garantindo no máximo uma investigação por apuração.
+   - Estados: `PENDENTE`, `EM_INVESTIGACAO`, `AGUARDANDO_EVIDENCIA`, `RESOLVIDA`, `SEM_CAUSA_IDENTIFICADA`.
+   - Distinção estrita entre `causa_suspeita` e `causa_confirmada`.
+   - Trilha de auditoria completa: `responsavel_id`, `responsavel_nome`, `criado_em/por`, `atualizado_em/por`, `resolvido_em/por` e `version` para controle de concorrência.
+2. **Evidências Investigativas (`evidencias_investigacao`):**
+   - Tipos suportados: `OBSERVACAO`, `FOTO`, `DOCUMENTO`, `NOTA_FISCAL`, `CONTAGEM`, `PRODUTO_RELACIONADO`, `OUTRO`.
+   - Suporte a anotação descritiva e referências externas/arquivos sem necessidade de S3/armazenamento binário complexo.
+3. **Vínculos entre Divergências (`investigacao_vinculos`):**
+   - Relação auditável entre investigações e produtos ou apurações irmãs (ex: sobressalentes e faltantes).
+   - Tipos de vínculo: `POSSIVEL_INVERSAO`, `POSSIVEL_VOLTAGEM`, `MESMO_PRODUTO`, `MOVIMENTACAO_RELACIONADA`, `OUTRO`.
+   - Restrição estrita de isolamento multi-filial e inventário.
+4. **Histórico e Linha do Tempo (`eventos_investigacao`):**
+   - Tabela append-only registrando cada marco do ciclo de vida: `CRIADA`, `INICIADA`, `STATUS_ALTERADO`, `CAUSA_SUSPEITA_ALTERADA`, `EVIDENCIA_ADICIONADA`, `PRODUTO_RELACIONADO`, `RESOLVIDA`, `ENCERRADA_SEM_CAUSA`, `REABERTA`.
+
+

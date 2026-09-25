@@ -3,6 +3,7 @@ package br.com.mncheck;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -17,19 +18,22 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/inventarios")
+@RequestMapping({"/api/inventarios", "/api/inventory/sessions"})
 public class InventorySessionController {
   private final InventorySessionService service;
   private final InventoryCountingService countingService;
+  private final InventoryInvestigationService investigationService;
   private final LegacyAuthenticationClient authentication;
 
   public InventorySessionController(
       InventorySessionService service,
       InventoryCountingService countingService,
+      InventoryInvestigationService investigationService,
       LegacyAuthenticationClient authentication
   ) {
     this.service = service;
     this.countingService = countingService;
+    this.investigationService = investigationService != null ? investigationService : new InventoryInvestigationService();
     this.authentication = authentication;
   }
 
@@ -163,6 +167,171 @@ public class InventorySessionController {
     return countingService.createRecountRound(id, branchCode, request.itemIds(), user.name());
   }
 
+  // --- Investigações de Divergência (Dia 6) ---
+
+  @GetMapping({"{id}/investigacoes", "{id}/investigations"})
+  public List<InventoryInvestigationService.InvestigationSummary> listInvestigations(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode,
+      @RequestParam(required = false) String status
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return investigationService.list(id, branchCode, status);
+  }
+
+  @GetMapping({"{id}/investigacoes/{investigationId}", "{id}/investigations/{investigationId}"})
+  public InventoryInvestigationService.InvestigationDetail getInvestigation(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return investigationService.getDetail(id, investigationId, branchCode);
+  }
+
+  @PostMapping({"{id}/investigacoes", "{id}/investigations"})
+  public ResponseEntity<InventoryInvestigationService.InvestigationDetail> createInvestigation(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode,
+      @RequestBody CreateInvestigationRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    InventoryInvestigationService.InvestigationDetail created = investigationService.create(
+        id, branchCode, new InventoryInvestigationService.CreateCommand(
+            request.apuracaoId(), request.causaSuspeita(), request.justificativa()
+        ), user.name());
+    return ResponseEntity.status(201).body(created);
+  }
+
+  @PostMapping({"{id}/investigacoes/{investigationId}/iniciar", "{id}/investigations/{investigationId}/start"})
+  public InventoryInvestigationService.InvestigationDetail startInvestigation(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode,
+      @RequestBody(required = false) StartInvestigationRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    InventoryInvestigationService.StartCommand cmd = request != null
+        ? new InventoryInvestigationService.StartCommand(
+            request.responsavelId(), request.responsavelNome(), request.causaSuspeita(), request.justificativa())
+        : new InventoryInvestigationService.StartCommand(user.name(), user.name(), null, null);
+    return investigationService.start(id, investigationId, branchCode, cmd, user.name());
+  }
+
+  @PostMapping({"{id}/investigacoes/{investigationId}/suspeita", "{id}/investigations/{investigationId}/suspect-cause"})
+  public InventoryInvestigationService.InvestigationDetail updateSuspectCause(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode,
+      @RequestBody SuspectCauseRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    return investigationService.updateSuspectCause(
+        id, investigationId, branchCode,
+        new InventoryInvestigationService.SuspectCauseCommand(request.causaSuspeita(), request.justificativa()),
+        user.name());
+  }
+
+  @PostMapping({"{id}/investigacoes/{investigationId}/status", "{id}/investigations/{investigationId}/status"})
+  public InventoryInvestigationService.InvestigationDetail changeStatus(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode,
+      @RequestBody ChangeStatusRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    return investigationService.changeStatus(id, investigationId, branchCode, request.status(), request.motivo(), user.name());
+  }
+
+  @PostMapping({"{id}/investigacoes/{investigationId}/evidencias", "{id}/investigations/{investigationId}/evidence"})
+  public ResponseEntity<InventoryInvestigationService.EvidenceRecord> addEvidence(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode,
+      @RequestBody AddEvidenceRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    InventoryInvestigationService.EvidenceRecord record = investigationService.addEvidence(
+        id, investigationId, branchCode,
+        new InventoryInvestigationService.AddEvidenceCommand(request.tipo(), request.descricao(), request.referencia()),
+        user.name());
+    return ResponseEntity.status(201).body(record);
+  }
+
+  @PostMapping({"{id}/investigacoes/{investigationId}/vinculos", "{id}/investigations/{investigationId}/links"})
+  public ResponseEntity<InventoryInvestigationService.LinkRecord> addLink(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode,
+      @RequestBody AddLinkRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    InventoryInvestigationService.LinkRecord record = investigationService.addLink(
+        id, investigationId, branchCode,
+        new InventoryInvestigationService.AddLinkCommand(
+            request.inventarioItemRelacionadoId(), request.apuracaoRelacionadaId(), request.tipoVinculo(), request.observacao()),
+        user.name());
+    return ResponseEntity.status(201).body(record);
+  }
+
+  @PostMapping({"{id}/investigacoes/{investigationId}/resolver", "{id}/investigations/{investigationId}/resolve"})
+  public InventoryInvestigationService.InvestigationDetail resolve(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode,
+      @RequestBody ResolveRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    return investigationService.resolve(
+        id, investigationId, branchCode,
+        new InventoryInvestigationService.ResolveCommand(request.causaConfirmada(), request.conclusao()),
+        user.name());
+  }
+
+  @PostMapping({"{id}/investigacoes/{investigationId}/sem-causa", "{id}/investigations/{investigationId}/unresolved"})
+  public InventoryInvestigationService.InvestigationDetail closeUnresolved(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode,
+      @RequestBody UnresolvedRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    return investigationService.closeUnresolved(
+        id, investigationId, branchCode,
+        new InventoryInvestigationService.UnresolvedCommand(request.conclusao()),
+        user.name());
+  }
+
+  @PostMapping({"{id}/investigacoes/{investigationId}/reabrir", "{id}/investigations/{investigationId}/reopen"})
+  public InventoryInvestigationService.InvestigationDetail reopen(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @PathVariable UUID investigationId,
+      @RequestParam String branchCode,
+      @RequestBody ReopenRequest request
+  ) {
+    LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
+    return investigationService.reopen(
+        id, investigationId, branchCode,
+        new InventoryInvestigationService.ReopenCommand(request.justificativa()),
+        user.name());
+  }
+
+  @ExceptionHandler(InventoryInvestigationService.InvestigationException.class)
+  ResponseEntity<Map<String, Object>> investigationError(InventoryInvestigationService.InvestigationException error) {
+    return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
+  }
+
   @ExceptionHandler(InventorySessionService.InventoryException.class)
   ResponseEntity<Map<String, Object>> inventoryError(InventorySessionService.InventoryException error) {
     return ResponseEntity.status(error.status()).body(Map.of("error", error.getMessage()));
@@ -193,6 +362,16 @@ public class InventorySessionController {
   public record TransitionRequest(String branchCode, long expectedVersion) {}
   public record CloseRoundRequest(Boolean forcar) {}
   public record CreateRecountRequest(List<Long> itemIds) {}
+
+  public record CreateInvestigationRequest(long apuracaoId, String causaSuspeita, String justificativa) {}
+  public record StartInvestigationRequest(String responsavelId, String responsavelNome, String causaSuspeita, String justificativa) {}
+  public record SuspectCauseRequest(String causaSuspeita, String justificativa) {}
+  public record ChangeStatusRequest(String status, String motivo) {}
+  public record AddEvidenceRequest(String tipo, String descricao, String referencia) {}
+  public record AddLinkRequest(long inventarioItemRelacionadoId, Long apuracaoRelacionadaId, String tipoVinculo, String observacao) {}
+  public record ResolveRequest(String causaConfirmada, String conclusao) {}
+  public record UnresolvedRequest(String conclusao) {}
+  public record ReopenRequest(String justificativa) {}
 
   public record RecordOccurrenceRequest(
       String sku,

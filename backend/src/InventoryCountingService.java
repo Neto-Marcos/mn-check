@@ -561,7 +561,7 @@ public class InventoryCountingService {
     }
 
     String itemsAuditSql = """
-        SELECT ar.inventario_item_id, ar.sku, ii.descricao_snapshot, ar.saldo_snapshot,
+        SELECT ar.id AS apuracao_id, ar.inventario_item_id, ar.sku, ii.descricao_snapshot, ar.saldo_snapshot,
                ar.contado, ar.quantidade_fisica, ar.diferenca, ar.estado,
                ar.detalhes_localizacao_condicao
         FROM apuracoes_rodada ar
@@ -583,6 +583,7 @@ public class InventoryCountingService {
       statement.setLong(1, roundId);
       try (ResultSet rs = statement.executeQuery()) {
         while (rs.next()) {
+          long apuracaoId = rs.getLong("apuracao_id");
           long itemId = rs.getLong("inventario_item_id");
           String sku = rs.getString("sku");
           String descricao = rs.getString("descricao_snapshot");
@@ -618,7 +619,7 @@ public class InventoryCountingService {
           }
 
           items.add(new AuditItem(
-              itemId, sku, descricao, saldo, contado, quantidadeFisica, diferenca, estado, detalhes
+              apuracaoId, itemId, sku, descricao, saldo, contado, quantidadeFisica, diferenca, estado, detalhes
           ));
         }
       }
@@ -1403,6 +1404,7 @@ public class InventoryCountingService {
   ) {}
 
   public record AuditItem(
+      long apuracaoId,
       long inventarioItemId,
       String sku,
       String descricao,
@@ -1412,7 +1414,21 @@ public class InventoryCountingService {
       Integer diferenca,
       String estado,
       Map<String, Object> detalhes
-  ) {}
+  ) {
+    public AuditItem(
+        long inventarioItemId,
+        String sku,
+        String descricao,
+        int saldoSnapshot,
+        boolean contado,
+        Integer quantidadeFisica,
+        Integer diferenca,
+        String estado,
+        Map<String, Object> detalhes
+    ) {
+      this(0L, inventarioItemId, sku, descricao, saldoSnapshot, contado, quantidadeFisica, diferenca, estado, detalhes);
+    }
+  }
 
   private record RoundRecord(
       long id,
