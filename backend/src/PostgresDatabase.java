@@ -871,30 +871,37 @@ public final class PostgresDatabase {
   }
 
   public void resetOperationalData() {
-    List<String> statements = List.of(
-        "DELETE FROM historico_scanner",
-        "DELETE FROM conferencias",
-        "DELETE FROM resultado_inventario_itens",
-        "DELETE FROM resultados_inventario",
-        "DELETE FROM eventos_inventario",
-        "DELETE FROM eventos_investigacao",
-        "DELETE FROM investigacao_vinculos",
-        "DELETE FROM evidencias_investigacao",
-        "DELETE FROM investigacoes_divergencia",
-        "DELETE FROM apuracoes_rodada",
-        "DELETE FROM rodada_itens",
-        "DELETE FROM ocorrencias_contagem",
-        "DELETE FROM rodadas_contagem",
-        "DELETE FROM inventario_itens",
-        "DELETE FROM inventarios",
-        "DELETE FROM estoque_produtos",
-        "DELETE FROM contagens",
-        "DELETE FROM importacoes_saldo"
+    List<String> tables = List.of(
+        "historico_scanner",
+        "conferencias",
+        "resultado_inventario_itens",
+        "resultados_inventario",
+        "eventos_inventario",
+        "eventos_investigacao",
+        "investigacao_vinculos",
+        "evidencias_investigacao",
+        "investigacoes_divergencia",
+        "apuracoes_rodada",
+        "rodada_itens",
+        "ocorrencias_contagem",
+        "rodadas_contagem",
+        "inventario_itens",
+        "inventarios",
+        "estoque_produtos",
+        "contagens",
+        "importacoes_saldo"
     );
     try (Connection connection = connect(); Statement statement = connection.createStatement()) {
       connection.setAutoCommit(false);
       try {
-        for (String sql : statements) statement.executeUpdate(sql);
+        for (String table : tables) {
+          statement.execute(
+              "DO $$ BEGIN IF EXISTS ("
+                  + "SELECT 1 FROM information_schema.tables "
+                  + "WHERE table_schema = current_schema() AND table_name = '" + table + "'"
+                  + ") THEN EXECUTE 'DELETE FROM ' || quote_ident('" + table + "'); END IF; END $$;"
+          );
+        }
         connection.commit();
       } catch (SQLException error) {
         connection.rollback();
@@ -1105,10 +1112,6 @@ public final class PostgresDatabase {
         "ALTER TABLE importacoes_saldo ADD COLUMN IF NOT EXISTS itens_removidos INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE importacoes_saldo ADD COLUMN IF NOT EXISTS filial_id BIGINT REFERENCES filiais(id)",
         "UPDATE importacoes_saldo SET filial_id = (SELECT id FROM filiais WHERE codigo = '281') WHERE filial_id IS NULL",
-        "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS filial_id BIGINT REFERENCES filiais(id)",
-        "UPDATE contagens SET filial_id = (SELECT id FROM filiais WHERE codigo = '281') WHERE filial_id IS NULL",
-        "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS filial_id BIGINT REFERENCES filiais(id)",
-        "UPDATE estoque_produtos SET filial_id = (SELECT id FROM filiais WHERE codigo = '281') WHERE filial_id IS NULL",
         """
         CREATE TABLE IF NOT EXISTS saldos (
           id BIGSERIAL PRIMARY KEY,
@@ -1129,6 +1132,8 @@ public final class PostgresDatabase {
         )
         """,
         "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS importacao_id BIGINT REFERENCES importacoes_saldo(id)",
+        "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS filial_id BIGINT REFERENCES filiais(id)",
+        "UPDATE contagens SET filial_id = (SELECT id FROM filiais WHERE codigo = '281') WHERE filial_id IS NULL",
         "ALTER TABLE contagens ADD COLUMN IF NOT EXISTS status VARCHAR(24) NOT NULL DEFAULT 'ABERTA'",
         "ALTER TABLE contagens ALTER COLUMN status SET DEFAULT 'ABERTA'",
         """
@@ -1178,6 +1183,8 @@ public final class PostgresDatabase {
           PRIMARY KEY (filial_id, sku)
         )
         """,
+        "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS filial_id BIGINT REFERENCES filiais(id)",
+        "UPDATE estoque_produtos SET filial_id = (SELECT id FROM filiais WHERE codigo = '281') WHERE filial_id IS NULL",
         "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_avaria INTEGER NOT NULL DEFAULT 0 CHECK (saldo_avaria >= 0)",
         "ALTER TABLE estoque_produtos ADD COLUMN IF NOT EXISTS saldo_outros INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE estoque_produtos DROP CONSTRAINT IF EXISTS estoque_produtos_saldo_outros_check",
