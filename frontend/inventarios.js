@@ -558,8 +558,18 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
   const [uploadedSummary, setUploadedSummary] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [partialProducts, setPartialProducts] = useState([]);
+  const [partialProductsImportId, setPartialProductsImportId] = useState("");
+  const [partialLoading, setPartialLoading] = useState(false);
+  const [partialQuery, setPartialQuery] = useState("");
+  const [selectedSkus, setSelectedSkus] = useState([]);
   const [error, setError] = useState("");
   const fileInputRef = useRef(null);
+
+  const filteredPartialProducts = useMemo(
+    () => filterPartialProducts(partialProducts, partialQuery),
+    [partialProducts, partialQuery]
+  );
 
   useEffect(() => {
     async function loadImports() {
@@ -587,6 +597,44 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
     }
     loadImports();
   }, [branchCode]);
+
+  useEffect(() => {
+    if (tipo !== "PARCIAL") {
+      setPartialQuery("");
+      setSelectedSkus([]);
+      return;
+    }
+    if (!importId || partialProductsImportId === String(importId)) return;
+
+    let active = true;
+    async function loadPartialProducts() {
+      setPartialLoading(true);
+      setError("");
+      try {
+        const latestKnown = uploadedSummary || availableImports[0] || null;
+        if (latestKnown && String(latestKnown.id) !== String(importId)) {
+          throw new Error("A seleção parcial está disponível somente para a importação mais recente da filial.");
+        }
+        const balance = await request(`/api/saldos?branchCode=${encodeURIComponent(branchCode)}`);
+        if (!active) return;
+        const products = normalizePartialProducts(balance?.counts || []);
+        if (products.length === 0) throw new Error("A importação selecionada não possui produtos disponíveis.");
+        setPartialProducts(products);
+        setPartialProductsImportId(String(importId));
+        setSelectedSkus([]);
+      } catch (err) {
+        if (!active) return;
+        setPartialProducts([]);
+        setPartialProductsImportId("");
+        setSelectedSkus([]);
+        setError(err.message || "Não foi possível carregar os produtos da importação.");
+      } finally {
+        if (active) setPartialLoading(false);
+      }
+    }
+    loadPartialProducts();
+    return () => { active = false; };
+  }, [tipo, importId, branchCode, uploadedSummary, availableImports]);
 
   async function handleFileSelect(e) {
     const file = e.target.files && e.target.files[0];
@@ -619,6 +667,10 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
       }
       setImportId(String(summary.id));
       setUploadedSummary(summary);
+      const importedProducts = normalizePartialProducts(res?.counts || []);
+      setPartialProducts(importedProducts);
+      setPartialProductsImportId(String(summary.id));
+      setSelectedSkus([]);
       if (!nome.trim()) {
         const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
         setNome(`Inventário ${cleanName}`);
@@ -645,6 +697,15 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
         : "Selecione uma importação anterior de saldo válida.");
       return;
     }
+    const partialSkus = partialSkuPayload(selectedSkus, partialProducts);
+    if (tipo === "PARCIAL" && partialSkus.length === 0) {
+      setError("Selecione pelo menos um SKU para o inventário parcial.");
+      return;
+    }
+    if (tipo === "PARCIAL" && partialSkus.length !== selectedSkus.length) {
+      setError("A seleção contém um SKU que não pertence à importação escolhida.");
+      return;
+    }
 
     setSaving(true);
     setError("");
@@ -657,7 +718,7 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
           nome: nome.trim(),
           tipo,
           modo,
-          skus: []
+          skus: tipo === "PARCIAL" ? partialSkus : []
         }
       });
       onCreated();
@@ -799,6 +860,7 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
               style: { width: "100%", padding: "8px", borderRadius: "6px" }
             },
               h("option", { value: "GERAL" }, "Geral (Todos SKUs)"),
+              h("option", { value: "PARCIAL" }, "Parcial (Selecionar SKUs)"),
               h("option", { value: "AUDITORIA" }, "Auditoria"),
               h("option", { value: "CICLICA" }, "Cíclica")
             )
@@ -815,6 +877,80 @@ function CreateInventoryModal({ branchCode, latestImportId, request, onClose, on
               h("option", { value: "CEGO" }, "Cego (Oculta Saldo)")
             )
           )
+        ),
+
+        tipo === "PARCIAL" && h("div", { className: "form-group", style: { marginBottom: "16px" } },
+          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "6px" } },
+            h("label", { style: { fontWeight: "600" } }, "Produtos do inventário parcial:"),
+            h("strong", { style: { color: "var(--primary, #3b82f6)", whiteSpace: "nowrap" } },
+              `Selecionados: ${selectedSkus.length} / ${partialProducts.length}`
+            )
+          ),
+          h("input", {
+            type: "search",
+            className: "form-control",
+            value: partialQuery,
+            onChange: (event) => setPartialQuery(event.target.value),
+            placeholder: "Pesquisar por SKU ou descrição",
+            disabled: partialLoading,
+            style: { width: "100%", padding: "9px 11px", borderRadius: "6px", marginBottom: "8px" }
+          }),
+          h("div", { style: { display: "flex", gap: "8px", marginBottom: "8px" } },
+            h("button", {
+              type: "button",
+              className: "btn btn-secondary",
+              disabled: partialLoading || filteredPartialProducts.length === 0,
+              onClick: () => setSelectedSkus((current) => [...new Set([...current, ...filteredPartialProducts.map((item) => item.sku)])]),
+              style: { padding: "5px 9px", fontSize: "0.8rem" }
+            }, "Selecionar visíveis"),
+            h("button", {
+              type: "button",
+              className: "btn btn-secondary",
+              disabled: selectedSkus.length === 0,
+              onClick: () => setSelectedSkus([]),
+              style: { padding: "5px 9px", fontSize: "0.8rem" }
+            }, "Limpar seleção")
+          ),
+          partialLoading
+            ? h("div", { className: "hint", style: { padding: "14px", textAlign: "center" } }, "Carregando produtos da importação...")
+            : h("div", {
+                style: {
+                  border: "1px solid var(--border, rgba(148, 163, 184, 0.35))",
+                  borderRadius: "8px",
+                  maxHeight: "240px",
+                  overflowY: "auto"
+                }
+              },
+              filteredPartialProducts.length === 0
+                ? h("div", { className: "hint", style: { padding: "14px", textAlign: "center" } }, "Nenhum produto encontrado.")
+                : filteredPartialProducts.map((item) => {
+                    const checked = selectedSkus.includes(item.sku);
+                    return h("label", {
+                      key: item.sku,
+                      style: {
+                        display: "grid",
+                        gridTemplateColumns: "auto 1fr",
+                        gap: "9px",
+                        alignItems: "start",
+                        padding: "9px 10px",
+                        borderBottom: "1px solid var(--border, rgba(148, 163, 184, 0.2))",
+                        cursor: "pointer"
+                      }
+                    },
+                      h("input", {
+                        type: "checkbox",
+                        checked,
+                        onChange: () => setSelectedSkus((current) => checked
+                          ? current.filter((sku) => sku !== item.sku)
+                          : [...current, item.sku])
+                      }),
+                      h("span", null,
+                        h("strong", { style: { display: "block", fontSize: "0.88rem" } }, item.sku),
+                        h("span", { className: "hint", style: { display: "block", fontSize: "0.8rem", marginTop: "2px" } }, item.description || "Sem descrição")
+                      )
+                    );
+                  })
+            )
         ),
 
         h("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "18px" } },
@@ -3617,4 +3753,12 @@ if (typeof window !== "undefined") {
     CreateInventoryModal
   };
 }
-import { countActionType, countDisplay, initialCountQuantity, isExplicitlyCounted } from "./inventory_counting_logic.js?v=236-rc3";
+import {
+  countActionType,
+  countDisplay,
+  filterPartialProducts,
+  initialCountQuantity,
+  isExplicitlyCounted,
+  normalizePartialProducts,
+  partialSkuPayload
+} from "./inventory_counting_logic.js?v=236-rc4";
