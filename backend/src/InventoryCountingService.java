@@ -284,16 +284,26 @@ public class InventoryCountingService {
   ) {
     String normalizedBranch = normalizeBranchCode(branchCode);
     String sku = required(command.sku(), "SKU não informado.");
-    int total = command.total();
-    if (total < 0) throw new ValidationException("Quantidade total não pode ser negativa.");
 
     int avaria = Math.max(0, command.avaria());
     int assistencia = Math.max(0, command.assistencia());
     int outros = Math.max(0, command.outros());
-    int boa = total - (avaria + assistencia + outros);
-    if (boa < 0) {
-      throw new ValidationException("A soma de avaria, assistência e outros não pode ser maior que o total físico (quantidade boa não pode ser negativa).");
+
+    int boa;
+    if (command.boa() != null) {
+      if (command.boa() < 0) throw new ValidationException("Quantidade boa não pode ser negativa.");
+      boa = command.boa();
+    } else if (command.total() != null) {
+      if (command.total() < 0) throw new ValidationException("Quantidade total não pode ser negativa.");
+      boa = command.total() - (avaria + assistencia + outros);
+      if (boa < 0) {
+        throw new ValidationException("A soma de avaria, assistência e outros não pode ser maior que o total físico (quantidade boa não pode ser negativa).");
+      }
+    } else {
+      boa = 0;
     }
+
+    int total = boa + avaria + assistencia + outros;
 
     String rawLocation = command.localizacao() == null || command.localizacao().isBlank()
         ? "GERAL" : command.localizacao();
@@ -1475,7 +1485,8 @@ public class InventoryCountingService {
   public record RecordCompoundCommand(
       String sku,
       String localizacao,
-      int total,
+      Integer total,
+      Integer boa,
       int avaria,
       int assistencia,
       int outros,
@@ -1484,7 +1495,36 @@ public class InventoryCountingService {
       String dispositivo,
       Instant clientTimestamp,
       Long referenciaId
-  ) {}
+  ) {
+    public RecordCompoundCommand(
+        String sku,
+        String localizacao,
+        int total,
+        int avaria,
+        int assistencia,
+        int outros,
+        UUID clientEventId,
+        String origem,
+        String dispositivo,
+        Instant clientTimestamp,
+        Long referenciaId
+    ) {
+      this(sku, localizacao, total, null, avaria, assistencia, outros, clientEventId, origem, dispositivo, clientTimestamp, referenciaId);
+    }
+
+    public RecordCompoundCommand(
+        String sku,
+        String localizacao,
+        int boa,
+        int avaria,
+        int assistencia,
+        int outros,
+        UUID clientEventId,
+        String origem
+    ) {
+      this(sku, localizacao, boa + avaria + assistencia + outros, boa, avaria, assistencia, outros, clientEventId, origem, null, null, null);
+    }
+  }
 
   public record CountingProgress(int totalSkus, int contados, int pendentes, int percentual) {}
 

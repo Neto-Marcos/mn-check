@@ -527,7 +527,8 @@ public class InventorySessionController {
   public record RecordCompoundRequest(
       String sku,
       String localizacao,
-      int total,
+      Integer total,
+      Integer boa,
       int avaria,
       int assistencia,
       int outros,
@@ -545,7 +546,7 @@ public class InventorySessionController {
         throw new InventoryCountingService.ValidationException("client_event_id inválido ou ausente. Deve ser um UUID.");
       }
       return new InventoryCountingService.RecordCompoundCommand(
-          sku, localizacao, total, avaria, assistencia, outros, eventId, origem, dispositivo, clientTimestamp, referenciaId);
+          sku, localizacao, total, boa, avaria, assistencia, outros, eventId, origem, dispositivo, clientTimestamp, referenciaId);
     }
   }
 }

@@ -106,6 +106,136 @@ class InventoryCompoundCountingUnitTest {
     assertEquals(11, proj.categoryQuantities().get("BOA"), "4 em vendas + 7 em deposito = 11");
   }
 
+  @Test
+  void testNewUxBoaFirstMath() {
+    // Nova regra: BOA é editável, TOTAL é calculado
+    int boa = 10;
+    int avaria = 1;
+    int assistencia = 0;
+    int outros = 0;
+    int total = boa + avaria + assistencia + outros;
+    assertEquals(11, total, "BOA 10 + AVARIA 1 deve resultar em TOTAL 11");
+
+    Instant now = Instant.now();
+    var occBoa = new InventoryCountingService.OccurrenceRecord(
+        1L, 100L, 10L, "SKU-BOA1", boa, "GERAL", "BOA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", now, now, null);
+    var occAvaria = new InventoryCountingService.OccurrenceRecord(
+        2L, 100L, 10L, "SKU-BOA1", avaria, "GERAL", "AVARIA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", now, now, null);
+
+    var proj = InventoryCountingService.calculateItemProjection(List.of(occBoa, occAvaria));
+    assertEquals(11, proj.totalQuantity(), "Total físico projetado deve ser 11");
+    assertEquals(10, proj.categoryQuantities().get("BOA"));
+    assertEquals(1, proj.categoryQuantities().get("AVARIA"));
+    assertEquals(0, proj.categoryQuantities().get("ASSISTENCIA"));
+    assertEquals(0, proj.categoryQuantities().get("OUTROS"));
+  }
+
+  @Test
+  void testBoaPlusAvariaPlusAssistencia() {
+    int boa = 10;
+    int avaria = 1;
+    int assistencia = 2;
+    int outros = 0;
+    int total = boa + avaria + assistencia + outros;
+    assertEquals(13, total, "BOA 10 + AVARIA 1 + ASSISTENCIA 2 deve resultar em TOTAL 13");
+
+    Instant now = Instant.now();
+    var occBoa = new InventoryCountingService.OccurrenceRecord(
+        1L, 100L, 10L, "SKU-BOA2", boa, "GERAL", "BOA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", now, now, null);
+    var occAvaria = new InventoryCountingService.OccurrenceRecord(
+        2L, 100L, 10L, "SKU-BOA2", avaria, "GERAL", "AVARIA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", now, now, null);
+    var occAssistencia = new InventoryCountingService.OccurrenceRecord(
+        3L, 100L, 10L, "SKU-BOA2", assistencia, "GERAL", "ASSISTENCIA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", now, now, null);
+
+    var proj = InventoryCountingService.calculateItemProjection(List.of(occBoa, occAvaria, occAssistencia));
+    assertEquals(13, proj.totalQuantity(), "Total físico projetado deve ser 13");
+    assertEquals(10, proj.categoryQuantities().get("BOA"));
+    assertEquals(1, proj.categoryQuantities().get("AVARIA"));
+    assertEquals(2, proj.categoryQuantities().get("ASSISTENCIA"));
+  }
+
+  @Test
+  void testZeroBoaWithAvaria() {
+    int boa = 0;
+    int avaria = 2;
+    int total = boa + avaria;
+    assertEquals(2, total, "BOA 0 + AVARIA 2 deve resultar em TOTAL 2");
+
+    Instant now = Instant.now();
+    var occBoa = new InventoryCountingService.OccurrenceRecord(
+        1L, 100L, 10L, "SKU-AV2", boa, "GERAL", "BOA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", now, now, null);
+    var occAvaria = new InventoryCountingService.OccurrenceRecord(
+        2L, 100L, 10L, "SKU-AV2", avaria, "GERAL", "AVARIA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", now, now, null);
+
+    var proj = InventoryCountingService.calculateItemProjection(List.of(occBoa, occAvaria));
+    assertEquals(2, proj.totalQuantity(), "Total físico deve ser 2");
+    assertEquals(0, proj.categoryQuantities().get("BOA"));
+    assertEquals(2, proj.categoryQuantities().get("AVARIA"));
+  }
+
+  @Test
+  void testAllZeroExplicitCountPreservesContado() {
+    int boa = 0;
+    int avaria = 0;
+    int assistencia = 0;
+    int outros = 0;
+    int total = boa + avaria + assistencia + outros;
+    assertEquals(0, total);
+
+    Instant now = Instant.now();
+    var occZero = new InventoryCountingService.OccurrenceRecord(
+        1L, 100L, 10L, "SKU-ALLZERO", 0, "GERAL", "BOA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", now, now, null);
+
+    var proj = InventoryCountingService.calculateItemProjection(List.of(occZero));
+    assertEquals(0, proj.totalQuantity(), "Total físico 0");
+    assertEquals(0, proj.categoryQuantities().get("BOA"));
+    assertTrue(!proj.locationDetails().isEmpty(), "Localização GERAL deve estar registrada");
+  }
+
+  @Test
+  void testReopenAndChangeConditionIncreasesTotal() {
+    Instant t1 = Instant.parse("2026-09-25T11:00:00Z");
+    Instant t2 = Instant.parse("2026-09-25T11:05:00Z");
+
+    // Contagem inicial: BOA 10, AVARIA 1 => TOTAL 11
+    var occ1 = new InventoryCountingService.OccurrenceRecord(
+        1L, 100L, 10L, "SKU-REOPEN", 10, "GERAL", "BOA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", t1, t1, null);
+    var occ2 = new InventoryCountingService.OccurrenceRecord(
+        2L, 100L, 10L, "SKU-REOPEN", 1, "GERAL", "AVARIA", "DEFINIR", "Op", UUID.randomUUID(), "MANUAL", "", t1, t1, null);
+
+    var projInitial = InventoryCountingService.calculateItemProjection(List.of(occ1, occ2));
+    assertEquals(11, projInitial.totalQuantity(), "Total inicial deve ser 11");
+
+    // Reabertura: Operador encontra mais 1 avaria (AVARIA passa de 1 para 2). BOA continua 10!
+    // Total esperado: 10 + 2 = 12
+    var corrBoa = new InventoryCountingService.OccurrenceRecord(
+        3L, 100L, 10L, "SKU-REOPEN", 10, "GERAL", "BOA", "CORRECAO", "Op", UUID.randomUUID(), "MANUAL", "", t2, t2, null);
+    var corrAvaria = new InventoryCountingService.OccurrenceRecord(
+        4L, 100L, 10L, "SKU-REOPEN", 2, "GERAL", "AVARIA", "CORRECAO", "Op", UUID.randomUUID(), "MANUAL", "", t2, t2, null);
+
+    var projReopened = InventoryCountingService.calculateItemProjection(List.of(occ1, occ2, corrBoa, corrAvaria));
+    assertEquals(12, projReopened.totalQuantity(), "Total após correção deve ser 12 (BOA=10, AVARIA=2)");
+    assertEquals(10, projReopened.categoryQuantities().get("BOA"));
+    assertEquals(2, projReopened.categoryQuantities().get("AVARIA"));
+  }
+
+  @Test
+  void testCommandConstructors() {
+    UUID eventId = UUID.randomUUID();
+    // Test new constructor with boa
+    var cmdWithBoa = new InventoryCountingService.RecordCompoundCommand(
+        "SKU-1", "GERAL", 11, 10, 1, 0, 0, eventId, "MANUAL", "PWA", Instant.now(), null);
+    assertEquals(11, cmdWithBoa.total());
+    assertEquals(10, cmdWithBoa.boa());
+    assertEquals(1, cmdWithBoa.avaria());
+
+    // Test backward compatible constructor without boa
+    var cmdLegacy = new InventoryCountingService.RecordCompoundCommand(
+        "SKU-1", "GERAL", 10, 1, 0, 0, eventId, "MANUAL", "PWA", Instant.now(), null);
+    assertEquals(10, cmdLegacy.total());
+    assertEquals(null, cmdLegacy.boa());
+  }
+
   // Helper
   private static InventoryCountingService.OccurrenceRecord InventoryCountingRecordMock(
       long id, long roundId, long itemId, String sku, int qtd, String loc, String cat, String act,

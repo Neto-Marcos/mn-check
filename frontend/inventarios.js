@@ -985,8 +985,8 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
     }
   });
 
-  // Campos de contagem composta
-  const [compoundTotal, setCompoundTotal] = useState(1);
+  // Campos de contagem composta: QUANTIDADE BOA é o campo principal editável
+  const [compoundBoa, setCompoundBoa] = useState(1);
   const [compoundAvaria, setCompoundAvaria] = useState(0);
   const [compoundAssistencia, setCompoundAssistencia] = useState(0);
   const [compoundOutros, setCompoundOutros] = useState(0);
@@ -1005,12 +1005,11 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   const searchInputRef = useRef(null);
   const scanTimingRef = useRef({ first: 0, last: 0, keys: 0 });
 
-  const parsedTotal = parseInt(compoundTotal, 10) || 0;
+  const parsedBoa = Math.max(0, parseInt(compoundBoa, 10) || 0);
   const parsedAvaria = Math.max(0, parseInt(compoundAvaria, 10) || 0);
   const parsedAssistencia = Math.max(0, parseInt(compoundAssistencia, 10) || 0);
   const parsedOutros = Math.max(0, parseInt(compoundOutros, 10) || 0);
-  const calculatedBoa = parsedTotal - (parsedAvaria + parsedAssistencia + parsedOutros);
-  const isNegativeBoa = calculatedBoa < 0;
+  const calculatedTotal = parsedBoa + parsedAvaria + parsedAssistencia + parsedOutros;
 
   useEffect(() => {
     loadActiveRoundAndItems();
@@ -1048,9 +1047,8 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
     }
 
     const hasAnyCount = isExplicitlyCounted(item);
-    const total = hasAnyCount ? (curBoa + curAvaria + curAssistencia + curOutros) : 1;
 
-    setCompoundTotal(total);
+    setCompoundBoa(hasAnyCount ? curBoa : 1);
     setCompoundAvaria(curAvaria);
     setCompoundAssistencia(curAssistencia);
     setCompoundOutros(curOutros);
@@ -1134,10 +1132,6 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
   async function handleConfirmCount() {
     if (!selectedItem || !roundDetail) return;
-    if (isNegativeBoa) {
-      setError("A soma de Avaria, Assistência e Outros não pode ser maior que o Total Físico.");
-      return;
-    }
 
     setSubmitting(true);
     setError("");
@@ -1150,7 +1144,8 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         method: "POST",
         body: {
           sku: selectedItem.sku,
-          total: parsedTotal,
+          total: calculatedTotal,
+          boa: parsedBoa,
           avaria: parsedAvaria,
           assistencia: parsedAssistencia,
           outros: parsedOutros,
@@ -1202,7 +1197,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
       setFeedback({
         type: "success",
-        text: `Item ${selectedItem.sku} gravado: Total ${parsedTotal} un (Boa: ${calculatedBoa}, Avaria: ${parsedAvaria}, Assist: ${parsedAssistencia}, Outros: ${parsedOutros}) em [${activeLocation}]!`
+        text: `Item ${selectedItem.sku} gravado: Total ${calculatedTotal} un (Boa: ${parsedBoa}, Avaria: ${parsedAvaria}, Assist: ${parsedAssistencia}, Outros: ${parsedOutros}) em [${activeLocation}]!`
       });
 
       setSelectedItem(null);
@@ -1424,22 +1419,22 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         )
       ),
 
-      // Seção: Total Físico Encontrado
-      h("div", { style: { margin: "16px 0 10px", padding: "12px", background: "rgba(0,0,0,0.03)", borderRadius: "8px" } },
-        h("label", { style: { fontSize: "0.95rem", fontWeight: "bold", display: "block", marginBottom: "6px" } }, "Total Físico Encontrado (Soma geral):"),
+      // Seção: Quantidade Boa (Campo principal editável)
+      h("div", { style: { margin: "16px 0 10px", padding: "12px", background: "rgba(16, 185, 129, 0.05)", borderRadius: "8px", border: "1px solid rgba(16, 185, 129, 0.2)" } },
+        h("label", { style: { fontSize: "0.95rem", fontWeight: "bold", display: "block", marginBottom: "6px", color: "var(--accent-green, #10b981)" } }, "Quantidade Boa (Mercadoria em perfeito estado):"),
         h("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "12px" } },
           h("button", {
             type: "button",
             className: "btn stepper-btn",
-            onClick: () => setCompoundTotal(q => Math.max(0, (parseInt(q, 10) || 0) - 1)),
+            onClick: () => setCompoundBoa(q => Math.max(0, (parseInt(q, 10) || 0) - 1)),
             style: { width: "56px", height: "56px", fontSize: "1.8rem", borderRadius: "10px", fontWeight: "bold" }
           }, "−"),
 
           h("input", {
             type: "number",
             className: "form-control stepper-input",
-            value: compoundTotal,
-            onChange: (e) => setCompoundTotal(e.target.value),
+            value: compoundBoa,
+            onChange: (e) => setCompoundBoa(e.target.value),
             min: "0",
             style: { width: "110px", height: "56px", fontSize: "1.8rem", textAlign: "center", fontWeight: "bold", borderRadius: "10px" }
           }),
@@ -1447,7 +1442,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           h("button", {
             type: "button",
             className: "btn stepper-btn",
-            onClick: () => setCompoundTotal(q => (parseInt(q, 10) || 0) + 1),
+            onClick: () => setCompoundBoa(q => (parseInt(q, 10) || 0) + 1),
             style: { width: "56px", height: "56px", fontSize: "1.8rem", borderRadius: "10px", fontWeight: "bold" }
           }, "+")
         ),
@@ -1458,14 +1453,14 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
             key: inc,
             type: "button",
             className: "btn btn-secondary",
-            onClick: () => setCompoundTotal(q => (parseInt(q, 10) || 0) + inc),
+            onClick: () => setCompoundBoa(q => (parseInt(q, 10) || 0) + inc),
             style: { padding: "6px 12px", fontWeight: "600", fontSize: "0.85rem" }
           }, `+${inc}`)),
           h("button", {
             type: "button",
             className: "btn btn-secondary",
             onClick: () => {
-              setCompoundTotal(0);
+              setCompoundBoa(0);
               setCompoundAvaria(0);
               setCompoundAssistencia(0);
               setCompoundOutros(0);
@@ -1554,34 +1549,27 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         )
       ),
 
-      // Cálculo Automático de Boa / Validação
+      // Total Físico (Calculado)
       h("div", {
         style: {
           padding: "10px 14px",
           borderRadius: "8px",
           margin: "12px 0",
-          background: isNegativeBoa ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.1)",
-          border: isNegativeBoa ? "2px solid #ef4444" : "1px solid rgba(16, 185, 129, 0.3)"
+          background: "rgba(59, 130, 246, 0.08)",
+          border: "1px solid rgba(59, 130, 246, 0.3)"
         }
       },
-        isNegativeBoa
-          ? h("div", { style: { color: "#dc2626" } },
-              h("strong", { style: { display: "block", fontSize: "0.95rem" } }, "⚠ Soma Inválida!"),
-              h("span", { style: { fontSize: "0.85rem" } },
-                `Avaria (${parsedAvaria}) + Assistência (${parsedAssistencia}) + Outros (${parsedOutros}) = ${parsedAvaria + parsedAssistencia + parsedOutros} un, que excede o Total Físico (${parsedTotal} un). A quantidade Boa ficaria ${calculatedBoa} un.`
-              )
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+          h("div", null,
+            h("span", { style: { fontSize: "0.85rem", fontWeight: "bold", color: "var(--text)", display: "block" } }, "Total Físico (Calculado):"),
+            h("span", { style: { fontSize: "0.8rem", color: "var(--muted)" } },
+              `${parsedBoa} (Boa) + ${parsedAvaria} (Avaria) + ${parsedAssistencia} (Assist.) + ${parsedOutros} (Outros)`
             )
-          : h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-              h("div", null,
-                h("span", { style: { fontSize: "0.8rem", color: "var(--text-secondary)", display: "block" } }, "Mercadoria Boa (calculada automaticamente):"),
-                h("span", { style: { fontSize: "0.8rem", color: "var(--muted)" } },
-                  `${parsedTotal} (Total) − ${parsedAvaria + parsedAssistencia + parsedOutros} (Avaria/Assist/Outros) =`
-                )
-              ),
-              h("strong", { style: { fontSize: "1.4rem", color: "var(--accent-green, #10b981)" } },
-                `${calculatedBoa} un BOA`
-              )
-            )
+          ),
+          h("strong", { style: { fontSize: "1.4rem", color: "var(--primary, #3b82f6)" } },
+            `${calculatedTotal} un TOTAL`
+          )
+        )
       ),
 
       // Botão de Confirmação Touch Grande
@@ -1589,7 +1577,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         type: "button",
         className: "btn btn-primary",
         onClick: handleConfirmCount,
-        disabled: submitting || isNegativeBoa || parsedTotal < 0,
+        disabled: submitting || calculatedTotal < 0 || parsedBoa < 0,
         style: {
           width: "100%",
           height: "56px",
@@ -1597,10 +1585,10 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           fontWeight: "bold",
           marginTop: "14px",
           borderRadius: "10px",
-          background: isNegativeBoa ? "#9ca3af" : "var(--accent-green, #10b981)",
-          borderColor: isNegativeBoa ? "#9ca3af" : "var(--accent-green, #10b981)"
+          background: "var(--accent-green, #10b981)",
+          borderColor: "var(--accent-green, #10b981)"
         }
-      }, submitting ? "Gravando..." : `✔ Confirmar [${activeLocation}] — Total: ${parsedTotal} un (Boa: ${calculatedBoa})`)
+      }, submitting ? "Gravando..." : `✔ Confirmar [${activeLocation}] — Total: ${calculatedTotal} un (Boa: ${parsedBoa})`)
     ),
 
     // Busca e Scanner
