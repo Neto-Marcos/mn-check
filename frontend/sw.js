@@ -1,15 +1,15 @@
-const CACHE_NAME = "mn-check-2.3.6-inventory-rc2";
+const CACHE_NAME = "mn-check-2.3.6-inventory-rc3";
 const APP_ASSETS = [
   "/",
   "/index.html",
-  "/styles.css?v=236-rc2",
-  "/app.js?v=236-rc2",
+  "/styles.css?v=236-rc3",
+  "/app.js?v=236-rc3",
   "/api.js",
   "/auth.js",
   "/conferencia.js",
   "/contagem.js",
-  "/inventarios.js?v=236-rc2",
-  "/inventory_counting_logic.js?v=236-rc2",
+  "/inventarios.js?v=236-rc3",
+  "/inventory_counting_logic.js?v=236-rc3",
   "/counting_cards.js",
   "/mapas.js",
   "/scanner.js",

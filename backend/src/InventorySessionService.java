@@ -135,8 +135,8 @@ public class InventorySessionService {
           inventory = summary(result);
         }
       }
-      boolean isBlind = "CEGO".equalsIgnoreCase(inventory.modo());
-      return new InventoryDetail(inventory, loadItems(connection, inventoryId, isBlind));
+      boolean isProtected = InventorySecurityPolicy.isInventoryProtected(inventory.modo(), inventory.status());
+      return new InventoryDetail(inventory, loadItems(connection, inventoryId, isProtected));
     } catch (SQLException error) {
       throw databaseError("Não foi possível carregar o inventário.", error);
     }
@@ -347,7 +347,7 @@ public class InventorySessionService {
         nullableInstant(result, "aberto_em"), result.getString("encerrado_por"),
         nullableInstant(result, "encerrado_em"), result.getString("cancelado_por"),
         nullableInstant(result, "cancelado_em"), result.getInt("total_skus"),
-        "CEGO".equalsIgnoreCase(result.getString("modo")) ? null : result.getLong("total_unidades"));
+        InventorySecurityPolicy.isInventoryProtected(result.getString("modo"), result.getString("status")) ? null : result.getLong("total_unidades"));
   }
 
   private Connection connect() throws SQLException {

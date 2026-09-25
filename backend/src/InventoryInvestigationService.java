@@ -77,11 +77,14 @@ public class InventoryInvestigationService {
                  inv.criado_em, inv.criado_por, inv.atualizado_em, inv.atualizado_por,
                  inv.resolvido_em, inv.resolvido_por, inv.version,
                  it.descricao_snapshot, ap.saldo_snapshot, ap.quantidade_fisica, ap.diferenca, ap.estado AS apuracao_estado,
+                 r.numero AS rodada_numero, i.modo AS inventario_modo, i.status AS inventario_status,
                  (SELECT COUNT(*) FROM evidencias_investigacao ev WHERE ev.investigacao_id = inv.id) AS total_evidencias,
                  (SELECT COUNT(*) FROM investigacao_vinculos v WHERE v.investigacao_id = inv.id) AS total_vinculos
           FROM investigacoes_divergencia inv
           JOIN inventario_itens it ON it.id = inv.inventario_item_id
           JOIN apuracoes_rodada ap ON ap.id = inv.apuracao_id
+          JOIN rodadas_contagem r ON r.id = ap.rodada_id
+          JOIN inventarios i ON i.id = inv.inventario_id
           WHERE inv.inventario_id = ?
           """);
 
@@ -729,11 +732,13 @@ public class InventoryInvestigationService {
                it.descricao_snapshot,
                ap.rodada_id, ap.saldo_snapshot, ap.contado, ap.quantidade_fisica, ap.diferenca, ap.estado AS apuracao_estado,
                ap.detalhes_localizacao_condicao,
-               r.numero AS rodada_numero, r.tipo AS rodada_tipo
+               r.numero AS rodada_numero, r.tipo AS rodada_tipo,
+               i.modo AS inventario_modo, i.status AS inventario_status
         FROM investigacoes_divergencia inv
         JOIN inventario_itens it ON it.id = inv.inventario_item_id
         JOIN apuracoes_rodada ap ON ap.id = inv.apuracao_id
         JOIN rodadas_contagem r ON r.id = ap.rodada_id
+        JOIN inventarios i ON i.id = inv.inventario_id
         WHERE inv.id = ? AND inv.inventario_id = ?
         """;
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -779,9 +784,19 @@ public class InventoryInvestigationService {
         String jsonLoc = rs.getString("detalhes_localizacao_condicao");
         Map<String, Object> detalhesLoc = parseJsonMap(jsonLoc);
 
+        boolean isProtected = InventorySecurityPolicy.isInvestigationProtected(
+            rs.getString("inventario_modo"), rs.getString("inventario_status"), rodadaNumero
+        );
+
+        Integer exposedSaldo = isProtected ? null : saldoSnapshot;
+        Integer exposedQFisica = isProtected ? null : quantidadeFisica;
+        Integer exposedDiff = isProtected ? null : diferenca;
+        String exposedEstado = isProtected ? (contado ? "CONTADO" : "NAO_CONTADO") : apuracaoEstado;
+        Map<String, Object> exposedDetalhes = isProtected ? Map.of() : detalhesLoc;
+
         ApuracaoContext apuracaoContext = new ApuracaoContext(
-            apuracaoId, rodadaId, rodadaNumero, rodadaTipo, saldoSnapshot,
-            contado, quantidadeFisica, diferenca, apuracaoEstado, detalhesLoc
+            apuracaoId, rodadaId, rodadaNumero, rodadaTipo, exposedSaldo,
+            contado, exposedQFisica, exposedDiff, exposedEstado, exposedDetalhes
         );
 
         List<EvidenceRecord> evidencias = loadEvidences(connection, id);
@@ -884,10 +899,17 @@ public class InventoryInvestigationService {
   }
 
   private InvestigationSummary mapSummary(ResultSet rs) throws SQLException {
+    int rodadaNumero = rs.getInt("rodada_numero");
+    String invModo = rs.getString("inventario_modo");
+    String invStatus = rs.getString("inventario_status");
+    boolean isProtected = InventorySecurityPolicy.isInvestigationProtected(invModo, invStatus, rodadaNumero);
+
     int qFisicaRaw = rs.getInt("quantidade_fisica");
-    Integer quantidadeFisica = rs.wasNull() ? null : qFisicaRaw;
+    Integer quantidadeFisica = (isProtected || rs.wasNull()) ? null : qFisicaRaw;
     int diffRaw = rs.getInt("diferenca");
-    Integer diferenca = rs.wasNull() ? null : diffRaw;
+    Integer diferenca = (isProtected || rs.wasNull()) ? null : diffRaw;
+    Integer saldoSnapshot = isProtected ? null : rs.getInt("saldo_snapshot");
+    String apuracaoEstado = isProtected ? null : rs.getString("apuracao_estado");
 
     return new InvestigationSummary(
         (UUID) rs.getObject("id"),
@@ -904,10 +926,10 @@ public class InventoryInvestigationService {
         rs.getString("conclusao"),
         rs.getString("responsavel_id"),
         rs.getString("responsavel_nome"),
-        rs.getInt("saldo_snapshot"),
+        saldoSnapshot,
         quantidadeFisica,
         diferenca,
-        rs.getString("apuracao_estado"),
+        apuracaoEstado,
         rs.getInt("total_evidencias"),
         rs.getInt("total_vinculos"),
         instant(rs, "criado_em"),
@@ -1126,14 +1148,14 @@ public class InventoryInvestigationService {
       UUID id, long filialId, long inventarioId, long inventarioItemId, long apuracaoId,
       String sku, String descricaoSnapshot, String status, String causaSuspeita, String causaConfirmada,
       String justificativa, String conclusao, String responsavelId, String responsavelNome,
-      int saldoSnapshot, Integer quantidadeFisica, Integer diferenca, String apuracaoEstado,
+      Integer saldoSnapshot, Integer quantidadeFisica, Integer diferenca, String apuracaoEstado,
       int totalEvidencias, int totalVinculos,
       Instant criadoEm, String criadoPor, Instant atualizadoEm, String atualizadoPor,
       Instant resolvidoEm, String resolvidoPor, long version
   ) {}
 
   public record ApuracaoContext(
-      long apuracaoId, long rodadaId, int rodadaNumero, String rodadaTipo, int saldoSnapshot,
+      long apuracaoId, long rodadaId, int rodadaNumero, String rodadaTipo, Integer saldoSnapshot,
       boolean contado, Integer quantidadeFisica, Integer diferenca, String estado,
       Map<String, Object> detalhesLocalizacaoCondicao
   ) {}

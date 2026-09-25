@@ -1332,52 +1332,60 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
     error && h("div", { className: "notice-banner notice-danger", style: { margin: "10px 0" } }, error),
 
     // Cards de Métricas Consolidadas
-    h("div", { className: "audit-card-metrics", style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px", marginBottom: "14px" } },
-      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
-        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Total SKUs"),
-        h("strong", { style: { fontSize: "1.4rem" } }, resumo.totalItens)
-      ),
+    (() => {
+      const isProtected = isR2 ? (resumo.divergenciasConfirmadas == null) : (resumo.divergentes == null);
+      return h("div", { className: "audit-card-metrics", style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px", marginBottom: "14px" } },
+        h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
+          h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Total SKUs"),
+          h("strong", { style: { fontSize: "1.4rem" } }, resumo.totalItens)
+        ),
 
-      !isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #10b981" } },
-        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Conformes"),
-        h("strong", { style: { fontSize: "1.4rem", color: "#10b981" } }, resumo.conformes)
-      ),
+        isProtected && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #6366f1" } },
+          h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Modo Cego"),
+          h("strong", { style: { fontSize: "1.2rem", color: "#6366f1" } }, "🔒 Protegido")
+        ),
 
-      !isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #ef4444" } },
-        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Divergentes"),
-        h("strong", { style: { fontSize: "1.4rem", color: "#ef4444" } }, resumo.divergentes)
-      ),
+        !isProtected && !isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #10b981" } },
+          h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Conformes"),
+          h("strong", { style: { fontSize: "1.4rem", color: "#10b981" } }, resumo.conformes ?? "—")
+        ),
 
-      isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #10b981" } },
-        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Conforme pós-R2"),
-        h("strong", { style: { fontSize: "1.4rem", color: "#10b981" } }, resumo.conformesAposRecontagem)
-      ),
+        !isProtected && !isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #ef4444" } },
+          h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Divergentes"),
+          h("strong", { style: { fontSize: "1.4rem", color: "#ef4444" } }, resumo.divergentes ?? "—")
+        ),
 
-      isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #ef4444" } },
-        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Divergência Confirmada"),
-        h("strong", { style: { fontSize: "1.4rem", color: "#ef4444" } }, resumo.divergenciasConfirmadas)
-      ),
+        !isProtected && isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #10b981" } },
+          h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Conforme pós-R2"),
+          h("strong", { style: { fontSize: "1.4rem", color: "#10b981" } }, resumo.conformesAposRecontagem ?? "—")
+        ),
 
-      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #6b7280" } },
-        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Não Contados"),
-        h("strong", { style: { fontSize: "1.4rem", color: "#6b7280" } }, resumo.naoContados)
-      ),
+        !isProtected && isR2 && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #ef4444" } },
+          h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Divergência Confirmada"),
+          h("strong", { style: { fontSize: "1.4rem", color: "#ef4444" } }, resumo.divergenciasConfirmadas ?? "—")
+        ),
 
-      h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
-        h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Falta / Sobra"),
-        h("span", { style: { fontSize: "1.1rem", fontWeight: "bold" } },
-          h("span", { style: { color: "#ef4444" } }, `-${resumo.totalFalta}`),
-          " / ",
-          h("span", { style: { color: "#10b981" } }, `+${resumo.totalSobra}`)
+        h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center", borderLeft: "4px solid #6b7280" } },
+          h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Não Contados"),
+          h("strong", { style: { fontSize: "1.4rem", color: "#6b7280" } }, resumo.naoContados)
+        ),
+
+        !isProtected && h("div", { className: "card-panel", style: { padding: "12px", textAlign: "center" } },
+          h("span", { className: "hint", style: { fontSize: "0.8rem", display: "block" } }, "Falta / Sobra"),
+          h("span", { style: { fontSize: "1.1rem", fontWeight: "bold" } },
+            h("span", { style: { color: "#ef4444" } }, `-${resumo.totalFalta ?? 0}`),
+            " / ",
+            h("span", { style: { color: "#10b981" } }, `+${resumo.totalSobra ?? 0}`)
+          )
         )
-      )
-    ),
+      );
+    })(),
 
     // Ações de Seleção de Recontagem (somente na Rodada 1)
     !isR2 && h("div", { className: "card-panel", style: { padding: "12px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" } },
       h("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
         h("button", { className: "btn btn-secondary", onClick: selectAllDivergentes, style: { fontSize: "0.85rem" } },
-          `Selecionar Divergentes (${resumo.divergentes})`
+          resumo.divergentes != null ? `Selecionar Divergentes (${resumo.divergentes})` : "Selecionar Divergentes"
         ),
         h("button", { className: "btn btn-secondary", onClick: includeNaoContados, style: { fontSize: "0.85rem" } },
           `Incluir Não Contados (${resumo.naoContados})`
@@ -1454,7 +1462,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
               ),
               h("td", { style: { padding: "10px", fontWeight: "bold" } }, item.sku),
               h("td", { style: { padding: "10px", fontSize: "0.85rem" } }, item.descricao),
-              h("td", { style: { padding: "10px", textAlign: "right" } }, item.saldoSnapshot),
+              h("td", { style: { padding: "10px", textAlign: "right" } }, item.saldoSnapshot != null ? item.saldoSnapshot : "—"),
               h("td", { style: { padding: "10px", textAlign: "right", fontWeight: "bold" } },
                 item.quantidadeFisica != null ? `${item.quantidadeFisica} un` : "—"
               ),
@@ -1997,7 +2005,7 @@ function InvestigacoesScreen({
             h("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "10px", textAlign: "center" } },
               h("div", null,
                 h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Saldo Esperado"),
-                h("strong", { style: { fontSize: "1.1rem" } }, detail.apuracao ? detail.apuracao.saldoSnapshot : "—")
+                h("strong", { style: { fontSize: "1.1rem" } }, detail.apuracao && detail.apuracao.saldoSnapshot != null ? detail.apuracao.saldoSnapshot : "—")
               ),
               h("div", null,
                 h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Físico Contado"),
@@ -2609,27 +2617,27 @@ function FechamentoScreen({
         h("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px" } },
           h("div", { style: { padding: "10px", background: "rgba(0,0,0,0.02)", borderRadius: "6px", textAlign: "center" } },
             h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Total SKUs"),
-            h("strong", { style: { fontSize: "1.2rem" } }, resumo.totalSkus ?? 0)
+            h("strong", { style: { fontSize: "1.2rem" } }, resumo.totalItens ?? resumo.totalSkus ?? 0)
           ),
           h("div", { style: { padding: "10px", background: "rgba(16, 185, 129, 0.08)", borderRadius: "6px", textAlign: "center" } },
             h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Conformes"),
-            h("strong", { style: { fontSize: "1.2rem", color: "#10b981" } }, resumo.conformes ?? 0)
+            h("strong", { style: { fontSize: "1.2rem", color: "#10b981" } }, (resumo.itensConformes != null ? resumo.itensConformes : (resumo.conformes != null ? resumo.conformes : "🔒 Protegido")))
           ),
           h("div", { style: { padding: "10px", background: "rgba(239, 68, 68, 0.08)", borderRadius: "6px", textAlign: "center" } },
             h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Divergências"),
-            h("strong", { style: { fontSize: "1.2rem", color: "#ef4444" } }, resumo.divergencias ?? 0)
+            h("strong", { style: { fontSize: "1.2rem", color: "#ef4444" } }, (resumo.divergenciasConfirmadas != null ? resumo.divergenciasConfirmadas : (resumo.divergencias != null ? resumo.divergencias : "🔒 Protegido")))
           ),
           h("div", { style: { padding: "10px", background: "rgba(107, 114, 128, 0.08)", borderRadius: "6px", textAlign: "center" } },
             h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Não Contados"),
-            h("strong", { style: { fontSize: "1.2rem", color: "#6b7280" } }, resumo.naoContados ?? 0)
+            h("strong", { style: { fontSize: "1.2rem", color: "#6b7280" } }, resumo.itensNaoContados != null ? resumo.itensNaoContados : (resumo.naoContados != null ? resumo.naoContados : "—"))
           ),
           h("div", { style: { padding: "10px", background: "rgba(59, 130, 246, 0.08)", borderRadius: "6px", textAlign: "center" } },
             h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Investigações Resolvidas"),
-            h("strong", { style: { fontSize: "1.2rem", color: "#3b82f6" } }, (resumo.investigacoesResolvidas ?? 0) + (resumo.investigacoesSemCausa ?? 0))
+            h("strong", { style: { fontSize: "1.2rem", color: "#3b82f6" } }, resumo.investigacoesResolvidas != null ? ((resumo.investigacoesResolvidas || 0) + (resumo.investigacoesSemCausa || 0)) : "🔒 Protegido")
           ),
           h("div", { style: { padding: "10px", background: "rgba(245, 158, 11, 0.08)", borderRadius: "6px", textAlign: "center" } },
             h("span", { className: "hint", style: { fontSize: "0.75rem", display: "block" } }, "Investigações Pendentes"),
-            h("strong", { style: { fontSize: "1.2rem", color: "#f59e0b" } }, resumo.investigacoesPendentes ?? 0)
+            h("strong", { style: { fontSize: "1.2rem", color: "#f59e0b" } }, resumo.investigacoesPendentes != null ? resumo.investigacoesPendentes : "🔒 Protegido")
           )
         )
       ),
@@ -3134,4 +3142,4 @@ if (typeof window !== "undefined") {
     CreateInventoryModal
   };
 }
-import { countActionType, countDisplay, initialCountQuantity, isExplicitlyCounted } from "./inventory_counting_logic.js?v=236-rc2";
+import { countActionType, countDisplay, initialCountQuantity, isExplicitlyCounted } from "./inventory_counting_logic.js?v=236-rc3";

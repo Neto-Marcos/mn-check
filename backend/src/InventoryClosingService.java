@@ -48,144 +48,178 @@ public class InventoryClosingService {
     try (Connection connection = connect()) {
       Branch branch = requireBranch(connection, normalizedBranch);
       InventoryRecord inventory = requireInventory(connection, inventoryId, branch.id());
+      ValidationResult internal = validateClosingInternal(connection, inventoryId, normalizedBranch);
 
-      List<Pendency> pendencias = new ArrayList<>();
-
-      // 1. Status do inventário
-      if ("ENCERRADO".equalsIgnoreCase(inventory.status()) || "FINALIZADO".equalsIgnoreCase(inventory.status())) {
-        pendencias.add(new Pendency("INVENTARIO_JA_ENCERRADO", "O inventário já foi encerrado e é puramente histórico.", true));
-        return new ValidationResult(false, pendencias, buildEmptySummary());
-      }
-      if ("CANCELADO".equalsIgnoreCase(inventory.status())) {
-        pendencias.add(new Pendency("INVENTARIO_CANCELADO", "O inventário está cancelado e não pode ser encerrado.", true));
-        return new ValidationResult(false, pendencias, buildEmptySummary());
-      }
-      if ("RASCUNHO".equalsIgnoreCase(inventory.status()) || "ABERTO".equalsIgnoreCase(inventory.status())) {
-        pendencias.add(new Pendency("STATUS_INVALIDO", "O inventário ainda não iniciou a contagem.", true));
-        return new ValidationResult(false, pendencias, buildEmptySummary());
+      boolean isProtected = InventorySecurityPolicy.isInventoryProtected(inventory.modo(), inventory.status());
+      if (!isProtected) {
+        return internal;
       }
 
-      // 2. Rodadas ativas
-      List<RoundRecord> rounds = loadRounds(connection, inventoryId);
-      for (RoundRecord round : rounds) {
-        if ("EM_ANDAMENTO".equalsIgnoreCase(round.status())) {
-          pendencias.add(new Pendency(
-              "RODADA_ATIVA",
-              "A Rodada " + round.numero() + " (" + round.tipo() + ") ainda está em andamento. Encerre-a antes do fechamento.",
-              true
-          ));
-        }
-      }
-
-      // 3. Rodada 1 finalizada e apurada
-      RoundRecord r1 = findRoundByNumber(rounds, 1);
-      if (r1 == null || !"FINALIZADA".equalsIgnoreCase(r1.status())) {
-        pendencias.add(new Pendency("SEM_APURACAO_R1", "A Rodada 1 não foi finalizada e apurada.", true));
-      }
-
-      // 4. Rodada 2 (se existir, deve estar finalizada)
-      RoundRecord r2 = findRoundByNumber(rounds, 2);
-      if (r2 != null && !"FINALIZADA".equalsIgnoreCase(r2.status())) {
-        pendencias.add(new Pendency("RODADA_2_PENDENTE", "A Rodada 2 foi iniciada mas não está finalizada.", true));
-      }
-
-      // 5. Itens e Apurações
-      List<ItemRecord> items = loadItems(connection, inventoryId);
-      Map<Long, ApuracaoRecord> r1Apuracoes = r1 != null ? loadApuracoes(connection, r1.id()) : Map.of();
-      Map<Long, ApuracaoRecord> r2Apuracoes = r2 != null ? loadApuracoes(connection, r2.id()) : Map.of();
-      Map<Long, InvestigationSummaryRecord> investigations = loadInvestigations(connection, inventoryId);
-
-      int conformes = 0;
-      int divergenciasConfirmadas = 0;
-      int naoContados = 0;
-      int invResolvidas = 0;
-      int invSemCausa = 0;
-      int invPendentes = 0;
-
-      for (InvestigationSummaryRecord inv : investigations.values()) {
-        if ("RESOLVIDA".equalsIgnoreCase(inv.status())) {
-          invResolvidas++;
-        } else if ("SEM_CAUSA_IDENTIFICADA".equalsIgnoreCase(inv.status())) {
-          invSemCausa++;
-        } else {
-          invPendentes++;
-        }
-      }
-
-      List<String> skusDivergentesSemInvestigacao = new ArrayList<>();
-
-      for (ItemRecord item : items) {
-        ApuracaoRecord r1Ap = r1Apuracoes.get(item.id());
-        ApuracaoRecord r2Ap = r2Apuracoes.get(item.id());
-
-        Integer qFisicaFinal;
-        if (r2Ap != null) {
-          qFisicaFinal = r2Ap.contado() ? r2Ap.quantidadeFisica() : null;
-        } else if (r1Ap != null) {
-          qFisicaFinal = r1Ap.contado() ? r1Ap.quantidadeFisica() : null;
-        } else {
-          qFisicaFinal = null;
-        }
-
-        if (qFisicaFinal == null) {
-          naoContados++;
-        } else {
-          int diff = qFisicaFinal - item.saldoSnapshot();
-          if (diff == 0) {
-            conformes++;
-          } else {
-            divergenciasConfirmadas++;
-            // Verifica se possui investigação
-            if (!investigations.containsKey(item.id())) {
-              skusDivergentesSemInvestigacao.add(item.sku());
-            }
-          }
-        }
-      }
-
-      // Validação de divergências sem investigação
-      if (!skusDivergentesSemInvestigacao.isEmpty()) {
-        pendencias.add(new Pendency(
-            "DIVERGENCIA_SEM_INVESTIGACAO",
-            "Existem " + skusDivergentesSemInvestigacao.size() + " divergência(s) confirmada(s) sem investigação associada (ex: SKU "
-                + skusDivergentesSemInvestigacao.get(0) + ").",
-            true
-        ));
-      }
-
-      // Validação de investigações pendentes
-      if (invPendentes > 0) {
-        pendencias.add(new Pendency(
-            "INVESTIGACOES_PENDENTES",
-            "Existem " + invPendentes + " investigação(ões) não concluída(s). Todas devem ser resolvidas ou encerradas sem causa.",
-            true
-        ));
-      }
-
-      // Validação de itens não contados
-      if (naoContados > 0) {
-        pendencias.add(new Pendency(
-            "ITENS_NAO_CONTADOS",
-            "Existem " + naoContados + " item(ns) não contado(s) no inventário.",
-            true
-        ));
-      }
-
-      SummaryMetrics summary = new SummaryMetrics(
-          items.size(),
-          conformes,
-          divergenciasConfirmadas,
-          invResolvidas,
-          invSemCausa,
-          invPendentes,
-          naoContados
+      SummaryMetrics safeSummary = new SummaryMetrics(
+          internal.resumo().totalItens(),
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
       );
 
-      boolean podeFechar = pendencias.isEmpty();
-      return new ValidationResult(podeFechar, pendencias, summary);
+      List<Pendency> safePendencias = new ArrayList<>();
+      for (Pendency p : internal.pendencias()) {
+        String safeMsg = switch (p.codigo()) {
+          case "DIVERGENCIA_SEM_INVESTIGACAO" -> "Existem divergências confirmadas sem investigação associada.";
+          case "INVESTIGACOES_PENDENTES" -> "Existem investigações não concluídas. Todas devem ser resolvidas ou encerradas sem causa.";
+          case "ITENS_NAO_CONTADOS" -> "Existem itens não contados no inventário.";
+          default -> p.mensagem();
+        };
+        safePendencias.add(new Pendency(p.codigo(), safeMsg, p.bloqueante()));
+      }
+
+      return new ValidationResult(internal.podeFechar(), safePendencias, safeSummary);
     } catch (SQLException error) {
       throw new DatabaseException("Não foi possível validar o fechamento do inventário.", error);
     }
+  }
+
+  private ValidationResult validateClosingInternal(Connection connection, long inventoryId, String branchCode) throws SQLException {
+    Branch branch = requireBranch(connection, branchCode);
+    InventoryRecord inventory = requireInventory(connection, inventoryId, branch.id());
+
+    List<Pendency> pendencias = new ArrayList<>();
+
+    // 1. Status do inventário
+    if ("ENCERRADO".equalsIgnoreCase(inventory.status()) || "FINALIZADO".equalsIgnoreCase(inventory.status())) {
+      pendencias.add(new Pendency("INVENTARIO_JA_ENCERRADO", "O inventário já foi encerrado e é puramente histórico.", true));
+      return new ValidationResult(false, pendencias, buildEmptySummary());
+    }
+    if ("CANCELADO".equalsIgnoreCase(inventory.status())) {
+      pendencias.add(new Pendency("INVENTARIO_CANCELADO", "O inventário está cancelado e não pode ser encerrado.", true));
+      return new ValidationResult(false, pendencias, buildEmptySummary());
+    }
+    if ("RASCUNHO".equalsIgnoreCase(inventory.status()) || "ABERTO".equalsIgnoreCase(inventory.status())) {
+      pendencias.add(new Pendency("STATUS_INVALIDO", "O inventário ainda não iniciou a contagem.", true));
+      return new ValidationResult(false, pendencias, buildEmptySummary());
+    }
+
+    // 2. Rodadas ativas
+    List<RoundRecord> rounds = loadRounds(connection, inventoryId);
+    for (RoundRecord round : rounds) {
+      if ("EM_ANDAMENTO".equalsIgnoreCase(round.status())) {
+        pendencias.add(new Pendency(
+            "RODADA_ATIVA",
+            "A Rodada " + round.numero() + " (" + round.tipo() + ") ainda está em andamento. Encerre-a antes do fechamento.",
+            true
+        ));
+      }
+    }
+
+    // 3. Rodada 1 finalizada e apurada
+    RoundRecord r1 = findRoundByNumber(rounds, 1);
+    if (r1 == null || !"FINALIZADA".equalsIgnoreCase(r1.status())) {
+      pendencias.add(new Pendency("SEM_APURACAO_R1", "A Rodada 1 não foi finalizada e apurada.", true));
+    }
+
+    // 4. Rodada 2 (se existir, deve estar finalizada)
+    RoundRecord r2 = findRoundByNumber(rounds, 2);
+    if (r2 != null && !"FINALIZADA".equalsIgnoreCase(r2.status())) {
+      pendencias.add(new Pendency("RODADA_2_PENDENTE", "A Rodada 2 foi iniciada mas não está finalizada.", true));
+    }
+
+    // 5. Itens e Apurações
+    List<ItemRecord> items = loadItems(connection, inventoryId);
+    Map<Long, ApuracaoRecord> r1Apuracoes = r1 != null ? loadApuracoes(connection, r1.id()) : Map.of();
+    Map<Long, ApuracaoRecord> r2Apuracoes = r2 != null ? loadApuracoes(connection, r2.id()) : Map.of();
+    Map<Long, InvestigationSummaryRecord> investigations = loadInvestigations(connection, inventoryId);
+
+    int conformes = 0;
+    int divergenciasConfirmadas = 0;
+    int naoContados = 0;
+    int invResolvidas = 0;
+    int invSemCausa = 0;
+    int invPendentes = 0;
+
+    for (InvestigationSummaryRecord inv : investigations.values()) {
+      if ("RESOLVIDA".equalsIgnoreCase(inv.status())) {
+        invResolvidas++;
+      } else if ("SEM_CAUSA_IDENTIFICADA".equalsIgnoreCase(inv.status())) {
+        invSemCausa++;
+      } else {
+        invPendentes++;
+      }
+    }
+
+    List<String> skusDivergentesSemInvestigacao = new ArrayList<>();
+
+    for (ItemRecord item : items) {
+      ApuracaoRecord r1Ap = r1Apuracoes.get(item.id());
+      ApuracaoRecord r2Ap = r2Apuracoes.get(item.id());
+
+      Integer qFisicaFinal;
+      if (r2Ap != null) {
+        qFisicaFinal = r2Ap.contado() ? r2Ap.quantidadeFisica() : null;
+      } else if (r1Ap != null) {
+        qFisicaFinal = r1Ap.contado() ? r1Ap.quantidadeFisica() : null;
+      } else {
+        qFisicaFinal = null;
+      }
+
+      if (qFisicaFinal == null) {
+        naoContados++;
+      } else {
+        int diff = qFisicaFinal - item.saldoSnapshot();
+        if (diff == 0) {
+          conformes++;
+        } else {
+          divergenciasConfirmadas++;
+          // Verifica se possui investigação
+          if (!investigations.containsKey(item.id())) {
+            skusDivergentesSemInvestigacao.add(item.sku());
+          }
+        }
+      }
+    }
+
+    // Validação de divergências sem investigação
+    if (!skusDivergentesSemInvestigacao.isEmpty()) {
+      pendencias.add(new Pendency(
+          "DIVERGENCIA_SEM_INVESTIGACAO",
+          "Existem " + skusDivergentesSemInvestigacao.size() + " divergência(s) confirmada(s) sem investigação associada (ex: SKU "
+              + skusDivergentesSemInvestigacao.get(0) + ").",
+          true
+      ));
+    }
+
+    // Validação de investigações pendentes
+    if (invPendentes > 0) {
+      pendencias.add(new Pendency(
+          "INVESTIGACOES_PENDENTES",
+          "Existem " + invPendentes + " investigação(ões) não concluída(s). Todas devem ser resolvidas ou encerradas sem causa.",
+          true
+      ));
+    }
+
+    // Validação de itens não contados
+    if (naoContados > 0) {
+      pendencias.add(new Pendency(
+          "ITENS_NAO_CONTADOS",
+          "Existem " + naoContados + " item(ns) não contado(s) no inventário.",
+          true
+      ));
+    }
+
+    SummaryMetrics summary = new SummaryMetrics(
+        items.size(),
+        conformes,
+        divergenciasConfirmadas,
+        invResolvidas,
+        invSemCausa,
+        invPendentes,
+        naoContados
+    );
+
+    boolean podeFechar = pendencias.isEmpty();
+    return new ValidationResult(podeFechar, pendencias, summary);
   }
 
   public ClosingResult closeInventory(
@@ -232,7 +266,7 @@ public class InventoryClosingService {
         }
 
         // Validação de pré-requisitos para fechamento NORMAL
-        ValidationResult validation = validateClosing(inventoryId, normalizedBranch);
+        ValidationResult validation = validateClosingInternal(connection, inventoryId, normalizedBranch);
         if ("NORMAL".equals(tipo) && !validation.podeFechar()) {
           StringBuilder msg = new StringBuilder("Fechamento normal bloqueado devido a pendências:");
           for (Pendency p : validation.pendencias()) {
@@ -542,6 +576,10 @@ public class InventoryClosingService {
     String normalizedBranch = normalizeBranchCode(branchCode);
     try (Connection connection = connect()) {
       Branch branch = requireBranch(connection, normalizedBranch);
+      InventoryRecord inventory = requireInventory(connection, inventoryId, branch.id());
+      if (!"ENCERRADO".equalsIgnoreCase(inventory.status())) {
+        throw new ConflictException("Resultado só pode ser consultado após o encerramento do inventário.");
+      }
       ClosingResult result = loadClosingResult(connection, inventoryId, branch.id());
       if (result == null) {
         throw new NotFoundException("Resultado consolidado não encontrado para este inventário.");
@@ -556,6 +594,10 @@ public class InventoryClosingService {
     String normalizedBranch = normalizeBranchCode(branchCode);
     try (Connection connection = connect()) {
       Branch branch = requireBranch(connection, normalizedBranch);
+      InventoryRecord inventory = requireInventory(connection, inventoryId, branch.id());
+      if (!"ENCERRADO".equalsIgnoreCase(inventory.status())) {
+        throw new ConflictException("Histórico detalhado só pode ser consultado após o encerramento do inventário.");
+      }
       ClosingResult result = loadClosingResult(connection, inventoryId, branch.id());
       if (result == null) {
         throw new NotFoundException("Histórico não encontrado para este inventário. O inventário pode não ter sido encerrado.");
@@ -988,12 +1030,21 @@ public class InventoryClosingService {
 
   public record SummaryMetrics(
       int totalItens,
-      int itensConformes,
-      int divergenciasConfirmadas,
-      int investigacoesResolvidas,
-      int investigacoesSemCausa,
-      int investigacoesPendentes,
-      int itensNaoContados
+      Integer itensConformes,
+      Integer divergenciasConfirmadas,
+      Integer investigacoesResolvidas,
+      Integer investigacoesSemCausa,
+      Integer investigacoesPendentes,
+      Integer itensNaoContados
+  ) {}
+
+  public record CloseResponse(
+      long id,
+      long inventarioId,
+      String status,
+      Instant timestamp,
+      String modoFechamento,
+      boolean confirmacao
   ) {}
 
   public record ValidationResult(

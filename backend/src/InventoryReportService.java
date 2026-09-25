@@ -54,6 +54,9 @@ public class InventoryReportService {
     try (Connection connection = connect()) {
       Header header = loadHeader(connection, inventoryId, branch);
       boolean finalContext = "RESULTADO_FINAL".equals(filter.contexto());
+      if (finalContext && !"ENCERRADO".equalsIgnoreCase(header.status())) {
+        throw new ReportException(409, "Relatório de resultado final só pode ser emitido após o encerramento do inventário.");
+      }
       List<ReportItem> source;
       boolean protectedFields;
       if (finalContext) {
@@ -62,7 +65,7 @@ public class InventoryReportService {
       } else {
         int roundNumber = "R2".equals(filter.contexto()) ? 2 : 1;
         Round round = loadRound(connection, inventoryId, roundNumber);
-        protectedFields = roundNumber == 2 || (roundNumber == 1 && "CEGO".equals(header.mode()));
+        protectedFields = InventorySecurityPolicy.isRoundProtected(header.mode(), header.status(), roundNumber);
         source = loadRoundItems(connection, inventoryId, round, roundNumber == 2);
       }
       if (protectedFields && (Set.of("CONFORMES", "DIVERGENTES").contains(filter.status())
@@ -244,13 +247,33 @@ public class InventoryReportService {
   private static String normalizeBranch(String value) { String v=value==null?"":value.trim(); if(!v.matches("\\d{1,20}")) throw new ReportException(400,"Código de filial inválido."); return v; }
   private static boolean statusMatches(ReportItem i,String s) { return switch(s){case "CONTADOS"->i.quantidade()!=null;case "NAO_CONTADOS"->i.quantidade()==null||"NAO_CONTADO".equals(i.estado());case "CONFORMES"->i.estado().startsWith("CONFORME");case "DIVERGENTES"->i.estado().contains("DIVERG")||i.diferenca()!=null&&i.diferenca()!=0;default->true;}; }
   private static boolean investigationMatches(ReportItem i,String s){ if("TODAS".equals(s))return true;if("SEM_INVESTIGACAO".equals(s))return i.statusInvestigacao()==null||i.statusInvestigacao().isBlank();return s.equals(i.statusInvestigacao()); }
-  private static Summary summarize(List<ReportItem> list,boolean protectedFields){int counted=0,conform=0,div=0,pending=0,balance=0,quantity=0,diff=0;for(ReportItem i:list){if(i.quantidade()==null)pending++;else{counted++;quantity+=i.quantidade();}if(i.estado().startsWith("CONFORME"))conform++;if(i.estado().contains("DIVERG"))div++;if(!protectedFields){balance+=i.saldo()==null?0:i.saldo();diff+=i.diferenca()==null?0:i.diferenca();}}return new Summary(list.size(),counted,pending,conform,div,protectedFields?null:balance,quantity,protectedFields?null:diff);}
+  private static Summary summarize(List<ReportItem> list, boolean protectedFields) {
+    int counted = 0, conform = 0, div = 0, pending = 0, balance = 0, quantity = 0, diff = 0;
+    for (ReportItem i : list) {
+      if (i.quantidade() == null) pending++;
+      else { counted++; quantity += i.quantidade(); }
+      if (i.estado().startsWith("CONFORME")) conform++;
+      if (i.estado().contains("DIVERG")) div++;
+      if (!protectedFields) {
+        balance += i.saldo() == null ? 0 : i.saldo();
+        diff += i.diferenca() == null ? 0 : i.diferenca();
+      }
+    }
+    return new Summary(
+        list.size(), counted, pending,
+        protectedFields ? null : conform,
+        protectedFields ? null : div,
+        protectedFields ? null : balance,
+        quantity,
+        protectedFields ? null : diff
+    );
+  }
   private static int compareSku(String a,String b){String[]x=a.split("\\.",-1),y=b.split("\\.",-1);for(int i=0;i<Math.max(x.length,y.length);i++){String l=i<x.length?x[i]:"",r=i<y.length?y[i]:"";int c;try{c=Long.compare(Long.parseLong(l),Long.parseLong(r));}catch(NumberFormatException e){c=l.compareToIgnoreCase(r);}if(c!=0)return c;}return 0;}
   private static String filterDescription(ReportFilter f){return "Status: "+f.status()+" | Localização: "+f.localizacao()+" | Condição: "+f.condicao()+" | Investigação: "+f.investigacao()+(f.busca().isBlank()?"":" | Busca: "+f.busca());}
   private static void meta(Row row,String key,String value){row.createCell(0).setCellValue(key);row.createCell(1).setCellValue(value);}
 
   public record ReportFilter(String contexto,String status,String localizacao,String condicao,String investigacao,String busca,String ordenarPor){}
-  public record Summary(int total,int contados,int naoContados,int conformes,int divergentes,Integer saldoTotal,int quantidadeTotal,Integer diferencaTotal){}
+  public record Summary(int total,int contados,int naoContados,Integer conformes,Integer divergentes,Integer saldoTotal,int quantidadeTotal,Integer diferencaTotal){}
   public record ReportProjection(long inventarioId,String inventarioNome,String filial,String modo,String inventarioStatus,String contexto,boolean camposProtegidos,Instant emitidoEm,ReportFilter filtros,Summary resumo,List<ReportItem> itens){}
   public record ReportItem(String sku,String descricao,Map<String,Object> detalhes,Integer quantidade,String estado,Integer saldo,Integer diferenca,String statusInvestigacao,String conclusao){
     ReportItem protect(){return new ReportItem(sku,descricao,detalhes,quantidade,quantidade==null?"NAO_CONTADO":"CONTADO",null,null,null,null);}

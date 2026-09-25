@@ -582,6 +582,8 @@ public class InventoryCountingService {
     int totalFalta = 0;
     int totalSobra = 0;
 
+    boolean isProtected = InventorySecurityPolicy.isRoundProtected(inventory.modo(), inventory.status(), round.numero());
+
     try (PreparedStatement statement = connection.prepareStatement(itemsAuditSql)) {
       statement.setLong(1, roundId);
       try (ResultSet rs = statement.executeQuery()) {
@@ -621,17 +623,23 @@ public class InventoryCountingService {
             else if (diferenca > 0) totalSobra += diferenca;
           }
 
+          Integer exposedSaldo = isProtected ? null : saldo;
+          Integer exposedDiff = isProtected ? null : diferenca;
+          String exposedEstado = isProtected ? (contado ? "CONTADO" : "NAO_CONTADO") : estado;
+
           items.add(new AuditItem(
-              apuracaoId, itemId, sku, descricao, saldo, contado, quantidadeFisica, diferenca, estado, detalhes
+              apuracaoId, itemId, sku, descricao, exposedSaldo, contado, quantidadeFisica, exposedDiff, exposedEstado, detalhes
           ));
         }
       }
     }
 
-    AuditSummary resumo = new AuditSummary(
-        items.size(), conformes, divergentes, naoContados,
-        conformesAposRecontagem, divergenciasConfirmadas, totalFalta, totalSobra
-    );
+    AuditSummary resumo = isProtected
+        ? new AuditSummary(items.size(), null, null, naoContados, null, null, null, null)
+        : new AuditSummary(
+            items.size(), conformes, divergentes, naoContados,
+            conformesAposRecontagem, divergenciasConfirmadas, totalFalta, totalSobra
+        );
 
     return new RoundAuditResult(
         inventory.id(),
@@ -1453,13 +1461,13 @@ public class InventoryCountingService {
 
   public record AuditSummary(
       int totalItens,
-      int conformes,
-      int divergentes,
+      Integer conformes,
+      Integer divergentes,
       int naoContados,
-      int conformesAposRecontagem,
-      int divergenciasConfirmadas,
-      int totalFalta,
-      int totalSobra
+      Integer conformesAposRecontagem,
+      Integer divergenciasConfirmadas,
+      Integer totalFalta,
+      Integer totalSobra
   ) {}
 
   public record AuditItem(
@@ -1467,7 +1475,7 @@ public class InventoryCountingService {
       long inventarioItemId,
       String sku,
       String descricao,
-      int saldoSnapshot,
+      Integer saldoSnapshot,
       boolean contado,
       Integer quantidadeFisica,
       Integer diferenca,
@@ -1478,7 +1486,7 @@ public class InventoryCountingService {
         long inventarioItemId,
         String sku,
         String descricao,
-        int saldoSnapshot,
+        Integer saldoSnapshot,
         boolean contado,
         Integer quantidadeFisica,
         Integer diferenca,

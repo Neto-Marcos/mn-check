@@ -348,7 +348,7 @@ public class InventorySessionController {
   }
 
   @PostMapping("/{id}/fechar")
-  public InventoryClosingService.ClosingResult close(
+  public InventoryClosingService.CloseResponse close(
       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
       @PathVariable long id,
       @RequestParam(required = false) String branchCode,
@@ -359,10 +359,18 @@ public class InventorySessionController {
     String effectiveType = request.tipoFechamento() != null && !request.tipoFechamento().isBlank()
         ? request.tipoFechamento()
         : request.tipo();
-    return closingService.closeInventory(
+    InventoryClosingService.ClosingResult result = closingService.closeInventory(
         id, effectiveBranch,
         new InventoryClosingService.CloseCommand(effectiveType, request.justificativa()),
         user
+    );
+    return new InventoryClosingService.CloseResponse(
+        result.id(),
+        result.inventarioId(),
+        result.inventarioStatus(),
+        result.fechadoEm() != null ? result.fechadoEm() : Instant.now(),
+        result.tipoFechamento(),
+        true
     );
   }
 
