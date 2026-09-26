@@ -1,5 +1,5 @@
 import { authorizedJson, isNetworkFailure } from "./api.js";
-import { InventariosManager } from "./inventarios.js?v=236-rc6";
+import { InventariosManager } from "./inventarios.js?v=236-rc7";
 import { clearStoredToken, readStoredToken, storeToken } from "./auth.js";
 import { conferenceStatusLabel } from "./conferencia.js";
 import {
@@ -239,7 +239,7 @@ function App() {
         controllerRefreshing = true;
         window.location.reload();
       });
-      navigator.serviceWorker.register("/sw.js?v=236-rc6")
+      navigator.serviceWorker.register("/sw.js?v=236-rc7")
         .then((registration) => {
           swRegistrationRef.current = registration;
           if (registration.waiting && navigator.serviceWorker.controller) {

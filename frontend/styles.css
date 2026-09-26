@@ -6757,15 +6757,58 @@ input[type="number"] {
 }
 
 @media print {
+  @page { size: A4 portrait; margin: 9mm; }
+
   body:has(.inventory-report-sheet) > * { visibility: hidden !important; }
   body:has(.inventory-report-sheet) .inventory-report-sheet,
   body:has(.inventory-report-sheet) .inventory-report-sheet * { visibility: visible !important; }
-  body:has(.inventory-report-sheet) .inventory-report-sheet { position: absolute; inset: 0; width: 100%; padding: 0; box-shadow: none; border-radius: 0; }
+  body:has(.inventory-report-sheet) .inventory-report-sheet {
+    position: absolute; inset: 0; width: 100%; padding: 0;
+    color: #171214; background: #fff; border-radius: 0; box-shadow: none;
+    font-family: Arial, sans-serif; font-size: 8pt;
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  }
   .inventory-report-controls, .inventory-report-view > .notice-banner { display: none !important; }
+
+  .inventory-report-header { padding-bottom: 10px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; border-bottom: 3px solid #a51f2d; }
+  .inventory-report-header span { color: #a51f2d; font-size: 9pt; font-weight: 800; text-transform: uppercase; }
+  .inventory-report-header h1 { margin: 4px 0; font-size: 17pt; letter-spacing: 0; }
+  .inventory-report-header p { margin: 0; color: #5e5557; }
+  .inventory-report-header > strong { padding: 7px 9px; border: 1px solid #d7c9cc; font-size: 8pt; white-space: nowrap; }
+
+  .inventory-report-meta { margin: 10px 0; padding: 0; display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 8px; }
+  .inventory-report-meta > span,
+  .inventory-report-summary > div { padding: 6px; display: grid; gap: 3px; border: 1px solid #ded5d7; border-radius: 0; text-align: center; }
+  .inventory-report-meta > span { color: #51494b; font-size: 8pt; overflow-wrap: anywhere; }
+
+  .inventory-report-summary { margin: 0 0 10px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .inventory-report-summary span { color: #6e6466; font-size: 7pt; font-weight: 800; text-transform: uppercase; }
+  .inventory-report-summary strong { overflow-wrap: anywhere; font-size: 9pt; }
+  .inventory-report-summary > div:last-child { border-color: #d9a9af; background: #fff1f2; }
+
   .inventory-report-table-wrap { overflow: visible; }
-  .inventory-report-table { font-size: 6.5pt; line-height: 1.15; }
+  .inventory-report-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 6.6pt; }
+  .inventory-report-table col.inventory-print-col-sku { width: 10%; }
+  .inventory-report-table col.inventory-print-col-description { width: 25%; }
+  .inventory-report-table col.inventory-print-col-location,
+  .inventory-report-table col.inventory-print-col-condition { width: 9%; }
+  .inventory-report-table col.inventory-print-col-quantity,
+  .inventory-report-table col.inventory-print-col-balance,
+  .inventory-report-table col.inventory-print-col-difference { width: 6%; }
+  .inventory-report-table col.inventory-print-col-state { width: 8%; }
+  .inventory-report-table col.inventory-print-col-investigation { width: 9%; }
+  .inventory-report-table col.inventory-print-col-conclusion { width: 12%; }
+  .inventory-report-table thead { display: table-header-group; }
   .inventory-report-table th,
-  .inventory-report-table td { padding: 3px 4px; }
+  .inventory-report-table td { padding: 4px 3px; border: 1px solid #d8ced0; overflow-wrap: normal; line-height: 1.2; text-align: center; vertical-align: middle; font-variant-numeric: tabular-nums; }
+  .inventory-report-table th { padding-inline: 2px; background: #6b111b; color: #fff; font-size: 5.6pt; line-height: 1.05; letter-spacing: 0; overflow-wrap: anywhere; text-align: center; text-transform: uppercase; }
+  .inventory-report-table th:first-child,
+  .inventory-report-table td:first-child { text-align: left; }
+  .inventory-report-table th:nth-child(2),
+  .inventory-report-table td:nth-child(2) { text-align: left; overflow-wrap: anywhere; }
+  .inventory-report-table tbody tr:nth-child(even) { background: #f8f5f6; }
   .inventory-report-table tr { break-inside: avoid; }
-  @page { size: A4 portrait; margin: 10mm; }
+
+  .inventory-report-signatures { margin-top: 42px; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; break-inside: avoid; }
+  .inventory-report-signatures div { padding-top: 8px; border-top: 1px solid #51494b; text-align: center; font-size: 8pt; }
 }

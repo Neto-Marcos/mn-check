@@ -528,6 +528,18 @@ function InventoryReportScreen({ inventory, branchCode, request, token, onBack }
       ),
       report.itens.length === 0 ? h("div", { className: "empty-state" }, "Nenhum item corresponde aos filtros selecionados.") :
       h("div", { className: "inventory-report-table-wrap" }, h("table", { className: "inventory-report-table" },
+        h("colgroup", null,
+          h("col", { className: "inventory-print-col-sku" }),
+          h("col", { className: "inventory-print-col-description" }),
+          h("col", { className: "inventory-print-col-location" }),
+          h("col", { className: "inventory-print-col-condition" }),
+          h("col", { className: "inventory-print-col-quantity" }),
+          h("col", { className: "inventory-print-col-state" }),
+          !report.camposProtegidos && h("col", { className: "inventory-print-col-balance" }),
+          !report.camposProtegidos && h("col", { className: "inventory-print-col-difference" }),
+          h("col", { className: "inventory-print-col-investigation" }),
+          h("col", { className: "inventory-print-col-conclusion" })
+        ),
         h("thead", null, h("tr", null, ["SKU","Descrição","Localização","Condição","Quantidade","Estado", ...(report.camposProtegidos ? [] : ["Saldo","Diferença"]), "Investigação","Conclusão"].map(label => h("th", { key: label }, label)))),
         h("tbody", null, report.itens.map((item, index) => h("tr", { key: `${item.sku}-${index}` },
           h("td", null, item.sku), h("td", null, item.descricao), h("td", null, reportItemLocations(item)), h("td", null, reportItemConditions(item)),
@@ -3749,4 +3761,4 @@ import {
   isExplicitlyCounted,
   normalizePartialProducts,
   partialSkuPayload
-} from "./inventory_counting_logic.js?v=236-rc6";
+} from "./inventory_counting_logic.js?v=236-rc7";
