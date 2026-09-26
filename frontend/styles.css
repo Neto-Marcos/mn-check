@@ -6763,7 +6763,9 @@ input[type="number"] {
   body:has(.inventory-report-sheet) .inventory-report-sheet { position: absolute; inset: 0; width: 100%; padding: 0; box-shadow: none; border-radius: 0; }
   .inventory-report-controls, .inventory-report-view > .notice-banner { display: none !important; }
   .inventory-report-table-wrap { overflow: visible; }
-  .inventory-report-table { font-size: 9pt; }
+  .inventory-report-table { font-size: 6.5pt; line-height: 1.15; }
+  .inventory-report-table th,
+  .inventory-report-table td { padding: 3px 4px; }
   .inventory-report-table tr { break-inside: avoid; }
   @page { size: A4 portrait; margin: 10mm; }
 }
