@@ -6765,5 +6765,5 @@ input[type="number"] {
   .inventory-report-table-wrap { overflow: visible; }
   .inventory-report-table { font-size: 9pt; }
   .inventory-report-table tr { break-inside: avoid; }
-  @page { size: landscape; margin: 10mm; }
+  @page { size: A4 portrait; margin: 10mm; }
 }
