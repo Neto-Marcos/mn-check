@@ -1,5 +1,5 @@
 import { authorizedJson, isNetworkFailure } from "./api.js";
-import { InventariosManager } from "./inventarios.js?v=236-rc7";
+import { InventariosManager } from "./inventarios.js?v=236-rc8";
 import { clearStoredToken, readStoredToken, storeToken } from "./auth.js";
 import { conferenceStatusLabel } from "./conferencia.js";
 import {
@@ -130,7 +130,6 @@ function App() {
     }
   });
   const [toast, setToast] = React.useState("");
-  const [waitingWorker, setWaitingWorker] = React.useState(null);
   const [mapImportOpen, setMapImportOpen] = React.useState(false);
   const [mapImporting, setMapImporting] = React.useState(false);
   const [mapDraft, setMapDraft] = React.useState(null);
@@ -239,18 +238,18 @@ function App() {
         controllerRefreshing = true;
         window.location.reload();
       });
-      navigator.serviceWorker.register("/sw.js?v=236-rc7")
+      navigator.serviceWorker.register("/sw.js?v=236-rc8")
         .then((registration) => {
           swRegistrationRef.current = registration;
           if (registration.waiting && navigator.serviceWorker.controller) {
-            setWaitingWorker(registration.waiting);
+            registration.waiting.postMessage({ type: "SKIP_WAITING" });
           }
           registration.addEventListener("updatefound", () => {
             const worker = registration.installing;
             if (!worker) return;
             worker.addEventListener("statechange", () => {
               if (worker.state === "installed" && navigator.serviceWorker.controller) {
-                setWaitingWorker(worker);
+                worker.postMessage({ type: "SKIP_WAITING" });
               }
             });
           });
@@ -277,11 +276,6 @@ function App() {
       window.removeEventListener("offline", updateConnection);
     };
   }, []);
-
-  function applyPwaUpdate() {
-    if (!waitingWorker) return;
-    waitingWorker.postMessage({ type: "SKIP_WAITING" });
-  }
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -990,13 +984,6 @@ function App() {
           disabled: authenticating
         }, authenticating ? "Entrando..." : "Entrar")
       ),
-      waitingWorker && h("div", { className: "pwa-update-banner", role: "status" },
-        h("div", null,
-          h("strong", null, "Nova versão disponível"),
-          h("span", null, "Atualize para carregar os botões e melhorias mais recentes.")
-        ),
-        h("button", { className: "primary-action compact", onClick: applyPwaUpdate }, "Atualizar agora")
-      ),
       toast && h("div", { className: "toast" }, toast)
     );
   }
@@ -1259,13 +1246,6 @@ function App() {
       onClose: () => setPasswordTarget(null),
       onSave: changePassword
     }),
-    waitingWorker && h("div", { className: "pwa-update-banner", role: "status" },
-      h("div", null,
-        h("strong", null, "Nova versão disponível"),
-        h("span", null, "Atualize para carregar os botões e melhorias mais recentes.")
-      ),
-      h("button", { className: "primary-action compact", onClick: applyPwaUpdate }, "Atualizar agora")
-    ),
     toast && h("div", { className: "toast" }, toast)
   );
 }

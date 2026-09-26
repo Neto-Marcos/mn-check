@@ -6706,6 +6706,54 @@ input[type="number"] {
   background: rgba(16, 185, 129, 0.05);
 }
 
+/* Inventory 3.0 — tabelas operacionais sempre usam texto escuro sobre fundo claro. */
+.inventory-data-table {
+  background: #ffffff;
+  color: #1f2937;
+}
+
+.inventory-data-table thead tr,
+.inventory-data-table th {
+  background: #e5e7eb !important;
+  color: #111827 !important;
+}
+
+.inventory-data-table tbody tr td {
+  background: #ffffff;
+  color: #1f2937;
+}
+
+.inventory-data-table tbody tr:nth-child(even) td {
+  background: #f8fafc;
+}
+
+.inventory-data-table tbody tr:hover td {
+  background: #eef2f7;
+  color: #111827;
+}
+
+.inventory-data-table tbody tr.is-selected td {
+  background: #fff7ed;
+  color: #111827;
+}
+
+.inventory-data-table tbody tr.is-counted td {
+  background: #ecfdf5;
+  color: #111827;
+}
+
+.inventory-data-table tbody tr.is-not-counted td {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.inventory-data-table td.hint,
+.inventory-data-table td .hint,
+.inventory-data-table td[style*="var(--muted)"],
+.inventory-data-table td[style*="var(--text-secondary)"] {
+  color: #4b5563 !important;
+}
+
 @media (max-width: 600px) {
   .stepper-btn {
     width: 68px !important;

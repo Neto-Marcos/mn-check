@@ -2031,7 +2031,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
 
     // Tabela de Apuração
     h("div", { className: "card-panel", style: { padding: 0, overflowX: "auto" } },
-      h("table", { className: "table", style: { width: "100%", borderCollapse: "collapse" } },
+      h("table", { className: "table inventory-data-table", style: { width: "100%", borderCollapse: "collapse" } },
         h("thead", null,
           h("tr", { style: { borderBottom: "1px solid var(--border)", background: "rgba(0,0,0,0.02)" } },
             !isR2 && h("th", { style: { padding: "10px", width: "40px", textAlign: "center" } }, "R2"),
@@ -2058,6 +2058,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
 
             return h("tr", {
               key: item.inventarioItemId,
+              className: `${isSelected ? "is-selected" : ""} ${item.estado === "CONTADO" ? "is-counted" : ""} ${item.estado === "NAO_CONTADO" ? "is-not-counted" : ""}`.trim(),
               style: {
                 borderBottom: "1px solid var(--border)",
                 background: isSelected ? "rgba(245, 158, 11, 0.06)" : "transparent"
@@ -3632,7 +3633,7 @@ function HistoricoResultadoScreen({ inventory, branchCode, request, user, onBack
 
       // Tabela de Itens do Resultado
       h("div", { className: "card-panel", style: { padding: 0, overflowX: "auto" } },
-        h("table", { className: "table", style: { width: "100%", borderCollapse: "collapse" } },
+        h("table", { className: "table inventory-data-table", style: { width: "100%", borderCollapse: "collapse" } },
           h("thead", null,
             h("tr", { style: { borderBottom: "1px solid var(--border)", background: "rgba(0,0,0,0.02)" } },
               h("th", { style: { padding: "10px", textAlign: "left" } }, "SKU"),
@@ -3666,7 +3667,11 @@ function HistoricoResultadoScreen({ inventory, branchCode, request, user, onBack
                 diffColor = "#ef4444";
               }
 
-              return h("tr", { key: item.id, style: { borderBottom: "1px solid var(--border)" } },
+              return h("tr", {
+                key: item.id,
+                className: `${item.estadoFinal === "CONTADO" ? "is-counted" : ""} ${item.estadoFinal === "NAO_CONTADO" ? "is-not-counted" : ""}`.trim(),
+                style: { borderBottom: "1px solid var(--border)" }
+              },
                 h("td", { style: { padding: "10px", fontWeight: "bold" } }, item.sku),
                 h("td", { style: { padding: "10px" } }, item.descricao),
                 h("td", { style: { padding: "10px", textAlign: "right", color: "var(--text-secondary)" } }, item.saldoSnapshot),
@@ -3761,4 +3766,4 @@ import {
   isExplicitlyCounted,
   normalizePartialProducts,
   partialSkuPayload
-} from "./inventory_counting_logic.js?v=236-rc7";
+} from "./inventory_counting_logic.js?v=236-rc8";
