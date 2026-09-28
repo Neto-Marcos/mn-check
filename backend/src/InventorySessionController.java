@@ -186,7 +186,8 @@ public class InventorySessionController {
       @RequestBody CreateRecountRequest request
   ) {
     LegacyAuthenticationClient.AuthenticatedUser user = authentication.requireInventoryUser(authorization);
-    return countingService.createRecountRound(id, branchCode, request.itemIds(), user.name());
+    return countingService.createRecountRound(id, branchCode,
+        request == null ? null : request.itemIds(), user.name());
   }
 
   // --- Investigações de Divergência (Dia 6) ---

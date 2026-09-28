@@ -1796,8 +1796,9 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
       const res = await request(`/api/inventarios/${inventory.id}/rodadas/${targetRoundId}/apuracao?branchCode=${encodeURIComponent(branchCode)}`);
       setAudit(res);
 
-      // Pré-selecionar divergentes para R2 se for Rodada 1
-      if (res.rodadaNumero === 1) {
+      // No modo CEGO o servidor seleciona a R2 com a apuração interna.
+      // Não derive o escopo dos estados sanitizados recebidos pelo cliente.
+      if (res.rodadaNumero === 1 && inventory.modo !== "CEGO") {
         const divIds = new Set(
           res.itens.filter(i => i.estado === "DIVERGENTE").map(i => i.inventarioItemId)
         );
@@ -1857,18 +1858,21 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
   }
 
   async function handleCreateRecount() {
-    if (selectedItemIds.size === 0) {
+    if (!isBlindR1 && selectedItemIds.size === 0) {
       alert("Selecione pelo menos um item para a recontagem.");
       return;
     }
-    if (!confirm(`Deseja iniciar a Rodada 2 (Recontagem Cega) com ${selectedItemIds.size} itens selecionados?`)) return;
+    const confirmation = isBlindR1
+      ? "Deseja iniciar a Rodada 2 (Recontagem Cega)? O servidor definirá o escopo protegido."
+      : `Deseja iniciar a Rodada 2 (Recontagem Cega) com ${selectedItemIds.size} itens selecionados?`;
+    if (!confirm(confirmation)) return;
 
     setStartingRecount(true);
     setError("");
     try {
       await request(`/api/inventarios/${inventory.id}/criar-recontagem?branchCode=${encodeURIComponent(branchCode)}`, {
         method: "POST",
-        body: { itemIds: Array.from(selectedItemIds) }
+        body: isBlindR1 ? {} : { itemIds: Array.from(selectedItemIds) }
       });
       if (onStartRecount) {
         onStartRecount();
@@ -1894,6 +1898,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
 
   const { resumo, itens, rodadaNumero, rodadaTipo, encerramentoForcado, pendentesNoFechamento } = audit;
   const isR2 = rodadaNumero >= 2;
+  const isBlindR1 = !isR2 && inventory.modo === "CEGO";
 
   const filteredItems = itens.filter(item => {
     if (activeTab === "divergentes") return item.estado === "DIVERGENTE" || item.estado === "DIVERGENCIA_CONFIRMADA";
@@ -1994,7 +1999,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
 
     // Ações de Seleção de Recontagem (somente na Rodada 1)
     !isR2 && h("div", { className: "card-panel", style: { padding: "12px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" } },
-      h("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
+      !isBlindR1 && h("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
         h("button", { className: "btn btn-secondary", onClick: selectAllDivergentes, style: { fontSize: "0.85rem" } },
           resumo.divergentes != null ? `Selecionar Divergentes (${resumo.divergentes})` : "Selecionar Divergentes"
         ),
@@ -2008,9 +2013,9 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
       h("button", {
         className: "btn btn-primary",
         onClick: handleCreateRecount,
-        disabled: startingRecount || selectedItemIds.size === 0,
+        disabled: startingRecount || (!isBlindR1 && selectedItemIds.size === 0),
         style: { fontWeight: "bold", background: "#f59e0b", borderColor: "#f59e0b" }
-      }, startingRecount ? "Iniciando R2..." : `🚀 Iniciar Recontagem (R2) com ${selectedItemIds.size} itens`)
+      }, startingRecount ? "Iniciando R2..." : (isBlindR1 ? "🚀 Iniciar Recontagem Cega (R2)" : `🚀 Iniciar Recontagem (R2) com ${selectedItemIds.size} itens`))
     ),
 
     // Filtros de Abas
@@ -2034,7 +2039,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
       h("table", { className: "table inventory-data-table", style: { width: "100%", borderCollapse: "collapse" } },
         h("thead", null,
           h("tr", { style: { borderBottom: "1px solid var(--border)", background: "rgba(0,0,0,0.02)" } },
-            !isR2 && h("th", { style: { padding: "10px", width: "40px", textAlign: "center" } }, "R2"),
+            !isR2 && !isBlindR1 && h("th", { style: { padding: "10px", width: "40px", textAlign: "center" } }, "R2"),
             h("th", { style: { padding: "10px", textAlign: "left" } }, "SKU"),
             h("th", { style: { padding: "10px", textAlign: "left" } }, "Descrição"),
             h("th", { style: { padding: "10px", textAlign: "right" } }, "Saldo Esp."),
@@ -2064,7 +2069,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
                 background: isSelected ? "rgba(245, 158, 11, 0.06)" : "transparent"
               }
             },
-              !isR2 && h("td", { style: { padding: "10px", textAlign: "center" } },
+              !isR2 && !isBlindR1 && h("td", { style: { padding: "10px", textAlign: "center" } },
                 h("input", {
                   type: "checkbox",
                   checked: isSelected,

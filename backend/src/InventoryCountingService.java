@@ -591,10 +591,6 @@ public class InventoryCountingService {
     String normalizedBranch = normalizeBranchCode(branchCode);
     String safeActor = required(actor, "Usuário autenticado não informado.");
 
-    if (itemIds == null || itemIds.isEmpty()) {
-      throw new ValidationException("Selecione pelo menos um item para a recontagem.");
-    }
-
     try (Connection connection = connect()) {
       connection.setAutoCommit(false);
       try {
@@ -616,11 +612,24 @@ public class InventoryCountingService {
           throw new ConflictException("A Rodada 2 de recontagem já foi criada.");
         }
 
-        // Carrega a apuração da Rodada 1 para validar itens
+        // A apuração interna é a fonte de verdade para o escopo da R2. Em modo
+        // CEGO o cliente não recebe estados de apuração e não pode escolhê-los.
         Map<Long, AuditItemRecord> r1Audit = loadAuditRecordsForRound(connection, r1.id());
+        List<Long> scopedItemIds;
+        if ("CEGO".equalsIgnoreCase(inventory.modo())) {
+          scopedItemIds = r1Audit.values().stream()
+              .filter(auditItem -> !"CONFORME".equalsIgnoreCase(auditItem.estado()))
+              .map(AuditItemRecord::inventarioItemId)
+              .toList();
+        } else {
+          if (itemIds == null || itemIds.isEmpty()) {
+            throw new ValidationException("Selecione pelo menos um item para a recontagem.");
+          }
+          scopedItemIds = itemIds;
+        }
 
-        // Valida que itens conformes não entram e que todos os itens pertencem à R1
-        for (Long itemId : itemIds) {
+        // No modo NORMAL, preserva a seleção explícita e sua validação original.
+        for (Long itemId : scopedItemIds) {
           AuditItemRecord auditItem = r1Audit.get(itemId);
           if (auditItem == null) {
             throw new ValidationException("Item " + itemId + " não pertence à apuração da Rodada 1.");
@@ -654,7 +663,7 @@ public class InventoryCountingService {
             VALUES (?, ?, ?, now())
             """;
         try (PreparedStatement statement = connection.prepareStatement(insertScopeSql)) {
-          for (Long itemId : itemIds) {
+          for (Long itemId : scopedItemIds) {
             AuditItemRecord auditItem = r1Audit.get(itemId);
             String motivo = "DIVERGENTE".equalsIgnoreCase(auditItem.estado()) ? "DIVERGENCIA" : "NAO_CONTADO_R1";
             statement.setLong(1, r2Id);

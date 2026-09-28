@@ -322,6 +322,90 @@ class InventoryRecountIntegrationTest {
     }
   }
 
+  @Test
+  void blindR1ToR2UsesInternalScopeWithoutLeakingTheR1Result() throws Exception {
+    String databaseUrl = authorizedDatabaseUrl();
+    DatabaseUrlParser.JdbcConfig config = DatabaseUrlParser.parse(databaseUrl);
+    String schema = "mncheck_blind_r1_r2_" + UUID.randomUUID().toString().replace("-", "");
+
+    try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
+      statement.execute("CREATE SCHEMA " + schema);
+    }
+
+    try {
+      Flyway.configure().dataSource(config.url(), config.username(), config.password())
+          .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+          .baselineOnMigrate(true).baselineVersion("0").validateOnMigrate(true).load().migrate();
+
+      String scopedUrl = withCurrentSchema(databaseUrl, schema);
+      Seed seed = seedData(scopedUrl);
+      try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
+        statement.execute("UPDATE " + schema + ".saldos SET saldo = 1 WHERE importacao_id = " + seed.import281());
+      }
+
+      InventorySessionService sessions = new InventorySessionService(scopedUrl);
+      InventoryCountingService counting = new InventoryCountingService(scopedUrl);
+      long inventoryId = sessions.create(new InventorySessionService.CreateCommand(
+          seed.import281(), "281", "CEGO R1 para R2", "PARCIAL", "CEGO",
+          List.of("SKU-A", "SKU-B", "SKU-C")), "Supervisor").inventory().id();
+      sessions.open(inventoryId, "281", 0, "Supervisor");
+      sessions.start(inventoryId, "281", 1, "Supervisor");
+      var r1 = counting.getActiveRound(inventoryId, "281");
+
+      // SKU-A conforme com quantidade > 0; SKU-B é o zero explícito (saldo 1);
+      // SKU-C também diverge. Todas as categorias não informadas permanecem em zero.
+      counting.recordCompoundOccurrence(inventoryId, r1.id(), "281",
+          new InventoryCountingService.RecordCompoundCommand("SKU-A", "GERAL", 1, 0, 0, 0,
+              UUID.randomUUID(), "MANUAL"), "Operador");
+      counting.recordCompoundOccurrence(inventoryId, r1.id(), "281",
+          new InventoryCountingService.RecordCompoundCommand("SKU-B", "GERAL", 0, 0, 0, 0,
+              UUID.randomUUID(), "MANUAL"), "Operador");
+      counting.recordCompoundOccurrence(inventoryId, r1.id(), "281",
+          new InventoryCountingService.RecordCompoundCommand("SKU-C", "GERAL", 2, 0, 0, 0,
+              UUID.randomUUID(), "MANUAL"), "Operador");
+
+      var publicR1 = counting.closeRound(inventoryId, r1.id(), "281", false, "Supervisor");
+      assertEquals(3, publicR1.resumo().totalItens());
+      assertNull(publicR1.resumo().divergentes(), "Resumo CEGO não revela divergências");
+      for (var item : publicR1.itens()) {
+        assertNull(item.saldoSnapshot(), "R1 CEGO não expõe saldo");
+        assertNull(item.diferenca(), "R1 CEGO não expõe diferença");
+        assertEquals("CONTADO", item.estado(), "R1 CEGO sanitiza estado contado");
+      }
+
+      // Simula F5: uma nova leitura pública continua sanitizada.
+      var refreshedR1 = counting.getRoundAudit(inventoryId, r1.id(), "281");
+      assertNull(refreshedR1.resumo().divergentes());
+      assertTrue(refreshedR1.itens().stream().allMatch(i -> i.saldoSnapshot() == null
+          && i.diferenca() == null && "CONTADO".equals(i.estado())));
+
+      try (Connection connection = connect(config); Statement statement = connection.createStatement();
+           ResultSet rs = statement.executeQuery("SELECT contado, quantidade_fisica, diferenca, estado FROM "
+               + schema + ".apuracoes_rodada WHERE rodada_id = " + r1.id() + " AND sku = 'SKU-B'")) {
+        assertTrue(rs.next());
+        assertTrue(rs.getBoolean("contado"));
+        assertEquals(0, rs.getInt("quantidade_fisica"));
+        assertEquals(-1, rs.getInt("diferenca"));
+        assertEquals("DIVERGENTE", rs.getString("estado"));
+      }
+
+      // Esta chamada reproduzia o P0: o frontend CEGO não tinha IDs divergentes
+      // para enviar. Agora o backend seleciona SKU-B e SKU-C internamente.
+      var r2 = counting.createRecountRound(inventoryId, "281", List.of(), "Supervisor");
+      assertEquals(2, r2.numero());
+      assertEquals(2, r2.progresso().totalSkus(), "R2 contém somente os divergentes internos");
+      var r2Items = counting.listItems(inventoryId, "281", null, null).itens();
+      assertEquals(List.of("SKU-B", "SKU-C"), r2Items.stream().map(InventoryCountingService.CountingItem::sku).sorted().toList());
+      assertTrue(r2Items.stream().allMatch(item -> item.saldoSnapshot() == null), "R2 continua cega");
+      assertThrows(InventoryCountingService.NotFoundException.class,
+          () -> counting.getRoundAudit(inventoryId, r1.id(), "282"), "Isolamento entre filiais permanece");
+    } finally {
+      try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
+        statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
+      }
+    }
+  }
+
   private String authorizedDatabaseUrl() {
     String databaseUrl = System.getenv("DATABASE_URL");
     boolean allowed = Boolean.parseBoolean(System.getenv("MN_CHECK_ALLOW_DATABASE_TESTS"));
