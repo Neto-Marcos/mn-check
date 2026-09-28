@@ -3,6 +3,7 @@ package br.com.mncheck;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -399,6 +400,72 @@ class InventoryRecountIntegrationTest {
       assertTrue(r2Items.stream().allMatch(item -> item.saldoSnapshot() == null), "R2 continua cega");
       assertThrows(InventoryCountingService.NotFoundException.class,
           () -> counting.getRoundAudit(inventoryId, r1.id(), "282"), "Isolamento entre filiais permanece");
+    } finally {
+      try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
+        statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
+      }
+    }
+  }
+
+  @Test
+  void auditRoundLookupUsesRoundPrimaryKeyAfterR1HasBeenFinalized() throws Exception {
+    String databaseUrl = authorizedDatabaseUrl();
+    DatabaseUrlParser.JdbcConfig config = DatabaseUrlParser.parse(databaseUrl);
+    String schema = "mncheck_audit_round_lookup_" + UUID.randomUUID().toString().replace("-", "");
+
+    try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
+      statement.execute("CREATE SCHEMA " + schema);
+    }
+
+    try {
+      Flyway.configure().dataSource(config.url(), config.username(), config.password())
+          .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+          .baselineOnMigrate(true).baselineVersion("0").validateOnMigrate(true).load().migrate();
+
+      String scopedUrl = withCurrentSchema(databaseUrl, schema);
+      Seed seed = seedData(scopedUrl);
+      InventorySessionService sessions = new InventorySessionService(scopedUrl);
+      InventoryCountingService counting = new InventoryCountingService(scopedUrl);
+
+      long earlierInventoryId = sessions.create(new InventorySessionService.CreateCommand(
+          seed.import281(), "281", "Inventário anterior", "GERAL", "NORMAL", List.of("SKU-A")), "Supervisor")
+          .inventory().id();
+      sessions.open(earlierInventoryId, "281", 0, "Supervisor");
+      sessions.start(earlierInventoryId, "281", 1, "Supervisor");
+      var earlierRound = counting.getActiveRound(earlierInventoryId, "281");
+      assertEquals(1, earlierRound.id());
+
+      long inventoryId = sessions.create(new InventorySessionService.CreateCommand(
+          seed.import281(), "281", "CEGO com R1 finalizada", "PARCIAL", "CEGO", List.of("SKU-B")), "Supervisor")
+          .inventory().id();
+      sessions.open(inventoryId, "281", 0, "Supervisor");
+      sessions.start(inventoryId, "281", 1, "Supervisor");
+      var r1 = counting.getActiveRound(inventoryId, "281");
+      assertNotEquals(1, r1.id(), "ID primário da rodada não deve ser confundido com número da R1");
+      assertEquals(1, r1.numero());
+
+      var selectedWhileActive = counting.getRoundForAudit(inventoryId, "281");
+      assertEquals(r1.id(), selectedWhileActive.id());
+
+      counting.recordCompoundOccurrence(inventoryId, r1.id(), "281",
+          new InventoryCountingService.RecordCompoundCommand("SKU-B", "GERAL", 0, 0, 0, 0,
+              UUID.randomUUID(), "MANUAL"), "Operador");
+      var publicR1 = counting.closeRound(inventoryId, r1.id(), "281", false, "Supervisor");
+      assertNull(publicR1.resumo().divergentes(), "CEGO não expõe o agregado de divergências");
+      assertNull(publicR1.itens().getFirst().saldoSnapshot(), "CEGO não expõe o saldo na apuração pública");
+      assertNull(publicR1.itens().getFirst().diferenca(), "CEGO não expõe a diferença na apuração pública");
+      assertEquals("CONTADO", publicR1.itens().getFirst().estado(), "CEGO sanitiza o estado público");
+
+      assertThrows(InventoryCountingService.NotFoundException.class,
+          () -> counting.getRoundAudit(inventoryId, 1L, "281"),
+          "O antigo fallback 1 é round ID, não número de rodada, e não pertence ao inventário");
+      var selectedAfterClose = counting.getRoundForAudit(inventoryId, "281");
+      assertEquals(r1.id(), selectedAfterClose.id(), "Sem rodada ativa, deve selecionar a última R1 finalizada");
+      assertEquals("FINALIZADA", selectedAfterClose.status());
+
+      var publicAudit = counting.getRoundAudit(inventoryId, selectedAfterClose.id(), "281");
+      assertTrue(publicAudit.itens().stream().allMatch(item -> item.saldoSnapshot() == null
+          && item.diferenca() == null && "CONTADO".equals(item.estado())));
     } finally {
       try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
         statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");

@@ -1788,10 +1788,12 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
     setLoading(true);
     setError("");
     try {
-      let url = `/api/inventarios/${inventory.id}`;
-      // Se roundId foi informado, busca a apuração específica. Se não, busca a rodada ativa ou rodada 1
-      const activeRound = await request(`/api/inventarios/${inventory.id}/rodada-ativa?branchCode=${encodeURIComponent(branchCode)}`).catch(() => null);
-      const targetRoundId = roundId || (activeRound ? activeRound.id : 1);
+      // O backend escolhe a rodada atual ou, sem rodada ativa, a última finalizada.
+      // O cliente não pode tratar o número da rodada (ex.: R1) como seu ID primário.
+      const auditRound = roundId == null
+        ? await request(`/api/inventarios/${inventory.id}/rodada-apuracao-atual?branchCode=${encodeURIComponent(branchCode)}`)
+        : { id: roundId };
+      const targetRoundId = auditRound.id;
 
       const res = await request(`/api/inventarios/${inventory.id}/rodadas/${targetRoundId}/apuracao?branchCode=${encodeURIComponent(branchCode)}`);
       setAudit(res);

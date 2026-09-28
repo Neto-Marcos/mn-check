@@ -118,6 +118,16 @@ public class InventorySessionController {
     return countingService.getActiveRound(id, branchCode);
   }
 
+  @GetMapping("/{id}/rodada-apuracao-atual")
+  public InventoryCountingService.RoundDetail roundForAudit(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @PathVariable long id,
+      @RequestParam String branchCode
+  ) {
+    authentication.requireInventoryUser(authorization);
+    return countingService.getRoundForAudit(id, branchCode);
+  }
+
   @GetMapping("/{id}/itens")
   public InventoryCountingService.ItemListResult items(
       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,

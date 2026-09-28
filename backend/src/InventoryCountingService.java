@@ -75,6 +75,37 @@ public class InventoryCountingService {
     }
   }
 
+  public RoundDetail getRoundForAudit(long inventoryId, String branchCode) {
+    String normalizedBranch = normalizeBranchCode(branchCode);
+    try (Connection connection = connect()) {
+      requireBranch(connection, normalizedBranch);
+      InventoryHeader inventory = requireInventory(connection, inventoryId, normalizedBranch);
+      RoundRecord round = findActiveRound(connection, inventoryId);
+      if (round == null) {
+        round = findLatestFinalizedRound(connection, inventoryId);
+      }
+      if (round == null) {
+        throw new NotFoundException("Nenhuma rodada disponível para apuração neste inventário.");
+      }
+      CountingProgress progress = calculateProgress(connection, inventoryId, round.id());
+      return new RoundDetail(
+          round.id(),
+          round.inventarioId(),
+          round.numero(),
+          round.tipo(),
+          round.status(),
+          round.iniciadaPor(),
+          round.iniciadaEm(),
+          inventory.nome(),
+          inventory.modo(),
+          inventory.status(),
+          progress
+      );
+    } catch (SQLException error) {
+      throw new DatabaseException("Não foi possível carregar a rodada para apuração.", error);
+    }
+  }
+
   public ItemListResult listItems(long inventoryId, String branchCode, String search, String estadoFilter) {
     String normalizedBranch = normalizeBranchCode(branchCode);
     try (Connection connection = connect()) {
@@ -1105,6 +1136,31 @@ public class InventoryCountingService {
         SELECT id, inventario_id, numero, tipo, status, iniciada_por, iniciada_em
         FROM rodadas_contagem
         WHERE inventario_id = ? AND status = 'EM_ANDAMENTO'
+        ORDER BY numero DESC
+        LIMIT 1
+        """;
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, inventoryId);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) return null;
+        return new RoundRecord(
+            result.getLong("id"),
+            result.getLong("inventario_id"),
+            result.getInt("numero"),
+            result.getString("tipo"),
+            result.getString("status"),
+            result.getString("iniciada_por"),
+            result.getTimestamp("iniciada_em").toInstant()
+        );
+      }
+    }
+  }
+
+  private RoundRecord findLatestFinalizedRound(Connection connection, long inventoryId) throws SQLException {
+    String sql = """
+        SELECT id, inventario_id, numero, tipo, status, iniciada_por, iniciada_em
+        FROM rodadas_contagem
+        WHERE inventario_id = ? AND status = 'FINALIZADA'
         ORDER BY numero DESC
         LIMIT 1
         """;
