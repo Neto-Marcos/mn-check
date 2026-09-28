@@ -1903,7 +1903,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
   const isBlindR1 = !isR2 && inventory.modo === "CEGO";
 
   const filteredItems = itens.filter(item => {
-    if (activeTab === "divergentes") return item.estado === "DIVERGENTE" || item.estado === "DIVERGENCIA_CONFIRMADA";
+    if (activeTab === "divergentes") return item.podeInvestigar === true;
     if (activeTab === "nao_contados") return item.estado === "NAO_CONTADO";
     if (activeTab === "conformes") return item.estado === "CONFORME" || item.estado === "CONFORME_APOS_RECONTAGEM";
     return true;
@@ -2023,7 +2023,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
     // Filtros de Abas
     h("div", { style: { display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" } },
       [
-        { id: "divergentes", label: isR2 ? "Divergências Confirmadas" : "Divergentes" },
+        { id: "divergentes", label: inventory.modo === "CEGO" ? "Investigações disponíveis" : (isR2 ? "Divergências Confirmadas" : "Divergentes") },
         { id: "todos", label: "Todos os Itens" },
         { id: "nao_contados", label: "Não Contados" },
         { id: "conformes", label: isR2 ? "Conformes pós-R2" : "Conformes" }
@@ -2106,7 +2106,7 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
                   : "—"
               ),
               h("td", { style: { padding: "10px", textAlign: "center" } },
-                (isDivergente || item.estado === "NAO_CONTADO") && h("button", {
+                item.podeInvestigar === true && h("button", {
                   className: "btn btn-secondary",
                   style: { fontSize: "0.75rem", padding: "4px 8px", whiteSpace: "nowrap" },
                   onClick: () => handleInvestigateItem(item)

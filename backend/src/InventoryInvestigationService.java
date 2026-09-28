@@ -801,7 +801,7 @@ public class InventoryInvestigationService {
 
         List<EvidenceRecord> evidencias = loadEvidences(connection, id);
         List<LinkRecord> vinculos = loadLinks(connection, id);
-        List<EventRecord> eventos = loadEvents(connection, id);
+        List<EventRecord> eventos = loadEvents(connection, id, isProtected);
 
         return new InvestigationDetail(
             id, filialId, invId, itemId, sku, descricao, status,
@@ -873,7 +873,7 @@ public class InventoryInvestigationService {
     }
   }
 
-  private List<EventRecord> loadEvents(Connection connection, UUID investigationId) throws SQLException {
+  private List<EventRecord> loadEvents(Connection connection, UUID investigationId, boolean isProtected) throws SQLException {
     String sql = """
         SELECT id, investigacao_id, tipo_evento, detalhes, criado_em, criado_por
         FROM eventos_investigacao WHERE investigacao_id = ?
@@ -884,11 +884,16 @@ public class InventoryInvestigationService {
       try (ResultSet rs = statement.executeQuery()) {
         List<EventRecord> list = new ArrayList<>();
         while (rs.next()) {
+          Map<String, Object> details = new java.util.LinkedHashMap<>(parseJsonMap(rs.getString("detalhes")));
+          if (isProtected) {
+            details.remove("estadoOriginal");
+            details.remove("diferenca");
+          }
           list.add(new EventRecord(
               rs.getLong("id"),
               (UUID) rs.getObject("investigacao_id"),
               rs.getString("tipo_evento"),
-              parseJsonMap(rs.getString("detalhes")),
+              details,
               instant(rs, "criado_em"),
               rs.getString("criado_por")
           ));

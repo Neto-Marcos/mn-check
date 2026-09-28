@@ -841,7 +841,9 @@ public class InventoryCountingService {
           String exposedEstado = isProtected ? (contado ? "CONTADO" : "NAO_CONTADO") : estado;
 
           items.add(new AuditItem(
-              apuracaoId, itemId, sku, descricao, exposedSaldo, contado, quantidadeFisica, exposedDiff, exposedEstado, detalhes
+              apuracaoId, itemId, sku, descricao, exposedSaldo, contado, quantidadeFisica, exposedDiff, exposedEstado, detalhes,
+              !InventorySecurityPolicy.isClosed(inventory.status())
+                  && ("DIVERGENTE".equals(estado) || "DIVERGENCIA_CONFIRMADA".equals(estado) || "NAO_CONTADO".equals(estado))
           ));
         }
       }
@@ -1749,7 +1751,8 @@ public class InventoryCountingService {
       Integer quantidadeFisica,
       Integer diferenca,
       String estado,
-      Map<String, Object> detalhes
+      Map<String, Object> detalhes,
+      boolean podeInvestigar
   ) {
     public AuditItem(
         long inventarioItemId,
@@ -1762,7 +1765,7 @@ public class InventoryCountingService {
         String estado,
         Map<String, Object> detalhes
     ) {
-      this(0L, inventarioItemId, sku, descricao, saldoSnapshot, contado, quantidadeFisica, diferenca, estado, detalhes);
+      this(0L, inventarioItemId, sku, descricao, saldoSnapshot, contado, quantidadeFisica, diferenca, estado, detalhes, false);
     }
   }
 

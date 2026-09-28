@@ -398,6 +398,51 @@ class InventoryRecountIntegrationTest {
       var r2Items = counting.listItems(inventoryId, "281", null, null).itens();
       assertEquals(List.of("SKU-B", "SKU-C"), r2Items.stream().map(InventoryCountingService.CountingItem::sku).sorted().toList());
       assertTrue(r2Items.stream().allMatch(item -> item.saldoSnapshot() == null), "R2 continua cega");
+      for (String sku : List.of("SKU-B", "SKU-C")) {
+        counting.recordCompoundOccurrence(inventoryId, r2.id(), "281",
+            new InventoryCountingService.RecordCompoundCommand(sku, "GERAL", 0, 0, 0, 0,
+                UUID.randomUUID(), "MANUAL"), "SMOKE TEST");
+      }
+      var publicR2 = counting.closeRound(inventoryId, r2.id(), "281", false, "Supervisor");
+      assertTrue(publicR2.itens().stream().allMatch(i -> i.podeInvestigar()
+          && i.saldoSnapshot() == null && i.diferenca() == null && "CONTADO".equals(i.estado())));
+      var refreshedR2 = new InventoryCountingService(scopedUrl).getRoundAudit(inventoryId, r2.id(), "281");
+      assertEquals(publicR2.itens(), refreshedR2.itens(), "Reload preserva capability e proteção");
+      var investigations = new InventoryInvestigationService(scopedUrl);
+      var closing = new InventoryClosingService(scopedUrl);
+      var user = new LegacyAuthenticationClient.AuthenticatedUser("test-admin", "SMOKE TEST", "admin");
+      assertFalse(closing.validateClosing(inventoryId, "281").podeFechar());
+      assertThrows(RuntimeException.class, () -> closing.closeInventory(inventoryId, "281",
+          new InventoryClosingService.CloseCommand("NORMAL", null), user));
+      for (var item : refreshedR2.itens()) {
+        var investigation = investigations.create(inventoryId, "281",
+            new InventoryInvestigationService.CreateCommand(item.apuracaoId(), null, "SMOKE TEST"), "Supervisor");
+        assertThrows(InventoryInvestigationService.NotFoundException.class,
+            () -> investigations.getDetail(inventoryId, investigation.id(), "282"));
+        var refreshed = investigations.getDetail(inventoryId, investigation.id(), "281");
+        assertNull(refreshed.apuracao().diferenca());
+        assertNull(refreshed.apuracao().saldoSnapshot());
+        assertTrue(refreshed.eventos().stream().allMatch(e -> !e.detalhes().containsKey("estadoOriginal")
+            && !e.detalhes().containsKey("diferenca")));
+        try (Connection connection = connect(config); Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery("SELECT detalhes->>'estadoOriginal', detalhes->>'diferenca' FROM "
+                 + schema + ".eventos_investigacao WHERE investigacao_id = '" + investigation.id() + "' AND tipo_evento = 'CRIADA'")) {
+          assertTrue(rs.next());
+          assertEquals("DIVERGENCIA_CONFIRMADA", rs.getString(1));
+          assertEquals("-1", rs.getString(2));
+        }
+        investigations.start(inventoryId, investigation.id(), "281",
+            new InventoryInvestigationService.StartCommand("test-admin", "SMOKE TEST", "AVARIA", "SMOKE TEST"), "Supervisor");
+        investigations.resolve(inventoryId, investigation.id(), "281",
+            new InventoryInvestigationService.ResolveCommand("AVARIA", "SMOKE TEST investigação concluída"), "Supervisor");
+      }
+      assertTrue(closing.validateClosing(inventoryId, "281").podeFechar());
+      assertEquals("ENCERRADO", closing.closeInventory(inventoryId, "281",
+          new InventoryClosingService.CloseCommand("NORMAL", null), user).inventarioStatus());
+      assertNotNull(closing.getResult(inventoryId, "281"));
+      assertNotNull(closing.getDetailedHistory(inventoryId, "281"));
+      assertTrue(counting.getRoundAudit(inventoryId, r2.id(), "281").itens().stream()
+          .noneMatch(InventoryCountingService.AuditItem::podeInvestigar));
       assertThrows(InventoryCountingService.NotFoundException.class,
           () -> counting.getRoundAudit(inventoryId, r1.id(), "282"), "Isolamento entre filiais permanece");
     } finally {

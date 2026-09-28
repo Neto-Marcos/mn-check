@@ -133,7 +133,7 @@ class InventoryBlindModeP0UnitTest {
     assertNull(protectedAuditSummary.totalSobra());
 
     InventoryCountingService.AuditItem protectedAuditItem = new InventoryCountingService.AuditItem(
-        100L, 200L, "SKU-TESTE", "Desc", null, true, 8, null, "CONTADO", Map.of()
+        100L, 200L, "SKU-TESTE", "Desc", null, true, 8, null, "CONTADO", Map.of(), true
     );
     assertNull(protectedAuditItem.saldoSnapshot());
     assertNull(protectedAuditItem.diferenca());
