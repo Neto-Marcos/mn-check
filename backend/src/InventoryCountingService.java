@@ -619,7 +619,7 @@ public class InventoryCountingService {
         if ("CEGO".equalsIgnoreCase(inventory.modo())) {
           scopedItemIds = r1Audit.values().stream()
               .filter(auditItem -> !"CONFORME".equalsIgnoreCase(auditItem.estado()))
-              .map(AuditItemRecord::inventarioItemId)
+              .map(AuditItemRecord::itemId)
               .toList();
         } else {
           if (itemIds == null || itemIds.isEmpty()) {
