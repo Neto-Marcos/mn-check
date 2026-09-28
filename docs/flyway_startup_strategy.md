@@ -20,4 +20,6 @@ Com histórico V7 existente, Flyway valida migrations versionadas e aplica somen
 
 FlywayStartupAutoConfigurationTest cobre presença de DataSource/Flyway/initializer, invocação no startup, desabilitação explícita e falha fechada. A estratégia sem acesso ao banco existe somente no teste unitário; a aplicação usa o initializer padrão real. CI testa migrations em PostgreSQL descartável e inicia o JAR real. Logs e histórico do Railway descartável devem confirmar validação e zero migrations pendentes após baseline V7.
 
+O smoke do CI usa mn_check_smoke, banco vazio separado de mn_check_test no mesmo service container. Os testes de persistência deixam estruturas legadas/multifiliais no banco de testes sem histórico; tentar V2 ali não é um teste válido de startup vazio. O smoke confirma nos logs validate e aplicação das sete migrations originais, sem fallback ou baseline artificial. O clone reconciliado com baseline V7 valida o outro cenário: zero reaplicações.
+
 Referências oficiais: https://docs.spring.io/spring-boot/3.5/api/java/org/springframework/boot/autoconfigure/flyway/FlywayAutoConfiguration.html e https://docs.spring.io/spring-boot/3.5/api/java/org/springframework/boot/autoconfigure/jdbc/DataSourceAutoConfiguration.html
