@@ -428,7 +428,7 @@ class InventoryRecountIntegrationTest {
       InventoryCountingService counting = new InventoryCountingService(scopedUrl);
 
       long earlierInventoryId = sessions.create(new InventorySessionService.CreateCommand(
-          seed.import281(), "281", "Inventário anterior", "GERAL", "NORMAL", List.of("SKU-A")), "Supervisor")
+          seed.import281(), "281", "Inventário anterior", "PARCIAL", "NORMAL", List.of("SKU-A")), "Supervisor")
           .inventory().id();
       sessions.open(earlierInventoryId, "281", 0, "Supervisor");
       sessions.start(earlierInventoryId, "281", 1, "Supervisor");
