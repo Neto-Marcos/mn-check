@@ -14,6 +14,7 @@ import org.springframework.boot.autoconfigure.flyway.FlywayMigrationInitializer;
 import org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization;
 
 class FlywayStartupAutoConfigurationTest {
   private final ApplicationContextRunner context = new ApplicationContextRunner()
@@ -55,5 +56,20 @@ class FlywayStartupAutoConfigurationTest {
     context.withBean(FlywayMigrationStrategy.class, () -> flyway -> {
       throw new FlywayException("Expected unit-test validation failure");
     }).run(application -> assertThat(application).hasFailed());
+  }
+
+  @Test
+  void legacySchemaConsumerIsCreatedOnlyAfterFlywayInitialization() {
+    AtomicBoolean initialized = new AtomicBoolean();
+    context.withBean(InitializationConsumer.class, () -> new InitializationConsumer(initialized))
+        .withBean(FlywayMigrationStrategy.class, () -> flyway -> initialized.set(true))
+        .run(application -> assertThat(application).hasNotFailed().hasSingleBean(InitializationConsumer.class));
+  }
+
+  @DependsOnDatabaseInitialization
+  static class InitializationConsumer {
+    InitializationConsumer(AtomicBoolean initialized) {
+      assertThat(initialized).as("Flyway must finish before legacy schema initialization").isTrue();
+    }
   }
 }

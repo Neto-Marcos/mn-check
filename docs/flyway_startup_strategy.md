@@ -6,6 +6,8 @@ O candidato 145c46b configura datasource, Flyway enabled e validate-on-migrate e
 
 Entretanto o classpath não incluía starter JDBC, pool de conexões ou spring-jdbc. As propriedades spring.datasource não criavam um DataSource utilizável pela autoconfiguração Flyway. Habilitar SPRING_FLYWAY_ENABLED no Railway isolado não produziu histórico nem logs Flyway. A correção mínima adiciona spring-boot-starter-jdbc (incluindo HikariCP e spring-jdbc); não altera V1–V7, versão, auth ou serviços de domínio.
 
+O smoke com banco vazio revelou ainda que ScannerController instancia PostgresDatabase no construtor durante o contexto Spring, antes de Flyway, criando filial_id prematuramente. A anotação DependsOnDatabaseInitialization no controller ordena essa inicialização depois de Flyway; não muda o comportamento de PostgresDatabase nem as migrations. Um teste específico valida a ordem, e o smoke real exige sucesso de V1–V7 num banco vazio.
+
 ## Banco legado reconciliado
 
 Baseline inicial V7 continua explícito e controlado, somente depois de equivalência e preservação comprovadas. O clone descartável já tem baseline V7. Na validação do novo candidato usar SPRING_FLYWAY_ENABLED=true, SPRING_FLYWAY_BASELINE_ON_MIGRATE=false e SPRING_FLYWAY_VALIDATE_ON_MIGRATE=true. Isso exige histórico já existente em schema não vazio: ausência de histórico não deve gerar baseline implícito.
