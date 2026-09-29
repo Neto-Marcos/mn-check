@@ -6,6 +6,7 @@ import {
   filterPartialProducts,
   initialCountQuantity,
   isExplicitlyCounted,
+  locationCountDraft,
   normalizePartialProducts,
   partialSkuPayload
 } from "./inventory_counting_logic.js";
@@ -18,12 +19,21 @@ test("zero explícito permanece contado e vira correção", () => {
   assert.equal(countDisplay(item), "0 un");
 });
 
-test("item pendente inicia em um sem fingir contagem existente", () => {
+test("item pendente abre campo vazio sem criar contagem", () => {
   const item = { estado: "PENDENTE", quantidadeContada: 0, ultimaOcorrenciaId: null };
   assert.equal(isExplicitlyCounted(item), false);
-  assert.equal(initialCountQuantity(item), 1);
+  assert.equal(initialCountQuantity(item), "");
   assert.equal(countActionType(item), "DEFINIR");
   assert.equal(countDisplay(item), "Pendente");
+});
+
+test("localizações não reutilizam o total agregado como quantidade local", () => {
+  const item = { estado: "CONTADO", quantidadeContada: 5,
+    detalhes: { VENDAS: { BOA: 5 } } };
+  assert.deepEqual(locationCountDraft(item, "DEPOSITO"),
+    { boa: "", avaria: 0, assistencia: 0, outros: 0 });
+  assert.deepEqual(locationCountDraft(item, "VENDAS"),
+    { boa: 5, avaria: 0, assistencia: 0, outros: 0 });
 });
 
 test("produtos do seletor parcial são normalizados e deduplicados sem saldo", () => {

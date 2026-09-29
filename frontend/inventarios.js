@@ -998,10 +998,13 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   });
 
   // Campos de contagem composta: QUANTIDADE BOA é o campo principal editável
-  const [compoundBoa, setCompoundBoa] = useState(1);
+  const [compoundBoa, setCompoundBoa] = useState("");
   const [compoundAvaria, setCompoundAvaria] = useState(0);
   const [compoundAssistencia, setCompoundAssistencia] = useState(0);
   const [compoundOutros, setCompoundOutros] = useState(0);
+  const [correctionMode, setCorrectionMode] = useState(false);
+  const [correctionCategory, setCorrectionCategory] = useState("BOA");
+  const [correctionQuantity, setCorrectionQuantity] = useState("");
 
   const [visibleLimit, setVisibleLimit] = useState(50);
   const [loading, setLoading] = useState(false);
@@ -1015,6 +1018,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   const [closing, setClosing] = useState(false);
 
   const searchInputRef = useRef(null);
+  const quantityInputRef = useRef(null);
   const scanTimingRef = useRef({ first: 0, last: 0, keys: 0 });
 
   const parsedBoa = Math.max(0, parseInt(compoundBoa, 10) || 0);
@@ -1034,36 +1038,11 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
   }, [selectedItem]);
 
   function updateLocationBuckets(item, loc) {
-    const locBuckets = (item.detalhes && item.detalhes[loc]) || {};
-    let curAvaria = locBuckets["AVARIA"] || 0;
-    let curAssistencia = locBuckets["ASSISTENCIA"] || 0;
-    let curOutros = locBuckets["OUTROS"] || 0;
-    let curBoa = locBuckets["BOA"] || 0;
-
-    const hasSpecificLoc = locBuckets["BOA"] !== undefined ||
-      locBuckets["AVARIA"] !== undefined ||
-      locBuckets["ASSISTENCIA"] !== undefined ||
-      locBuckets["OUTROS"] !== undefined;
-
-    if (!hasSpecificLoc && isExplicitlyCounted(item)) {
-      if (item.categorias) {
-        curBoa = item.categorias["BOA"] || 0;
-        curAvaria = item.categorias["AVARIA"] || 0;
-        curAssistencia = item.categorias["ASSISTENCIA"] || 0;
-        curOutros = item.categorias["OUTROS"] || 0;
-      } else if (item.quantidadeContada != null) {
-        curBoa = item.quantidadeContada;
-      }
-    } else if (!hasSpecificLoc && loc === "GERAL" && isExplicitlyCounted(item) && item.quantidadeContada != null) {
-      curBoa = item.quantidadeContada;
-    }
-
-    const hasAnyCount = isExplicitlyCounted(item);
-
-    setCompoundBoa(hasAnyCount ? curBoa : 1);
-    setCompoundAvaria(curAvaria);
-    setCompoundAssistencia(curAssistencia);
-    setCompoundOutros(curOutros);
+    const draft = locationCountDraft(item, loc);
+    setCompoundBoa(draft.boa);
+    setCompoundAvaria(draft.avaria);
+    setCompoundAssistencia(draft.assistencia);
+    setCompoundOutros(draft.outros);
   }
 
   function handleSetLocation(loc) {
@@ -1124,6 +1103,8 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
 
   function openItemStepper(item, origin = "MANUAL") {
     setSelectedItem(item);
+    setCorrectionMode(false);
+    setCorrectionQuantity("");
     setSelectedOrigin(origin);
     let targetLoc = activeLocation;
     if (item && item.detalhes) {
@@ -1140,10 +1121,16 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
     updateLocationBuckets(item, targetLoc);
     setFeedback(null);
     setError("");
+    requestAnimationFrame(() => quantityInputRef.current?.focus());
   }
 
   async function handleConfirmCount() {
     if (!selectedItem || !roundDetail) return;
+    if (compoundBoa === "") {
+      setError("Informe explicitamente a quantidade boa, inclusive zero quando aplicável.");
+      quantityInputRef.current?.focus();
+      return;
+    }
 
     setSubmitting(true);
     setError("");
@@ -1219,6 +1206,46 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
       }
     } catch (err) {
       setError(err.message || "Falha ao gravar contagem composta.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleNegativeCorrection() {
+    if (!selectedItem || !roundDetail || submitting) return;
+    const amount = Number(correctionQuantity);
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      setError("Informe uma quantidade inteira maior que zero para retirar.");
+      return;
+    }
+    const available = selectedItem.detalhes?.[activeLocation]?.[correctionCategory] ?? 0;
+    if (amount > available) {
+      setError(`Há apenas ${available} unidade(s) em ${activeLocation} / ${correctionCategory}.`);
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await request(`/api/inventarios/${inventory.id}/rodadas/${roundDetail.id}/contagens?branchCode=${encodeURIComponent(branchCode)}`, {
+        method: "POST",
+        body: {
+          sku: selectedItem.sku,
+          quantidade: -amount,
+          localizacao: activeLocation,
+          categoria: correctionCategory,
+          tipoAcao: "SOMAR",
+          clientEventId: generateUUID(),
+          origem: selectedOrigin,
+          dispositivo: "PWA Mobile",
+          clientTimestamp: new Date().toISOString(),
+          referenciaId: selectedItem.ultimaOcorrenciaId || null
+        }
+      });
+      setFeedback({ type: "success", text: `Correção de -${amount} em ${activeLocation} / ${correctionCategory} registrada.` });
+      setSelectedItem(null);
+      await loadActiveRoundAndItems("", estadoFilter);
+    } catch (err) {
+      setError(err.message || "Falha ao registrar correção.");
     } finally {
       setSubmitting(false);
     }
@@ -1431,6 +1458,35 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         )
       ),
 
+      h("div", { className: "card-panel", style: { margin: "10px 0", padding: "12px" } },
+        h("strong", null, `Total físico do SKU: ${selectedItem.quantidadeContada ?? 0} un`),
+        Object.entries(selectedItem.detalhes || {}).map(([loc, buckets]) =>
+          h("div", { key: loc, className: "hint" },
+            `${loc}: ${Object.entries(buckets).filter(([, value]) => value !== 0).map(([condition, value]) => `${condition} ${value}`).join(" · ") || "0"}`
+          )
+        ),
+        h("button", {
+          type: "button", className: "btn btn-secondary",
+          onClick: () => { setCorrectionMode(value => !value); setCorrectionQuantity(""); setError(""); },
+          style: { marginTop: "8px" }
+        }, correctionMode ? "Voltar para adicionar quantidade" : "Corrigir / remover quantidade"),
+        correctionMode && h("div", { style: { marginTop: "10px", display: "grid", gap: "8px" } },
+          h("label", null, "Condição a corrigir",
+            h("select", { value: correctionCategory, onChange: event => setCorrectionCategory(event.target.value) },
+              CONDITIONS.map(condition => h("option", { key: condition, value: condition }, condition))
+            )
+          ),
+          h("label", null, "Quantidade a retirar",
+            h("input", {
+              type: "number", inputMode: "numeric", pattern: "[0-9]*", min: "1",
+              value: correctionQuantity, onChange: event => setCorrectionQuantity(event.target.value)
+            })
+          ),
+          h("button", { type: "button", className: "btn btn-danger-outline", disabled: submitting,
+            onClick: handleNegativeCorrection }, submitting ? "Gravando..." : "Confirmar correção negativa")
+        )
+      ),
+
       // Seção: Quantidade Boa (Campo principal editável)
       h("div", { style: { margin: "16px 0 10px", padding: "12px", background: "rgba(16, 185, 129, 0.05)", borderRadius: "8px", border: "1px solid rgba(16, 185, 129, 0.2)" } },
         h("label", { style: { fontSize: "0.95rem", fontWeight: "bold", display: "block", marginBottom: "6px", color: "var(--accent-green, #10b981)" } }, "Quantidade Boa (Mercadoria em perfeito estado):"),
@@ -1443,7 +1499,10 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
           }, "−"),
 
           h("input", {
+            ref: quantityInputRef,
             type: "number",
+            inputMode: "numeric",
+            pattern: "[0-9]*",
             className: "form-control stepper-input",
             value: compoundBoa,
             onChange: (e) => setCompoundBoa(e.target.value),
@@ -1589,7 +1648,7 @@ function InventarioContagemScreen({ inventory, branchCode, request, user, onBack
         type: "button",
         className: "btn btn-primary",
         onClick: handleConfirmCount,
-        disabled: submitting || calculatedTotal < 0 || parsedBoa < 0,
+        disabled: correctionMode || submitting || compoundBoa === "" || calculatedTotal < 0 || parsedBoa < 0,
         style: {
           width: "100%",
           height: "56px",
@@ -3775,6 +3834,7 @@ import {
   filterPartialProducts,
   initialCountQuantity,
   isExplicitlyCounted,
+  locationCountDraft,
   normalizePartialProducts,
   partialSkuPayload
 } from "./inventory_counting_logic.js?v=236-rc8";

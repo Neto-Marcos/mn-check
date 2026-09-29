@@ -186,7 +186,6 @@ public class InventoryCountingService {
     String normalizedBranch = normalizeBranchCode(branchCode);
     String sku = required(command.sku(), "SKU não informado.");
     int quantidade = command.quantidade();
-    if (quantidade < 0) throw new ValidationException("Quantidade não pode ser negativa.");
 
     String rawLocation = command.localizacao() == null || command.localizacao().isBlank()
         ? "GERAL" : command.localizacao();
@@ -198,6 +197,9 @@ public class InventoryCountingService {
 
     String tipoAcao = enumValue(command.tipoAcao() == null || command.tipoAcao().isBlank()
         ? "DEFINIR" : command.tipoAcao(), ACTION_TYPES, "Tipo de ação inválido.");
+    if (quantidade < 0 && !"SOMAR".equals(tipoAcao)) {
+      throw new ValidationException("Correção negativa exige a operação SOMAR.");
+    }
     String origem = enumValue(command.origem() == null || command.origem().isBlank()
         ? "SCANNER" : command.origem(), ORIGINS, "Origem inválida.");
 
@@ -242,6 +244,16 @@ public class InventoryCountingService {
         List<OccurrenceRecord> existingItemOccurrences = loadItemOccurrences(connection, round.id(), item.id());
         validateLocationMixing(existingItemOccurrences, localizacao);
 
+        boolean repeatedEvent = existingItemOccurrences.stream()
+            .anyMatch(existing -> clientEventId.equals(existing.clientEventId()));
+        if (quantidade < 0 && !repeatedEvent) {
+          int bucket = calculateItemProjection(existingItemOccurrences).locationDetails()
+              .getOrDefault(localizacao, Map.of()).getOrDefault(categoria, 0);
+          if (bucket + quantidade < 0) {
+            throw new ValidationException("A correção deixaria a quantidade desta localização/condição negativa.");
+          }
+        }
+
         if (command.referenciaId() != null) {
           validateReferenceOccurrence(connection, round.id(), item.id(), command.referenciaId());
         }
@@ -267,7 +279,7 @@ public class InventoryCountingService {
 
         CountingProgress progress = calculateProgress(connection, inventoryId, round.id());
         List<OccurrenceRecord> allItemOccurrences = new ArrayList<>(existingItemOccurrences);
-        allItemOccurrences.add(occurrence);
+        if (!repeatedEvent) allItemOccurrences.add(occurrence);
         ItemProjection projection = calculateItemProjection(allItemOccurrences);
 
         connection.commit();

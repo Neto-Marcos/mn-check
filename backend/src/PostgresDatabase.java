@@ -872,24 +872,8 @@ public final class PostgresDatabase {
 
   public void resetOperationalData() {
     List<String> tables = List.of(
-        "historico_scanner",
-        "conferencias",
-        "resultado_inventario_itens",
-        "resultados_inventario",
-        "eventos_inventario",
-        "eventos_investigacao",
-        "investigacao_vinculos",
-        "evidencias_investigacao",
-        "investigacoes_divergencia",
-        "apuracoes_rodada",
-        "rodada_itens",
-        "ocorrencias_contagem",
-        "rodadas_contagem",
-        "inventario_itens",
-        "inventarios",
-        "estoque_produtos",
-        "contagens",
-        "importacoes_saldo"
+        "itens_conferencia",
+        "conferencias"
     );
     try (Connection connection = connect(); Statement statement = connection.createStatement()) {
       connection.setAutoCommit(false);

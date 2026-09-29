@@ -379,20 +379,13 @@ public class MmCheckServer {
       if (!"Marcos".equalsIgnoreCase(user.username)) {
         throw new ApiException(403, "Somente Marcos pode executar o reset geral.");
       }
+      relationalDatabase.resetOperationalData();
       db.maps.forEach(map -> deleteUpload(map.attachmentPath));
       db.maps.clear();
-      db.counts.clear();
-      db.countsUpdatedAt = "";
-      db.countsSourceName = "";
-      db.countsImportWarnings.clear();
-      db.countsImportMetrics = BalancePdfParser.Metrics.empty();
-      db.countsImportIgnored.clear();
       db.errors.clear();
       db.notifications.clear();
       db.routes.clear();
-      db.historyEvents.clear();
-      relationalDatabase.resetOperationalData();
-      db.recordHistory(user, "reset_operational_data", "Reset geral executado por Marcos");
+      db.recordHistory(user, "reset_operational_data", "Reset de mapas, conferências e rotas legadas executado por Marcos");
       db.save();
       json(exchange, 200, visibleData(user));
       return;

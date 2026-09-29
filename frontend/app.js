@@ -557,8 +557,8 @@ function App() {
   }
 
   async function resetOperationalData() {
-    if (!window.confirm("Executar reset geral? Usuários serão mantidos, mas mapas, conferências, contagens e históricos serão apagados.")) return;
-    if (!window.confirm("Confirme novamente: esta ação não pode ser desfeita.")) return;
+    if (!window.confirm("Limpar mapas, conferências e rotas legadas? Usuários, saldos, contagens, inventários 3.0 e históricos serão preservados.")) return;
+    if (!window.confirm("Confirme a limpeza dos dados legados. Esta ação não pode ser desfeita.")) return;
     try {
       await request("/api/admin/reset-operational-data", { method: "POST" });
       await refresh("Reset geral concluído.", "overview");
@@ -1774,7 +1774,7 @@ function AdminPanel({ data, deployInfo, online, onOpenView, onReset }) {
             onClick: onReset
           },
             h("strong", null, "Reset geral"),
-            h("span", null, "limpar operação")
+            h("span", null, "limpar mapas e conferências legados")
           )
         )
       ),

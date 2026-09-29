@@ -265,11 +265,20 @@ class InventoryCountingRoundTest {
         assertTrue(delRoundEx.getSQLState().startsWith("23"));
       }
 
-      // 15. Validações de entrada
+      // 15. Correção negativa é append-only, idempotente e não torna bucket negativo.
+      UUID negativeEvent = UUID.randomUUID();
+      var negativeCommand = new InventoryCountingService.RecordOccurrenceCommand(
+          "SKU-100", -1, "BOA", "SOMAR", negativeEvent, "SCANNER", "", null, null);
+      int beforeNegative = countRows(scopedUrl, "ocorrencias_contagem");
+      assertEquals(14, countingService.recordOccurrence(normalId, activeRound.id(), "281",
+          negativeCommand, "Operador").quantidadeItemProjetada());
+      assertEquals(14, countingService.recordOccurrence(normalId, activeRound.id(), "281",
+          negativeCommand, "Operador").quantidadeItemProjetada());
+      assertEquals(beforeNegative + 1, countRows(scopedUrl, "ocorrencias_contagem"));
       assertThrows(InventoryCountingService.ValidationException.class, () -> countingService.recordOccurrence(
           normalId, activeRound.id(), "281",
           new InventoryCountingService.RecordOccurrenceCommand(
-              "SKU-100", -1, "BOA", "SOMAR", UUID.randomUUID(), "SCANNER", "", null, null
+              "SKU-100", -15, "BOA", "SOMAR", UUID.randomUUID(), "SCANNER", "", null, null
           ), "Operador"));
 
       assertThrows(InventoryCountingService.ValidationException.class, () -> countingService.recordOccurrence(
@@ -283,6 +292,14 @@ class InventoryCountingRoundTest {
           new InventoryCountingService.RecordOccurrenceCommand(
               "SKU-100", 1, "BOA", "ACAO_INVALIDA", UUID.randomUUID(), "SCANNER", "", null, null
           ), "Operador"));
+
+      int inventoryRows = countRows(scopedUrl, "inventarios");
+      int occurrenceRows = countRows(scopedUrl, "ocorrencias_contagem");
+      new PostgresDatabase(scopedUrl).resetOperationalData();
+      assertEquals(inventoryRows, countRows(scopedUrl, "inventarios"),
+          "Reset legado não pode remover sessões de Inventory 3.0");
+      assertEquals(occurrenceRows, countRows(scopedUrl, "ocorrencias_contagem"),
+          "Reset legado não pode apagar a trilha append-only");
     } finally {
       try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
         statement.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");

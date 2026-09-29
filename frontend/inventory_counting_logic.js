@@ -3,7 +3,17 @@ export function isExplicitlyCounted(item) {
 }
 
 export function initialCountQuantity(item) {
-  return isExplicitlyCounted(item) ? (item?.quantidadeContada ?? 0) : 1;
+  return isExplicitlyCounted(item) ? (item?.quantidadeContada ?? 0) : "";
+}
+
+export function locationCountDraft(item, location) {
+  const buckets = item?.detalhes?.[location];
+  return {
+    boa: buckets ? (buckets.BOA ?? 0) : "",
+    avaria: buckets?.AVARIA ?? 0,
+    assistencia: buckets?.ASSISTENCIA ?? 0,
+    outros: buckets?.OUTROS ?? 0
+  };
 }
 
 export function countActionType(item) {

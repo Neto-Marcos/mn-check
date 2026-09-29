@@ -76,6 +76,25 @@ class InventoryRecountProjectionTest {
   }
 
   @Test
+  void negativeCorrectionPreservesBothOccurrencesAndAggregatesAllLocations() {
+    Instant time = Instant.parse("2026-09-24T10:00:00Z");
+    var sales = new InventoryCountingService.OccurrenceRecord(1L, 100L, 10L,
+        "SKU-1", 5, "VENDAS", "BOA", "DEFINIR", "Op1", UUID.randomUUID(), "MANUAL", "", time, time, null);
+    var depot = new InventoryCountingService.OccurrenceRecord(2L, 100L, 10L,
+        "SKU-1", 8, "DEPOSITO", "BOA", "DEFINIR", "Op2", UUID.randomUUID(), "MANUAL", "", time, time, null);
+    var damaged = new InventoryCountingService.OccurrenceRecord(3L, 100L, 10L,
+        "SKU-1", 1, "DEPOSITO", "AVARIA", "DEFINIR", "Op2", UUID.randomUUID(), "MANUAL", "", time, time, null);
+    var correction = new InventoryCountingService.OccurrenceRecord(4L, 100L, 10L,
+        "SKU-1", -1, "DEPOSITO", "BOA", "SOMAR", "Op2", UUID.randomUUID(), "MANUAL", "", time, time, 2L);
+    var projection = InventoryCountingService.calculateItemProjection(List.of(sales, depot, damaged, correction));
+    assertEquals(13, projection.totalQuantity());
+    assertEquals(5, projection.locationDetails().get("VENDAS").get("BOA"));
+    assertEquals(7, projection.locationDetails().get("DEPOSITO").get("BOA"));
+    assertEquals(1, projection.locationDetails().get("DEPOSITO").get("AVARIA"));
+    assertEquals(-1, correction.quantidade());
+  }
+
+  @Test
   void testGeralCannotMixWithDetailedLocations() {
     Instant t1 = Instant.parse("2026-09-24T10:00:00Z");
     var occGeral = new InventoryCountingService.OccurrenceRecord(

@@ -52,15 +52,15 @@ class FlywayMigrationTest {
     try {
       Flyway emptyFlyway = flyway(config, emptySchema);
       MigrateResult emptyResult = emptyFlyway.migrate();
-      assertEquals(7, emptyResult.migrationsExecuted);
+      assertEquals(8, emptyResult.migrationsExecuted);
       assertBranchCreatedOnce(config, emptySchema);
       assertRootTablesHaveBranch(config, emptySchema);
       assertInventorySessionTables(config, emptySchema);
 
       Flyway existingFlyway = flyway(config, existingSchema);
       MigrateResult existingResult = existingFlyway.migrate();
-      assertEquals(7, existingResult.migrationsExecuted,
-          "schema existente deve receber V1, V2, V3, V4, V5, V6 e V7 depois do baseline 0");
+      assertEquals(8, existingResult.migrationsExecuted,
+          "schema existente deve receber V1 até V8 depois do baseline 0");
       assertBranchCreatedOnce(config, existingSchema);
       assertRootTablesHaveBranch(config, existingSchema);
       assertInventorySessionTables(config, existingSchema);
@@ -73,8 +73,8 @@ class FlywayMigrationTest {
       MigrateResult repeated = existingFlyway.migrate();
       assertEquals(0, repeated.migrationsExecuted);
       assertBranchCreatedOnce(config, existingSchema);
-      assertTrue(existingFlyway.info().applied().length >= 8,
-          "schema existente deve registrar baseline, V1, V2, V3, V4, V5, V6 e V7");
+      assertTrue(existingFlyway.info().applied().length >= 9,
+          "schema existente deve registrar baseline e V1 até V8");
 
       String scopedUrl = withCurrentSchema(databaseUrl, existingSchema);
       PostgresDatabase legacyInitialization = new PostgresDatabase(scopedUrl);
@@ -183,6 +183,18 @@ class FlywayMigrationTest {
       assertEquals(1, v7Result.migrationsExecuted, "Upgrade de V6 para V7 deve executar exatamente 1 migration");
       assertEquals("7", v7Flyway.info().current().getVersion().getVersion());
       assertInventorySessionTables(config, upgradeSchema);
+
+      Flyway v8Flyway = Flyway.configure()
+          .dataSource(config.url(), config.username(), config.password())
+          .schemas(upgradeSchema)
+          .defaultSchema(upgradeSchema)
+          .locations("classpath:db/migration")
+          .target("8")
+          .load();
+      MigrateResult v8Result = v8Flyway.migrate();
+      assertEquals(1, v8Result.migrationsExecuted);
+      assertEquals("8", v8Flyway.info().current().getVersion().getVersion());
+      v8Flyway.validate();
     } finally {
       try (Connection connection = connect(config); Statement statement = connection.createStatement()) {
         statement.execute("DROP SCHEMA IF EXISTS " + upgradeSchema + " CASCADE");
