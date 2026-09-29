@@ -27,13 +27,36 @@ export const TITLES = {
   separation: ["operação", "Separação"],
   counting: ["estoque", "Contagem"],
   conference: ["validação", "Conferência"],
-  routes: ["logística", "Rotas"],
   history: ["admin", "Histórico"],
   users: ["admin", "Usuários"],
   settings: ["conta", "Configurações"],
 };
 
-export const BOTTOM_NAV_PRIORITY = ["admin", "overview", "separation", "conference", "routes", "counting", "history", "settings"];
+export const FRONTEND_VIEW_IDS = ["admin", "overview", "separation", "conference", "counting", "history", "users", "settings"];
+export const BOTTOM_NAV_PRIORITY = ["admin", "overview", "separation", "conference", "counting", "history", "settings"];
+
+export function supportedAllowedViews(allowedViews = []) {
+  return [...new Set((Array.isArray(allowedViews) ? allowedViews : [])
+    .filter((view) => FRONTEND_VIEW_IDS.includes(view) && view !== "settings"))];
+}
+
+export function resolveFrontendView(requestedView, allowedViews = [], fallback = "overview") {
+  if (requestedView === "settings") return "settings";
+  const supported = supportedAllowedViews(allowedViews);
+  if (supported.includes(requestedView)) return requestedView;
+  if (supported.includes(fallback)) return fallback;
+  return supported[0] || "overview";
+}
+
+export function isLegacyRoutesLocation(pathname, search = "") {
+  const path = String(pathname || "/").replace(/\/+$/, "").toLowerCase() || "/";
+  if (path === "/routes" || path.startsWith("/routes/") || path === "/rotas" || path.startsWith("/rotas/")) return true;
+  try {
+    return new URLSearchParams(search).get("view") === "routes";
+  } catch (_) {
+    return false;
+  }
+}
 
 export function readStoredJson(key, fallback) {
   try {
@@ -60,7 +83,6 @@ export function saveOfflineCountDraft(counts, user) {
 export function emptyData() {
   return {
     maps: [],
-    routes: [],
     historyMaps: [],
     users: [],
     counts: [],

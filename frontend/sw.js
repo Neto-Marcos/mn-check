@@ -1,4 +1,4 @@
-const CACHE_NAME = "mn-check-2.3.6-inventory-investigation-p0";
+const CACHE_NAME = "mn-check-2.3.6-pwa-safe-update-ux";
 const APP_ASSETS = [
   "/",
   "/index.html",
@@ -14,6 +14,7 @@ const APP_ASSETS = [
   "/mapas.js",
   "/scanner.js",
   "/state.js",
+  "/pwa_interactions.js",
   "/ui.js",
   "/logo.png?v=2340",
   "/icon-192.png?v=2340",
@@ -25,12 +26,6 @@ const APP_ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_ASSETS)));
-});
-
-self.addEventListener("message", (event) => {
-  if (event.data?.type === "SKIP_WAITING") {
-    self.skipWaiting();
-  }
 });
 
 self.addEventListener("activate", (event) => {

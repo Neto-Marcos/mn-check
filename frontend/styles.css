@@ -192,8 +192,8 @@
     position: sticky;
     left: auto;
     right: auto;
-    bottom: max(12px, env(safe-area-inset-bottom));
-    margin: 18px 14px max(12px, env(safe-area-inset-bottom));
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    margin: 18px 14px calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
   .bottom-nav-item {
@@ -1886,56 +1886,6 @@ select {
 .bottleneck-row {
   display: grid;
   gap: 6px;
-}
-
-.routes-grid {
-  align-items: start;
-}
-
-.route-form {
-  align-content: start;
-}
-
-.route-card-head,
-.route-card-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.route-card-head span,
-.route-card-meta {
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 800;
-}
-
-.route-card {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: white;
-  box-shadow: 0 10px 28px rgba(52, 58, 64, 0.08);
-}
-
-.route-card-head > div:first-child {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.route-card-head strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.route-card-meta {
-  justify-content: flex-start;
-  flex-wrap: wrap;
 }
 
 .audit-grid,
@@ -5252,6 +5202,11 @@ th + th {
 }
 
 @media (max-width: 680px) {
+  html,
+  body {
+    overscroll-behavior-y: contain;
+  }
+
   .workspace {
     padding-left: max(8px, env(safe-area-inset-left, 0px));
     padding-right: max(8px, env(safe-area-inset-right, 0px));
@@ -5261,7 +5216,7 @@ th + th {
   .mobile-bottom-nav {
     left: max(8px, env(safe-area-inset-left));
     right: max(8px, env(safe-area-inset-right));
-    bottom: max(8px, env(safe-area-inset-bottom));
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     min-height: 62px;
     padding: 6px;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -6458,7 +6413,7 @@ input[type="number"] {
   }
 }
 
-/* PWA PULL TO REFRESH (Estilo Criar Rota) */
+/* PWA pull-to-refresh affordance. */
 @keyframes pwa-spin {
   to { transform: rotate(360deg); }
 }

@@ -39,8 +39,11 @@ jobs:
         run: |
           node --check frontend/app.js
           node --check frontend/inventarios.js
+          node --check frontend/state.js
           node --check frontend/sw.js
+          node --check frontend/pwa_interactions.js
           node --test frontend/inventory_counting_logic.test.mjs
+          node --test frontend/pwa_interactions.test.mjs
           test -s frontend/vendor/react.production.min.js
           test -s frontend/vendor/react-dom.production.min.js
       - name: Test parser and PostgreSQL persistence

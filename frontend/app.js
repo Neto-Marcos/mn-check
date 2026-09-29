@@ -29,6 +29,7 @@ import {
 import {
   APP_VERSION,
   BOTTOM_NAV_PRIORITY,
+  FRONTEND_VIEW_IDS,
   MAP_FILE_ACCEPT,
   MAP_FILE_TYPES,
   OFFLINE_BOOTSTRAP,
@@ -37,11 +38,25 @@ import {
   ROLE_OPTIONS,
   TITLES,
   emptyData,
+  isLegacyRoutesLocation,
   readOfflineScanQueue,
   readStoredJson,
-  saveOfflineCountDraft
+  saveOfflineCountDraft,
+  resolveFrontendView,
+  supportedAllowedViews
 } from "./state.js";
+import { canStartPullToRefresh, isAtTop, PullToRefreshGesture } from "./pwa_interactions.js";
 import { formatDate, initials, plural, status, statusClass } from "./ui.js";
+
+if (isLegacyRoutesLocation(window.location.pathname, window.location.search)) {
+  const safeUrl = new URL(window.location.href);
+  safeUrl.pathname = "/";
+  if (safeUrl.searchParams.get("view") === "routes") safeUrl.searchParams.delete("view");
+  window.history.replaceState(null, "", `${safeUrl.pathname}${safeUrl.search}${safeUrl.hash}`);
+  try {
+    localStorage.setItem("mnCheckActiveView", "overview");
+  } catch (_) {}
+}
 
 const React = window.React;
 const ReactDOM = window.ReactDOM;
@@ -62,7 +77,6 @@ const ICON_PATHS = {
   separation: ["M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"],
   conference: ["M20 6 9 17l-5-5"],
   admin: ["M12 2 20 6v6c0 5-3.4 8.7-8 10-4.6-1.3-8-5-8-10V6l8-4Z", "M9 12l2 2 4-5"],
-  routes: ["M10 17h4V5H2v12h3", "M14 17h8v-6h-8", "M6 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M18 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"],
   counting: ["M3 3v18h18", "M7 16h2", "M11 12h2", "M15 8h2", "M19 5h2"],
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
   users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
@@ -95,6 +109,16 @@ function Icon({ name, size = 20 }) {
   ));
 }
 
+function hasScrolledScrollableAncestor(target) {
+  let element = target instanceof Element ? target : target?.parentElement;
+  while (element && element !== document.documentElement) {
+    const overflowY = window.getComputedStyle(element).overflowY;
+    if (/(auto|scroll|overlay)/.test(overflowY) && element.scrollTop > 0) return true;
+    element = element.parentElement;
+  }
+  return false;
+}
+
 function SystemClock() {
   const [now, setNow] = React.useState(new Date());
   React.useEffect(() => {
@@ -124,7 +148,8 @@ function App() {
   const [data, setData] = React.useState(emptyData());
   const [view, setView] = React.useState(() => {
     try {
-      return localStorage.getItem("mnCheckActiveView") || "overview";
+      const storedView = localStorage.getItem("mnCheckActiveView");
+      return FRONTEND_VIEW_IDS.includes(storedView) ? storedView : "overview";
     } catch (_) {
       return "overview";
     }
@@ -138,7 +163,6 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const [login, setLogin] = React.useState({ username: "", password: "" });
   const [newUser, setNewUser] = React.useState({ username: "", name: "", role: "separation", password: "" });
-  const [newRoute, setNewRoute] = React.useState({ name: "", truck: "", driver: "" });
   const [pwaRefreshing, setPwaRefreshing] = React.useState(false);
   const [pullProgress, setPullProgress] = React.useState(0);
   const [pullArmed, setPullArmed] = React.useState(false);
@@ -147,6 +171,8 @@ function App() {
   const mapCameraInputRef = React.useRef(null);
   const mapUploadMetadataRef = React.useRef({ mapNumber: "", orderNumbers: [], collectOnly: false });
   const unreadNotificationsRef = React.useRef(null);
+  const activeViewRef = React.useRef(view);
+  activeViewRef.current = view;
 
   React.useEffect(() => {
     request("/api/version")
@@ -161,9 +187,9 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    let pullStartY = null;
     let refreshing = false;
-    let armed = false;
+    let pullTarget = null;
+    const gesture = new PullToRefreshGesture();
 
     const checkForUpdate = () => swRegistrationRef.current?.update().catch(() => {});
 
@@ -184,45 +210,78 @@ function App() {
     };
 
     const onTouchStart = (event) => {
-      const atTop = window.scrollY <= 0 && document.documentElement.scrollTop <= 0;
-      pullStartY = atTop && event.touches.length === 1 ? event.touches[0]?.clientY ?? null : null;
-      armed = false;
+      const touch = event.touches[0];
+      pullTarget = event.target;
+      const atTop = isAtTop({
+        windowScrollY: window.scrollY,
+        documentScrollTop: document.documentElement.scrollTop,
+        scrollingElementScrollTop: document.scrollingElement?.scrollTop || 0,
+        ancestorScrollTop: hasScrolledScrollableAncestor(event.target) ? 1 : 0
+      });
+      const enabled = canStartPullToRefresh({
+        view: activeViewRef.current,
+        target: event.target,
+        activeElement: document.activeElement,
+        hasOverlay: Boolean(document.querySelector(".modal-backdrop, [role='dialog']"))
+      });
+      gesture.start({ x: touch?.clientX, y: touch?.clientY, touchCount: event.touches.length, atTop, enabled });
       setPullArmed(false);
       setPullProgress(0);
     };
 
     const onTouchMove = (event) => {
-      if (pullStartY === null) return;
-      const currentY = event.touches[0]?.clientY ?? pullStartY;
-      const deltaY = currentY - pullStartY;
-      if (deltaY <= 0) {
+      const enabled = canStartPullToRefresh({
+        view: activeViewRef.current,
+        target: pullTarget,
+        activeElement: document.activeElement,
+        hasOverlay: Boolean(document.querySelector(".modal-backdrop, [role='dialog']"))
+      });
+      if (!enabled) gesture.cancel();
+      const touch = event.touches[0];
+      const state = enabled && touch
+        ? gesture.move({ x: touch.clientX, y: touch.clientY, touchCount: event.touches.length })
+        : { active: false, armed: false, justArmed: false, progress: 0, displacement: 0 };
+      if (!state.active) {
         setPullProgress(0);
-        armed = false;
         setPullArmed(false);
         return;
       }
-      const progress = Math.min(1, deltaY / 140);
-      setPullProgress(progress);
-      const isArmed = deltaY >= 140;
-      if (isArmed && !armed) {
+      setPullProgress(state.progress);
+      if (state.justArmed) {
         try {
           if (navigator.vibrate) navigator.vibrate(15);
         } catch (_) {}
       }
-      armed = isArmed;
-      setPullArmed(isArmed);
+      setPullArmed(state.armed);
     };
 
     const onTouchEnd = (event) => {
-      const endY = event.changedTouches[0]?.clientY;
-      if (pullStartY !== null && endY && armed && (endY - pullStartY) >= 140) {
+      const touch = event.changedTouches[0];
+      const enabled = canStartPullToRefresh({
+        view: activeViewRef.current,
+        target: pullTarget,
+        activeElement: document.activeElement,
+        hasOverlay: Boolean(document.querySelector(".modal-backdrop, [role='dialog']"))
+      });
+      const shouldRefresh = enabled && gesture.end({
+        x: touch?.clientX,
+        y: touch?.clientY,
+        touchCount: event.changedTouches.length
+      });
+      if (shouldRefresh && !refreshing) {
         refreshFromPull();
-      } else {
-        setPullProgress(0);
-        setPullArmed(false);
       }
-      pullStartY = null;
-      armed = false;
+      gesture.cancel();
+      pullTarget = null;
+      setPullProgress(0);
+      setPullArmed(false);
+    };
+
+    const onTouchCancel = () => {
+      gesture.cancel();
+      pullTarget = null;
+      setPullProgress(0);
+      setPullArmed(false);
     };
 
     window.addEventListener("focus", checkForUpdate);
@@ -230,29 +289,12 @@ function App() {
     window.addEventListener("touchstart", onTouchStart, { passive: true });
     window.addEventListener("touchmove", onTouchMove, { passive: true });
     window.addEventListener("touchend", onTouchEnd, { passive: true });
+    window.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
     if ("serviceWorker" in navigator) {
-      let controllerRefreshing = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (controllerRefreshing) return;
-        controllerRefreshing = true;
-        window.location.reload();
-      });
       navigator.serviceWorker.register("/sw.js?v=236-rc8")
         .then((registration) => {
           swRegistrationRef.current = registration;
-          if (registration.waiting && navigator.serviceWorker.controller) {
-            registration.waiting.postMessage({ type: "SKIP_WAITING" });
-          }
-          registration.addEventListener("updatefound", () => {
-            const worker = registration.installing;
-            if (!worker) return;
-            worker.addEventListener("statechange", () => {
-              if (worker.state === "installed" && navigator.serviceWorker.controller) {
-                worker.postMessage({ type: "SKIP_WAITING" });
-              }
-            });
-          });
         })
         .catch(() => {});
     }
@@ -272,6 +314,7 @@ function App() {
       window.removeEventListener("touchstart", onTouchStart);
       window.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", onTouchCancel);
       window.removeEventListener("online", updateConnection);
       window.removeEventListener("offline", updateConnection);
     };
@@ -392,12 +435,15 @@ function App() {
       }
     })();
     const candidateView = preferredView || activeStoredView;
-    setView(candidateView === "settings" || (candidateView && body.user.allowedViews.includes(candidateView))
-      ? candidateView
-      : body.user.allowedViews[0]);
+    const accessibleViews = supportedAllowedViews(body.user.allowedViews);
+    setView(resolveFrontendView(candidateView, accessibleViews));
   }
 
   async function selectView(nextView) {
+    const accessibleViews = supportedAllowedViews(user?.allowedViews);
+    const resolvedView = resolveFrontendView(nextView, accessibleViews);
+    if (nextView !== resolvedView && nextView !== "settings") nextView = resolvedView;
+    if (nextView !== "settings" && !accessibleViews.includes(nextView)) return;
     try {
       localStorage.setItem("mnCheckActiveView", nextView);
     } catch (_) {}
@@ -451,7 +497,7 @@ function App() {
       setUser(body.user);
       const bootstrap = await request("/api/bootstrap", { token: body.token });
       setData(bootstrap);
-      setView(body.user.allowedViews[0]);
+      setView(supportedAllowedViews(body.user.allowedViews)[0] || "overview");
       notify(`Login realizado para ${body.user.name}.`);
     } catch (error) {
       notify(error.message);
@@ -811,29 +857,6 @@ function App() {
     }
   }
 
-  async function createRoute(event) {
-    event.preventDefault();
-    try {
-      await request("/api/routes", { method: "POST", body: newRoute });
-      setNewRoute({ name: "", truck: "", driver: "" });
-      await refresh("Rota criada com sucesso.", "routes");
-    } catch (error) {
-      notify(error.message);
-    }
-  }
-
-  async function updateRouteStatus(routeId, nextStatus) {
-    try {
-      await request(`/api/routes/${encodeURIComponent(routeId)}/status`, {
-        method: "PATCH",
-        body: { status: nextStatus }
-      });
-      await refresh("Status da rota atualizado.", "routes");
-    } catch (error) {
-      notify(error.message);
-    }
-  }
-
   async function countUpload(file, mode = "all") {
     try {
       const dataUrl = await readFileAsDataUrl(file);
@@ -989,7 +1012,7 @@ function App() {
   }
 
   const allowedViews = user.allowedViews || [];
-  const navigationViews = [...allowedViews, "settings"];
+  const navigationViews = [...supportedAllowedViews(allowedViews), "settings"];
   const bottomNavigationViews = BOTTOM_NAV_PRIORITY
     .filter((item) => navigationViews.includes(item))
     .slice(0, 4);
@@ -1146,13 +1169,6 @@ function App() {
         onPause: (id) => mapAction(id, "pause-conference", "Conferência pausada com o progresso salvo."),
         onResume: (id) => mapAction(id, "resume-conference", "Conferência retomada."),
         onCancel: (id) => mapAction(id, "cancel-conference", "Conferência cancelada e progresso apagado.")
-      }),
-      view === "routes" && h(Routes, {
-        routes: data.routes || [],
-        draft: newRoute,
-        setDraft: setNewRoute,
-        onCreate: createRoute,
-        onStatus: updateRouteStatus
       }),
       view === "counting" && h(Counting, {
         user,
@@ -1763,7 +1779,6 @@ function AdminPanel({ data, deployInfo, online, onOpenView, onReset }) {
           action("Contagem", "saldo e estoque", "counting"),
           action("Separação", "mapas em preparação", "separation"),
           action("Conferência", "expedição e divergências", "conference"),
-          action("Rotas", "caminhões e entregas", "routes"),
           h("button", {
             className: "admin-action danger-action",
             onClick: onReset
@@ -1936,88 +1951,6 @@ function Conference({ maps, onApprove, onProblem, onCorrected, onScan, onPause, 
     ),
     h(QueueSummary, { maps: conferenceMaps, mode: "conference" })
   );
-}
-
-function Routes({ routes, draft, setDraft, onCreate, onStatus }) {
-  const activeRoutes = routes.filter((route) => route.status !== "finalizada");
-  const finishedRoutes = routes.filter((route) => route.status === "finalizada");
-
-  return h("div", { className: "section-grid routes-grid" },
-    h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Criar rota"), h("span", null, "caminhões da casa")),
-      h("form", { className: "stack route-form", onSubmit: onCreate },
-        h("div", { className: "form-row" },
-          h("input", {
-            placeholder: "Nome da rota",
-            value: draft.name,
-            onChange: (event) => setDraft({ ...draft, name: event.target.value })
-          }),
-          h("input", {
-            placeholder: "Caminhão / placa",
-            value: draft.truck,
-            onChange: (event) => setDraft({ ...draft, truck: event.target.value })
-          })
-        ),
-        h("input", {
-          placeholder: "Motorista",
-          value: draft.driver,
-          onChange: (event) => setDraft({ ...draft, driver: event.target.value })
-        }),
-        h("button", {
-          className: "primary-action compact",
-          type: "submit",
-          disabled: !draft.name.trim() || !draft.truck.trim() || !draft.driver.trim()
-        }, "Criar rota")
-      )
-    ),
-    h("article", { className: "panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Rotas abertas"), h("span", null, `${activeRoutes.length} ativas`)),
-      h("div", { className: "stack" }, activeRoutes.length
-        ? activeRoutes.map((route) => h(RouteCard, { key: route.id, route, onStatus }))
-        : empty("Nenhuma rota em aberto."))
-    ),
-    h("article", { className: "panel history-events-panel" },
-      h("div", { className: "panel-header" }, h("h3", null, "Rotas finalizadas"), h("span", null, `${finishedRoutes.length} concluídas`)),
-      h("div", { className: "stack" }, finishedRoutes.length
-        ? finishedRoutes.slice(0, 8).map((route) => h(RouteCard, { key: route.id, route, onStatus }))
-        : empty("Nenhuma rota finalizada ainda."))
-    )
-  );
-}
-
-function RouteCard({ route, onStatus }) {
-  const nextStatus = route.status === "separacao"
-    ? "andamento"
-    : route.status === "andamento" ? "finalizada" : "";
-  const nextLabel = route.status === "separacao"
-    ? "Iniciar rota"
-    : route.status === "andamento" ? "Finalizar rota" : "";
-
-  return h("div", { className: "route-card" },
-    h("div", { className: "route-card-head" },
-      h("div", null,
-        h("strong", null, route.name),
-        h("span", null, `${route.truck} - ${route.driver}`)
-      ),
-      h("div", { className: `status-pill ${statusClass(route.status)}` }, routeStatusLabel(route.status))
-    ),
-    h("div", { className: "route-card-meta" },
-      h("span", null, `Criada ${formatDate(route.createdAt)}`),
-      h("span", null, `Atualizada ${formatDate(route.updatedAt || route.createdAt)}`)
-    ),
-    nextStatus && h("button", {
-      className: route.status === "andamento" ? "danger-action compact" : "primary-action compact",
-      onClick: () => onStatus(route.id, nextStatus)
-    }, nextLabel)
-  );
-}
-
-function routeStatusLabel(value) {
-  return {
-    separacao: "Em separação",
-    andamento: "Em andamento",
-    finalizada: "Finalizada"
-  }[value] || value;
 }
 
 function normalizeProductSearch(value) {
