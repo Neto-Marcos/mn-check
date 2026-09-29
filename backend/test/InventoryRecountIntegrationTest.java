@@ -367,6 +367,8 @@ class InventoryRecountIntegrationTest {
 
       var publicR1 = counting.closeRound(inventoryId, r1.id(), "281", false, "Supervisor");
       assertEquals(3, publicR1.resumo().totalItens());
+      assertTrue(publicR1.itens().stream().noneMatch(InventoryCountingService.AuditItem::podeInvestigar),
+          "CEGO R1 exposes no investigation task before the server-selected R2");
       assertNull(publicR1.resumo().divergentes(), "Resumo CEGO não revela divergências");
       for (var item : publicR1.itens()) {
         assertNull(item.saldoSnapshot(), "R1 CEGO não expõe saldo");
@@ -378,7 +380,7 @@ class InventoryRecountIntegrationTest {
       var refreshedR1 = counting.getRoundAudit(inventoryId, r1.id(), "281");
       assertNull(refreshedR1.resumo().divergentes());
       assertTrue(refreshedR1.itens().stream().allMatch(i -> i.saldoSnapshot() == null
-          && i.diferenca() == null && "CONTADO".equals(i.estado())));
+          && i.diferenca() == null && "CONTADO".equals(i.estado()) && !i.podeInvestigar()));
 
       try (Connection connection = connect(config); Statement statement = connection.createStatement();
            ResultSet rs = statement.executeQuery("SELECT contado, quantidade_fisica, diferenca, estado FROM "

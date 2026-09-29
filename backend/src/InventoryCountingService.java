@@ -779,7 +779,8 @@ public class InventoryCountingService {
     String itemsAuditSql = """
         SELECT ar.id AS apuracao_id, ar.inventario_item_id, ar.sku, ii.descricao_snapshot, ar.saldo_snapshot,
                ar.contado, ar.quantidade_fisica, ar.diferenca, ar.estado,
-               ar.detalhes_localizacao_condicao
+               ar.detalhes_localizacao_condicao,
+               EXISTS (SELECT 1 FROM investigacoes_divergencia inv WHERE inv.apuracao_id = ar.id) AS possui_investigacao
         FROM apuracoes_rodada ar
         JOIN inventario_itens ii ON ii.id = ar.inventario_item_id
         WHERE ar.rodada_id = ?
@@ -840,10 +841,17 @@ public class InventoryCountingService {
           Integer exposedDiff = isProtected ? null : diferenca;
           String exposedEstado = isProtected ? (contado ? "CONTADO" : "NAO_CONTADO") : estado;
 
+          // Offer investigation only after its server-owned workflow prerequisites are met.
+          // In CEGO, R1 must progress to the server-selected R2 before it exposes a task.
+          boolean podeInvestigar = "FINALIZADA".equals(round.status())
+              && !Set.of("ENCERRADO", "FINALIZADO", "CANCELADO").contains(inventory.status())
+              && (!isProtected || round.numero() >= 2)
+              && ("DIVERGENTE".equals(estado) || "DIVERGENCIA_CONFIRMADA".equals(estado) || "NAO_CONTADO".equals(estado))
+              && !rs.getBoolean("possui_investigacao");
+
           items.add(new AuditItem(
               apuracaoId, itemId, sku, descricao, exposedSaldo, contado, quantidadeFisica, exposedDiff, exposedEstado, detalhes,
-              !InventorySecurityPolicy.isClosed(inventory.status())
-                  && ("DIVERGENTE".equals(estado) || "DIVERGENCIA_CONFIRMADA".equals(estado) || "NAO_CONTADO".equals(estado))
+              podeInvestigar
           ));
         }
       }

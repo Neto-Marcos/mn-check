@@ -1900,9 +1900,13 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
 
   const { resumo, itens, rodadaNumero, rodadaTipo, encerramentoForcado, pendentesNoFechamento } = audit;
   const isR2 = rodadaNumero >= 2;
+  const isProtectedAudit = audit.inventoryModo === "CEGO" && audit.inventoryStatus !== "ENCERRADO";
   const isBlindR1 = !isR2 && inventory.modo === "CEGO";
 
   const filteredItems = itens.filter(item => {
+    if (activeTab === "divergentes" && isProtectedAudit) {
+      return isR2 ? item.podeInvestigar === true : true;
+    }
     if (activeTab === "divergentes") return item.podeInvestigar === true;
     if (activeTab === "nao_contados") return item.estado === "NAO_CONTADO";
     if (activeTab === "conformes") return item.estado === "CONFORME" || item.estado === "CONFORME_APOS_RECONTAGEM";
@@ -2023,11 +2027,11 @@ function ApuracaoScreen({ inventory, roundId, branchCode, request, user, onBack,
     // Filtros de Abas
     h("div", { style: { display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" } },
       [
-        { id: "divergentes", label: inventory.modo === "CEGO" ? "Investigações disponíveis" : (isR2 ? "Divergências Confirmadas" : "Divergentes") },
+        { id: "divergentes", label: isProtectedAudit ? (isR2 ? "Investigações disponíveis" : "Itens da rodada") : (isR2 ? "Divergências Confirmadas" : "Divergentes") },
         { id: "todos", label: "Todos os Itens" },
         { id: "nao_contados", label: "Não Contados" },
         { id: "conformes", label: isR2 ? "Conformes pós-R2" : "Conformes" }
-      ].map(tab => h("button", {
+      ].filter(tab => !isProtectedAudit || tab.id !== "conformes").map(tab => h("button", {
         key: tab.id,
         type: "button",
         className: `btn ${activeTab === tab.id ? "btn-primary" : "btn-secondary"}`,

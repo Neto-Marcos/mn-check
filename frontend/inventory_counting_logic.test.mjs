@@ -98,7 +98,7 @@ test("CEGO R2 mostra tarefa do backend com estado CONTADO e abre pelo ID da apur
   const all = nodes(tree);
   const actions = all.filter(n => n.type === "button" && n.children.includes("🔎 Investigar"));
   assert.equal(actions.length, 1);
-  assert.ok(all.some(n => n.children.includes("Investigações pendentes")));
+  assert.ok(all.some(n => n.children.includes("Investigações disponíveis")));
   assert.ok(all.some(n => n.children.includes("SKU-ZERO")));
   assert.equal(all.some(n => n.children.includes("SKU-SEM-TAREFA")), false);
   await actions[0].props.onClick();
@@ -116,7 +116,7 @@ test("ação Investigar depende somente da capability, inclusive em NORMAL", () 
 
 test("CEGO R1 oferece recontagem server-side sem tentar filtrar estado protegido", () => {
   const tree = renderAudit([{ ...countedTask, podeInvestigar: false }], "CEGO", "divergentes", 1);
-  assert.ok(nodes(tree).some(n => n.children.includes("SKU-ZERO")));
+  assert.ok(nodes(tree).some(n => n.children.includes("Itens da rodada")));
   const recount = nodes(tree).find(n => n.children.includes("🚀 Iniciar Recontagem Cega (R2)"));
   assert.equal(recount.props.disabled, false);
 });
