@@ -1,5 +1,5 @@
 import { authorizedJson, isNetworkFailure } from "./api.js";
-import { InventariosManager } from "./inventarios.js?v=236-rc8";
+import { InventariosManager } from "./inventarios.js?v=300";
 import { clearStoredToken, readStoredToken, storeToken } from "./auth.js";
 import { conferenceStatusLabel } from "./conferencia.js";
 import {
@@ -294,7 +294,7 @@ function App() {
     window.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js?v=236-rc8")
+      navigator.serviceWorker.register("/sw.js?v=300")
         .then((registration) => {
           swRegistrationRef.current = registration;
         })
@@ -2648,7 +2648,7 @@ function Counting({
           try { localStorage.setItem("mnCheckCountingSubTab", "legado"); } catch (_) {}
         },
         style: { padding: "8px 16px", fontWeight: "bold" }
-      }, "⚡ Contagem Direta (Legada 2.3.6)")
+      }, "⚡ Contagem Direta (Legada)")
     ),
     h("span", { className: "hint", style: { fontSize: "0.85rem" } },
       countingSubTab === "inventarios"

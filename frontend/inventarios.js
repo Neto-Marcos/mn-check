@@ -3837,4 +3837,4 @@ import {
   locationCountDraft,
   normalizePartialProducts,
   partialSkuPayload
-} from "./inventory_counting_logic.js?v=236-rc8";
+} from "./inventory_counting_logic.js?v=300";

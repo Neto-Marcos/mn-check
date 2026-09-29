@@ -78,7 +78,7 @@ MM check/
 
 ```bash
 mvn clean package
-java -jar target/mn-check-2.3.6.jar
+java -jar target/mn-check-3.0.0.jar
 ```
 
 Acesse:
