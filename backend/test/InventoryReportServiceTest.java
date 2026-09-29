@@ -103,7 +103,7 @@ class InventoryReportServiceTest {
     byte[] bytes = service.exportXlsx(projection);
     try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
       var sheet = workbook.getSheetAt(0);
-      assertEquals("MN-Check — Relatório de Inventário 3.0", sheet.getRow(0).getCell(0).getStringCellValue());
+      assertEquals("MN-Check — Relatório de Inventário", sheet.getRow(0).getCell(0).getStringCellValue());
       assertEquals(0d, sheet.getRow(9).getCell(4).getNumericCellValue());
       assertEquals(-2d, sheet.getRow(9).getCell(7).getNumericCellValue());
       assertEquals("Sobra çã", sheet.getRow(10).getCell(1).getStringCellValue());
