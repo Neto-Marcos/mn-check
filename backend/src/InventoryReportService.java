@@ -91,7 +91,7 @@ public class InventoryReportService {
       header.setFont(headerFont); header.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex()); header.setFillPattern(FillPatternType.SOLID_FOREGROUND); header.setAlignment(HorizontalAlignment.CENTER);
 
       int r = 0;
-      Row row = sheet.createRow(r++); row.createCell(0).setCellValue("MN-Check — Relatório de Inventário 3.0"); row.getCell(0).setCellStyle(title);
+      Row row = sheet.createRow(r++); row.createCell(0).setCellValue("MN-Check — Relatório de Inventário"); row.getCell(0).setCellStyle(title);
       meta(sheet.createRow(r++), "Filial", report.filial());
       meta(sheet.createRow(r++), "Sessão", report.inventarioNome() + " (#" + report.inventarioId() + ")");
       meta(sheet.createRow(r++), "Contexto", report.contexto());

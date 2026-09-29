@@ -6844,7 +6844,9 @@ input[type="number"] {
 .inventory-report-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
 .inventory-report-table th { background: #1e3a5f; color: white; text-align: left; }
 .inventory-report-table th, .inventory-report-table td { padding: 7px; border: 1px solid #cbd5e1; }
-.inventory-report-table tbody tr:nth-child(even) { background: #eff6ff; }
+.inventory-report-table tbody tr td { color: #111827; background: #fff; }
+.inventory-report-table tbody tr:nth-child(even) td { background: #eff6ff; }
+.inventory-report-table tbody tr:hover td { color: #111827; background: #e5efff; }
 .inventory-report-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .inventory-report-signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 55px; }
 .inventory-report-signatures div { border-top: 1px solid #111827; padding-top: 5px; text-align: center; font-size: .75rem; }

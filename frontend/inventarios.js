@@ -516,7 +516,7 @@ function InventoryReportScreen({ inventory, branchCode, request, token, onBack }
     loading && h("div", { className: "card-panel", style: { padding: "30px", textAlign: "center" } }, "Gerando projeção somente leitura..."),
     !loading && report && h("section", { className: "inventory-report-sheet" },
       h("header", { className: "inventory-report-header" },
-        h("div", null, h("span", null, "MN-Check"), h("h1", null, "Relatório de Inventário 3.0"), h("p", null, `${report.inventarioNome} · Sessão #${report.inventarioId}`)),
+        h("div", null, h("span", null, "MN-Check"), h("h1", null, "Relatório de Inventário"), h("p", null, `${report.inventarioNome} · Sessão #${report.inventarioId}`)),
         h("strong", null, `Filial ${report.filial}`)
       ),
       h("div", { className: "inventory-report-meta" },
