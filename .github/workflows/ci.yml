@@ -75,6 +75,6 @@ jobs:
           curl --fail --silent http://127.0.0.1:4137/api/version | grep "\"version\":\"${APP_VERSION}\""
           grep "mn-check-${APP_VERSION}" /tmp/sw.js
           grep 'Successfully validated' /tmp/mn-check.log
-          grep 'Successfully applied 7 migrations' /tmp/mn-check.log
+          grep 'Successfully applied 8 migrations' /tmp/mn-check.log
       - name: Build production image
         run: docker build -t mn-check-ci .
