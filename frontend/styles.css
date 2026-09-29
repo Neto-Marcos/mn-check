@@ -1298,6 +1298,82 @@ select {
   color: white;
 }
 
+.nav-item.integration-blocked-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-item.integration-blocked-nav .nav-label {
+  flex: 1;
+}
+
+.nav-item.integration-blocked-nav .ui-icon:last-child {
+  color: #f6c66c;
+}
+
+.sabium-integration-blocked {
+  position: relative;
+  width: min(100%, 720px);
+  min-height: 300px;
+  margin: clamp(12px, 5vh, 48px) auto;
+  padding: clamp(24px, 5vw, 44px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 12px 36px rgba(16, 24, 40, 0.08);
+}
+
+.sabium-blocked-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(246, 198, 108, 0.18);
+  color: #8c5d0b;
+}
+
+.sabium-blocked-badge {
+  padding: 6px 10px;
+  border: 1px solid rgba(140, 93, 11, 0.2);
+  border-radius: 999px;
+  background: rgba(246, 198, 108, 0.14);
+  color: #76500e;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.sabium-integration-blocked .eyebrow {
+  margin: 4px 0 0;
+}
+
+.sabium-integration-blocked h3 {
+  margin: 0;
+  font-size: clamp(1.35rem, 3vw, 1.8rem);
+}
+
+.sabium-blocked-primary,
+.sabium-blocked-secondary {
+  max-width: 590px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.sabium-blocked-primary {
+  font-weight: 700;
+}
+
+.sabium-blocked-secondary {
+  color: var(--muted);
+}
+
 .workspace {
   width: 100%;
   max-width: 100%;
@@ -5246,6 +5322,26 @@ th + th {
     color: currentColor;
     font-size: 0.56rem;
     line-height: 1;
+  }
+
+  .bottom-nav-item.integration-blocked-nav {
+    position: relative;
+  }
+
+  .bottom-nav-item.integration-blocked-nav .ui-icon:last-child {
+    position: absolute;
+    top: 3px;
+    right: 4px;
+    width: 11px;
+    height: 11px;
+    color: #f6c66c;
+  }
+
+  .sabium-integration-blocked {
+    min-height: 260px;
+    margin: 12px auto;
+    padding: 22px;
+    border-radius: 16px;
   }
 
   .bottom-nav-item.active::after {

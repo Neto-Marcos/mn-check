@@ -34,6 +34,11 @@ export const TITLES = {
 
 export const FRONTEND_VIEW_IDS = ["admin", "overview", "separation", "conference", "counting", "history", "users", "settings"];
 export const BOTTOM_NAV_PRIORITY = ["admin", "overview", "separation", "conference", "counting", "history", "settings"];
+export const SABIUM_BLOCKED_VIEW_IDS = ["separation", "conference"];
+
+export function isSabiumBlockedView(view) {
+  return SABIUM_BLOCKED_VIEW_IDS.includes(view);
+}
 
 export function supportedAllowedViews(allowedViews = []) {
   return [...new Set((Array.isArray(allowedViews) ? allowedViews : [])

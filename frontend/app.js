@@ -36,6 +36,7 @@ import {
   OFFLINE_COUNT_DRAFT,
   OFFLINE_SCAN_QUEUE,
   ROLE_OPTIONS,
+  isSabiumBlockedView,
   TITLES,
   emptyData,
   isLegacyRoutesLocation,
@@ -76,6 +77,7 @@ const ICON_PATHS = {
   overview: ["M3 3h7v7H3z", "M14 3h7v7h-7z", "M3 14h7v7H3z", "M14 14h7v7h-7z"],
   separation: ["M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z", "m3.3 7 8.7 5 8.7-5", "M12 22V12"],
   conference: ["M20 6 9 17l-5-5"],
+  lock: ["M5 11h14v10H5z", "M8 11V7a4 4 0 1 1 8 0v4"],
   admin: ["M12 2 20 6v6c0 5-3.4 8.7-8 10-4.6-1.3-8-5-8-10V6l8-4Z", "M9 12l2 2 4-5"],
   counting: ["M3 3v18h18", "M7 16h2", "M11 12h2", "M15 8h2", "M19 5h2"],
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
@@ -1060,13 +1062,15 @@ function App() {
       h("nav", { className: "nav-list" },
         navigationViews.map((item) => h("button", {
           key: item,
-          className: `nav-item ${view === item ? "active" : ""}`,
+          className: `nav-item ${view === item ? "active" : ""} ${isSabiumBlockedView(item) ? "integration-blocked-nav" : ""}`,
           title: TITLES[item][1],
+          "aria-label": isSabiumBlockedView(item) ? `${TITLES[item][1]} — Aguardando integração com o Sabium` : TITLES[item][1],
           "aria-current": view === item ? "page" : undefined,
           onClick: () => selectView(item)
         },
           h(Icon, { name: item }),
-          h("span", { className: "nav-label" }, TITLES[item][1])
+          h("span", { className: "nav-label" }, TITLES[item][1]),
+          isSabiumBlockedView(item) && h(Icon, { name: "lock", size: 15 })
         ))
       ),
       h("button", {
@@ -1121,7 +1125,7 @@ function App() {
             h(Icon, { name: "notifications", size: 19 }),
             unreadNotifications > 0 && h("span", null, unreadNotifications)
           ),
-          ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
+          ["admin", "separation"].includes(user.role) && view === "separation" && !isSabiumBlockedView(view) && h("input", {
             className: "hidden",
             ref: mapFileInputRef,
             type: "file",
@@ -1129,7 +1133,7 @@ function App() {
             multiple: true,
             onChange: uploadMapFile
           }),
-          ["admin", "separation"].includes(user.role) && view === "separation" && h("input", {
+          ["admin", "separation"].includes(user.role) && view === "separation" && !isSabiumBlockedView(view) && h("input", {
             className: "hidden",
             ref: mapCameraInputRef,
             type: "file",
@@ -1138,7 +1142,7 @@ function App() {
             multiple: true,
             onChange: uploadMapFile
           }),
-          ["admin", "separation"].includes(user.role) && view === "separation" && h("button", {
+          ["admin", "separation"].includes(user.role) && view === "separation" && !isSabiumBlockedView(view) && h("button", {
             className: "primary-action compact",
             disabled: mapImporting,
             onClick: () => setMapImportOpen(true)
@@ -1153,23 +1157,7 @@ function App() {
         onReset: resetOperationalData
       }),
       view === "overview" && h(Overview, { data }),
-      view === "separation" && h(Separation, {
-        maps: data.maps,
-        onToggle: toggleItem,
-        onScan: scanSeparationBarcode,
-        onSend: (id) => mapAction(id, "send-conference", "Mapa enviado para conferência."),
-        onDelete: deleteMap
-      }),
-      view === "conference" && h(Conference, {
-        maps: data.maps,
-        onApprove: (id) => mapAction(id, "approve", "Mapa conferido sem divergência."),
-        onProblem: (id) => mapAction(id, "problem", "Mapa marcado com divergência."),
-        onCorrected: (id) => mapAction(id, "corrected", "Divergência corrigida. Conferência reiniciada."),
-        onScan: scanBarcode,
-        onPause: (id) => mapAction(id, "pause-conference", "Conferência pausada com o progresso salvo."),
-        onResume: (id) => mapAction(id, "resume-conference", "Conferência retomada."),
-        onCancel: (id) => mapAction(id, "cancel-conference", "Conferência cancelada e progresso apagado.")
-      }),
+      isSabiumBlockedView(view) && h(SabiumIntegrationBlocked, { title: TITLES[view][1] }),
       view === "counting" && h(Counting, {
         user,
         token,
@@ -1212,13 +1200,15 @@ function App() {
     h("nav", { className: "mobile-bottom-nav", "aria-label": "Navegacao rapida" },
       ...bottomNavigationViews.map((item) => h("button", {
         key: `bottom-${item}`,
-        className: `bottom-nav-item ${view === item ? "active" : ""}`,
+        className: `bottom-nav-item ${view === item ? "active" : ""} ${isSabiumBlockedView(item) ? "integration-blocked-nav" : ""}`,
         "aria-current": view === item ? "page" : undefined,
-        title: TITLES[item][1],
+        title: isSabiumBlockedView(item) ? `${TITLES[item][1]} — Aguardando integração com o Sabium` : TITLES[item][1],
+        "aria-label": isSabiumBlockedView(item) ? `${TITLES[item][1]} — Aguardando integração com o Sabium` : TITLES[item][1],
         onClick: () => selectView(item)
       },
         h(Icon, { name: item, size: 22 }),
-        h("span", null, TITLES[item][1])
+        h("span", null, TITLES[item][1]),
+        isSabiumBlockedView(item) && h(Icon, { name: "lock", size: 12 })
       )),
       h("button", {
         key: "bottom-more",
@@ -3936,6 +3926,21 @@ function flow(title, meta) {
 
 function empty(message) {
   return h("div", { className: "list-item" }, h("strong", null, message), h("span", null, "Os registros aparecerão aqui."));
+}
+
+function SabiumIntegrationBlocked({ title }) {
+  return h("section", {
+    className: "sabium-integration-blocked panel",
+    role: "status",
+    "aria-labelledby": "sabium-blocked-title"
+  },
+    h("div", { className: "sabium-blocked-icon", "aria-hidden": "true" }, h(Icon, { name: "lock", size: 25 })),
+    h("span", { className: "sabium-blocked-badge" }, "Aguardando integração"),
+    h("p", { className: "eyebrow" }, title),
+    h("h3", { id: "sabium-blocked-title" }, "Disponível após integração"),
+    h("p", { className: "sabium-blocked-primary" }, "Esta área depende da integração com o Sabium para ser liberada."),
+    h("p", { className: "sabium-blocked-secondary" }, "O MN-Check já está preparado para esta etapa. A liberação depende dos dados e integrações necessários do Sabium.")
+  );
 }
 
 class AppErrorBoundary extends React.Component {

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   BOTTOM_NAV_PRIORITY,
   isLegacyRoutesLocation,
+  isSabiumBlockedView,
   resolveFrontendView,
   supportedAllowedViews
 } from "./state.js";
@@ -31,6 +32,29 @@ test("navegação desktop/mobile filtra rotas legadas e o módulo não é render
   assert.doesNotMatch(app, /view === "routes"/);
   assert.doesNotMatch(app, /action\("Rotas"/);
   assert.doesNotMatch(app, /function Routes\(/);
+});
+
+test("Separação e Conferência ficam sinalizadas como bloqueadas e caem no estado único", async () => {
+  const [app, styles] = await Promise.all([
+    readFile(new URL("./app.js", import.meta.url), "utf8"),
+    readFile(new URL("./styles.css", import.meta.url), "utf8")
+  ]);
+  assert.equal(isSabiumBlockedView("separation"), true);
+  assert.equal(isSabiumBlockedView("conference"), true);
+  assert.equal(isSabiumBlockedView("counting"), false);
+  assert.equal(isSabiumBlockedView("history"), false);
+  assert.equal(resolveFrontendView("separation", ["separation"]), "separation");
+  assert.equal(resolveFrontendView("conference", ["conference"]), "conference");
+  assert.match(app, /isSabiumBlockedView\(view\) && h\(SabiumIntegrationBlocked/);
+  assert.match(app, /Disponível após integração/);
+  assert.match(app, /Esta área depende da integração com o Sabium para ser liberada\./);
+  assert.match(app, /Aguardando integração/);
+  assert.doesNotMatch(app, /view === "separation" && h\(Separation/);
+  assert.doesNotMatch(app, /view === "conference" && h\(Conference/);
+  assert.match(app, /integration-blocked-nav/);
+  assert.match(styles, /\.nav-item\.integration-blocked-nav/);
+  assert.match(styles, /\.bottom-nav-item\.integration-blocked-nav/);
+  assert.match(styles, /\.sabium-integration-blocked/);
 });
 
 test("pull-to-refresh só pode começar em dashboard/histórico e fora de controles", () => {
