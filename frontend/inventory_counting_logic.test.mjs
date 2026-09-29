@@ -62,3 +62,61 @@ test("payload parcial contém somente SKUs permitidos, únicos e selecionados", 
   assert.equal(new Set(payload).size, 30);
   assert.equal(payload.includes("SKU-FORA"), false);
 });
+
+// Exercise the actual audit component with sanitized API responses, including its action handler.
+let auditHookValues = [];
+globalThis.React = {
+  createElement: (type, props, ...children) => ({ type, props, children: children.flat(Infinity) }),
+  useState: () => [auditHookValues.shift(), () => {}],
+  useEffect: () => {}, useRef: () => ({}), useMemo: (fn) => fn()
+};
+globalThis.window = {};
+await import("./inventarios.js");
+
+function renderAudit(items, mode = "CEGO", tab = "divergentes", round = 2, request = async () => ({ id: "task" })) {
+  const audit = {
+    inventoryModo: mode, inventoryStatus: "EM_INVESTIGACAO", rodadaNumero: round,
+    rodadaTipo: round === 2 ? "RECONTAGEM" : "CONTAGEM", resumo: { totalItens: items.length, naoContados: 0 }, itens: items
+  };
+  auditHookValues = [audit, false, "", tab, new Set(), false];
+  return window.MNCheckInventarios.ApuracaoScreen({
+    inventory: { id: 42, modo: mode, nome: "TEST" }, branchCode: "281", request, onOpenInvestigations: () => {}
+  });
+}
+
+function nodes(tree) {
+  return tree && typeof tree === "object" ? [tree, ...(tree.children || []).flatMap(nodes)] : [];
+}
+
+const countedTask = { apuracaoId: 91, inventarioItemId: 17, sku: "SKU-ZERO", contado: true,
+  quantidadeFisica: 0, estado: "CONTADO", saldoSnapshot: null, diferenca: null, podeInvestigar: true };
+
+test("CEGO R2 mostra tarefa do backend com estado CONTADO e abre pelo ID da apuração", async () => {
+  const requests = [];
+  const tree = renderAudit([countedTask, { ...countedTask, sku: "SKU-SEM-TAREFA", podeInvestigar: false }],
+    "CEGO", "divergentes", 2, async (url, options) => { requests.push({ url, options }); return { id: "task" }; });
+  const all = nodes(tree);
+  const actions = all.filter(n => n.type === "button" && n.children.includes("🔎 Investigar"));
+  assert.equal(actions.length, 1);
+  assert.ok(all.some(n => n.children.includes("Investigações pendentes")));
+  assert.ok(all.some(n => n.children.includes("SKU-ZERO")));
+  assert.equal(all.some(n => n.children.includes("SKU-SEM-TAREFA")), false);
+  await actions[0].props.onClick();
+  assert.equal(requests[0].url, "/api/inventarios/42/investigacoes?branchCode=281");
+  assert.equal(requests[0].options.body.apuracaoId, 91);
+  assert.deepEqual(Object.keys(requests[0].options.body).sort(), ["apuracaoId", "causaSuspeita", "justificativa"]);
+});
+
+test("ação Investigar depende somente da capability, inclusive em NORMAL", () => {
+  for (const mode of ["CEGO", "NORMAL"]) {
+    const tree = renderAudit([{ ...countedTask, estado: "DIVERGENCIA_CONFIRMADA", podeInvestigar: false }], mode, "todos");
+    assert.equal(nodes(tree).some(n => n.type === "button" && n.children.includes("🔎 Investigar")), false);
+  }
+});
+
+test("CEGO R1 oferece recontagem server-side sem tentar filtrar estado protegido", () => {
+  const tree = renderAudit([{ ...countedTask, podeInvestigar: false }], "CEGO", "divergentes", 1);
+  assert.ok(nodes(tree).some(n => n.children.includes("SKU-ZERO")));
+  const recount = nodes(tree).find(n => n.children.includes("🚀 Iniciar Recontagem Cega (R2)"));
+  assert.equal(recount.props.disabled, false);
+});

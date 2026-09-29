@@ -1,4 +1,4 @@
-const CACHE_NAME = "mn-check-2.3.6-inventory-rc8";
+const CACHE_NAME = "mn-check-2.3.6-inventory-investigation-p0";
 const APP_ASSETS = [
   "/",
   "/index.html",
