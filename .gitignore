@@ -14,5 +14,12 @@ node_modules/
 work/
 .DS_Store
 Thumbs.db
+.vercel/
+.vscode/
+.idea/
+*.iml
+.claude/
+.agents/
+CLAUDE.md
+AGENTS.md
 
-.vercel
